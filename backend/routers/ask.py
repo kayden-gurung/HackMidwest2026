@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field
 
 from agent import build_agent
 from aws_errors import aws_error_response
+from evidence import Evidence, evidence_from_snapshot, recording_tools
 from itinerary import ItinerarySnapshot, ItineraryUpdates
 from schemas import Preferences, describe_preferences
+from validation import validate_snapshot
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -33,9 +35,15 @@ class AskResponse(BaseModel):
     itinerary: ItinerarySnapshot | None = None
 
 
-def agent_for_request(body: AskRequest, updates: ItineraryUpdates):
+def checked_updates(body: AskRequest) -> tuple[ItineraryUpdates, Evidence]:
+    """Itinerary updates for one request, checked against what the place tools returned in it."""
+    evidence = evidence_from_snapshot(body.current_itinerary)
+    return ItineraryUpdates(check=lambda snapshot: validate_snapshot(snapshot, evidence)), evidence
+
+
+def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence):
     messages = [{"role": message.role, "content": [{"text": message.content}]} for message in body.history]
-    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary])
+    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary], travel_tools=recording_tools(evidence))
     mode = body.mode or (body.preferences.planning_style if body.preferences else None) or "Co-pilot"
     mode_instruction = {
         "Hands-on": "Present options and ask the traveler to choose before making a detailed plan.",
@@ -52,8 +60,8 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates):
 @router.post("/ask", response_model=AskResponse, response_model_exclude_unset=True)
 def ask(body: AskRequest):
     try:
-        updates = ItineraryUpdates()
-        reply = str(agent_for_request(body, updates)(body.prompt)).strip() or updates.confirmation()
+        updates, evidence = checked_updates(body)
+        reply = str(agent_for_request(body, updates, evidence)(body.prompt)).strip() or updates.confirmation()
         result = {"reply": reply}
         if updates.latest is not None:
             result["itinerary"] = updates.latest.model_dump(mode="json")
@@ -68,8 +76,8 @@ async def ask_stream(body: AskRequest):
     """SSE text/tool chunks, safe error events, and a final done event."""
     async def events():
         try:
-            updates = ItineraryUpdates()
-            agent = agent_for_request(body, updates)
+            updates, evidence = checked_updates(body)
+            agent = agent_for_request(body, updates, evidence)
             async for ev in agent.stream_async(body.prompt):
                 if "data" in ev:
                     yield f"data: {json.dumps({'text': ev['data']})}\n\n"

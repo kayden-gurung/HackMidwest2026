@@ -65,8 +65,10 @@ class ItinerarySnapshot(PlanModel):
 class ItineraryUpdates:
     """A separate instance per request; no global plan or cross-traveler state."""
 
-    def __init__(self):
+    def __init__(self, check=None):
         self.latest: ItinerarySnapshot | None = None
+        # Optional accuracy check (validation.validate_snapshot): returns a cleaned plan plus notes.
+        self.check = check
 
     def confirmation(self) -> str:
         """Some model turns finish the tool action without a final text block."""
@@ -98,7 +100,14 @@ class ItineraryUpdates:
         """
         # Strands validates tool input, then passes nested models as dictionaries.
         validated = ItinerarySnapshot.model_validate(itinerary)
+        notes: list[str] = []
+        if self.check is not None:
+            validated, notes = self.check(validated)
         self.latest = validated
-        return {"status": "updated", "stops": len(validated.items),
-                "estimated_total_usd": sum(item.costUsd or 0 for item in validated.items),
-                "unknown_costs": sum(item.costUsd is None for item in validated.items)}
+        result = {"status": "updated", "stops": len(validated.items),
+                  "estimated_total_usd": sum(item.costUsd or 0 for item in validated.items),
+                  "unknown_costs": sum(item.costUsd is None for item in validated.items)}
+        if notes:
+            # Tell the model what was removed so it can look places up or stop mentioning them.
+            result["accuracy_notes"] = notes
+        return result
