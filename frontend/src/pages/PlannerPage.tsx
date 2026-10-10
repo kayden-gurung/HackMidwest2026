@@ -22,7 +22,7 @@ const screenLinks: { screen: Screen; label: string; icon: IconName }[] = [
  * share (the open screen and the open journey); everything else lives in the features.
  */
 export function PlannerPage() {
-  const { trips, status, reload, nameDraftFromMessage, startTripFromMessage } = useTrips();
+  const { trips, status, reload, nameDraftFromMessage, startTripFromMessage, renameTrip, deleteTrip } = useTrips();
   const [screen, setScreen] = useState<Screen>("trip");
   const [selectedTripId, setSelectedTripId] = useState<string>();
   // Prompt carried from an Explore idea into the New journey form.
@@ -66,6 +66,9 @@ export function PlannerPage() {
             onSelect={openTrip}
             onNewTrip={() => openNewJourney()}
             onRetry={reload}
+            onRename={(tripId, title) => renameTrip(tripId, title).catch(() => undefined)}
+            // Deleting the open journey falls back to the newest remaining one (see activeTrip).
+            onDelete={(tripId) => deleteTrip(tripId).catch(() => undefined)}
             links={
               <nav className="mt-5 space-y-1">
                 {screenLinks.map((link) => (

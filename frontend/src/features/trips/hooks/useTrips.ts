@@ -90,5 +90,19 @@ export function useTrips() {
     [startNewTrip],
   );
 
-  return { trips, status, reload, startNewTrip, nameDraftFromMessage, startTripFromMessage };
+  /** Renames a journey from the sidebar menu. Blank names are ignored. */
+  const renameTrip = useCallback(async (tripId: string, title: string) => {
+    const trimmed = title.replace(/\s+/g, " ").trim();
+    if (!trimmed) return;
+    const renamed = await tripsService.renameTrip(tripId, trimmed);
+    setTrips((current) => current.map((trip) => (trip.id === tripId ? renamed : trip)));
+  }, []);
+
+  /** Deletes a journey from the sidebar menu. */
+  const deleteTrip = useCallback(async (tripId: string) => {
+    await tripsService.deleteTrip(tripId);
+    setTrips((current) => current.filter((trip) => trip.id !== tripId));
+  }, []);
+
+  return { trips, status, reload, startNewTrip, nameDraftFromMessage, startTripFromMessage, renameTrip, deleteTrip };
 }
