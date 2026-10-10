@@ -16,7 +16,7 @@ const sections: { id: string; label: string; icon: IconName | "avatar" }[] = [
   { id: "settings-profile", label: "Profile", icon: "avatar" },
   { id: "settings-preferences", label: "Travel preferences", icon: "compass" },
   { id: "settings-planning", label: "Planning style", icon: "sparkles" },
-  { id: "settings-notifications", label: "Notifications", icon: "sun" },
+  { id: "settings-notifications", label: "Notifications", icon: "bell" },
   { id: "settings-privacy", label: "Privacy & data", icon: "settings" },
 ];
 
