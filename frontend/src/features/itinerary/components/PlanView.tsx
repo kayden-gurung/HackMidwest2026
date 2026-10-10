@@ -47,7 +47,7 @@ export function PlanView({
   const [showAllDays, setShowAllDays] = useState(false);
 
   const nights = nightsBetween(itinerary.startDate, itinerary.endDate);
-  const { spentUsd, remainingUsd, percentUsed } = budgetTotals(itinerary);
+  const { spentUsd, remainingUsd, percentUsed, unknownCosts } = budgetTotals(itinerary);
   const flightsUsd = totalCost(itinerary.items.filter((item) => item.category === "Flights"));
   const visibleDates = showAllDays ? dates : dates.slice(0, COLLAPSED_DAY_COUNT);
 
@@ -70,7 +70,7 @@ export function PlanView({
           // Without a headline from the backend, the day is titled from what happens on it.
           const title = headline?.title ?? items[0]?.title ?? "Free day";
           const detail = headline?.detail ?? (items.length > 1 ? items.slice(1).map((item) => item.title).join(" · ") : "");
-          const stops = items.length === 0 ? "Nothing booked" : `${items.length} ${items.length === 1 ? "stop" : "stops"}${dayCost > 0 ? ` · ${formatUsd(dayCost)}` : ""}`;
+          const stops = items.length === 0 ? "No stops planned" : `${items.length} ${items.length === 1 ? "stop" : "stops"}${dayCost > 0 ? ` · Est. ${formatUsd(dayCost)}` : ""}`;
 
           return (
             <div key={isoDate}>
@@ -119,9 +119,10 @@ export function PlanView({
       )}
 
       <Action onClick={onOpenBudget} label="Open the budget breakdown" className="mt-7 block rounded-2xl bg-deep p-4 text-white">
-        <div className="flex items-center justify-between text-xs"><span className="font-bold uppercase tracking-widest text-white/60">Budget</span><span className="font-bold">{formatUsd(spentUsd)} / {formatUsd(itinerary.budget.plannedUsd)}</span></div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15"><div className={`h-full rounded-full ${remainingUsd < 0 ? "bg-coral" : "bg-sun"}`} style={{ width: `${Math.min(percentUsed, 100)}%` }} /></div>
-        <div className="mt-3 flex justify-between text-[11px] text-white/60"><span>{flightsUsd > 0 && `Flights ${formatUsd(flightsUsd)}`}</span><span>{remainingUsd >= 0 ? `${formatUsd(remainingUsd)} left` : `${formatUsd(-remainingUsd)} over`}</span></div>
+        <div className="flex items-center justify-between text-xs"><span className="font-bold uppercase tracking-widest text-white/60">Estimated cost</span><span className="font-bold">{formatUsd(spentUsd)}{itinerary.budget.plannedUsd != null && ` / ${formatUsd(itinerary.budget.plannedUsd)}`}</span></div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15"><div className={`h-full rounded-full ${remainingUsd != null && remainingUsd < 0 ? "bg-coral" : "bg-sun"}`} style={{ width: `${Math.min(percentUsed, 100)}%` }} /></div>
+        <div className="mt-3 flex justify-between text-[11px] text-white/60"><span>{flightsUsd > 0 && `Flights ${formatUsd(flightsUsd)}`}</span><span>{remainingUsd == null ? "Budget not set" : remainingUsd >= 0 ? `${formatUsd(remainingUsd)} left` : `${formatUsd(-remainingUsd)} over`}</span></div>
+        {unknownCosts > 0 && <div className="mt-2 text-[11px] text-white/70">{unknownCosts} {unknownCosts === 1 ? "cost" : "costs"} still TBD; excluded from total.</div>}
       </Action>
     </>
   );

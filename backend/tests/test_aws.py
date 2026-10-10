@@ -1,6 +1,6 @@
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from botocore.exceptions import ClientError, NoCredentialsError
 from fastapi.testclient import TestClient
@@ -82,7 +82,7 @@ class AWSRouteTests(unittest.TestCase):
             factory.return_value.return_value = "A Kansas City trip for $300."
             response = self.client.post("/api/ask", json={"prompt": "Kansas City", "history": history, "mode": "Surprise me"})
         self.assertEqual(response.status_code, 200)
-        factory.assert_called_once_with(messages=[{"role": message["role"], "content": [{"text": message["content"]}]} for message in history])
+        factory.assert_called_once_with(messages=[{"role": message["role"], "content": [{"text": message["content"]}]} for message in history], extra_tools=ANY)
         self.assertIn("explicitly stated assumptions", factory.return_value.system_prompt)
 
     def test_new_journey_has_no_previous_chat_context(self):
@@ -90,7 +90,7 @@ class AWSRouteTests(unittest.TestCase):
             factory.return_value.system_prompt = "Roam"
             factory.return_value.return_value = "Hello"
             self.client.post("/api/ask", json={"prompt": "A new trip"})
-        factory.assert_called_once_with(messages=[])
+        factory.assert_called_once_with(messages=[], extra_tools=ANY)
 
     def test_invalid_chat_requests_are_rejected_before_aws(self):
         for body in [

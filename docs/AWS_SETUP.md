@@ -85,10 +85,11 @@ The merged frontend includes New journey parameters, Settings, profile editing,
 local journey navigation, dark mode, and the interactive itinerary views. Live
 Strands chat is the default; `VITE_USE_MOCKS=true` enables the offline design demo.
 Settings preferences and header planning mode reach the agent. It has the
-OpenStreetMap `find_places` and `locate` tools as well as `word_count`. Generated
-itinerary panels and bookings remain to be implemented; live plans appear in
-the conversation and the live itinerary panel stays empty. Prices and
-availability are estimates to verify.
+OpenStreetMap `find_places` and `locate` tools as well as `word_count`. The request-local
+`update_itinerary` tool updates Plan, Map and Budget alongside each completed
+chat reply. Follow-ups receive the current plan and replace it with the revised
+version. Plans stay in browser memory and clear on reload. Costs are USD estimates,
+unknown costs are marked TBD, and bookings/availability remain unimplemented.
 
 The backend returns safe JSON errors (503 for access/configuration, 429 for
 quotas, 504 for timeouts, 502 for other upstream failures). Streaming returns an

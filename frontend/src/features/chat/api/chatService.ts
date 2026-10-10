@@ -4,6 +4,7 @@ import { createId, mockResponse } from "../../../lib/mock";
 import type { AskRequest, AskResponse, AssistantMessage, ChatMessage, TravelPreferences } from "../types";
 import { conversationStore } from "./conversationStore";
 import { mockReply } from "./mockData";
+import { itineraryStore, validateItinerary } from "../../itinerary/api/itineraryStore";
 
 export interface ChatService {
   /** Earlier messages for a trip. */
@@ -50,13 +51,13 @@ function historyFor(tripId: string): NonNullable<AskRequest["history"]> {
 }
 
 const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) => {
-  const body: AskRequest = { prompt, history: historyFor(tripId), mode, preferences: preferences && toRequestPreferences(preferences) };
+  const body: AskRequest = { prompt, history: historyFor(tripId), mode, preferences: preferences && toRequestPreferences(preferences), current_itinerary: itineraryStore.snapshot(tripId) };
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 180000);
   try {
-    const { reply } = await api.post<AskResponse>("/api/ask", body, controller.signal);
+    const { reply, itinerary } = await api.post<AskResponse>("/api/ask", body, controller.signal);
     if (typeof reply !== "string" || !reply.trim()) throw new Error("Roam returned an empty reply. Please try again.");
-    return { id: createId(), role: "assistant", text: reply };
+    return { id: createId(), role: "assistant", text: reply, itinerary: itinerary == null ? undefined : validateItinerary(itinerary) };
   } catch (error) {
     if (controller.signal.aborted) throw new Error("Roam took too long to respond. Please try again.");
     if (error instanceof TypeError) throw new Error("Cannot reach Roam. Check your connection and try again.");
@@ -77,6 +78,7 @@ async function replyTo(tripId: string, prompt: string, preferences?: TravelPrefe
   conversationStore.setStatus(tripId, "sending");
   try {
     const reply = await replySource(tripId, prompt, preferences, mode);
+    if (reply.itinerary) itineraryStore.set(tripId, reply.itinerary);
     conversationStore.append(tripId, reply);
     conversationStore.setStatus(tripId, "idle");
     return reply;

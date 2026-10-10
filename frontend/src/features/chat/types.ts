@@ -1,4 +1,5 @@
 /** Data contracts for the chat feature. */
+import type { ItinerarySnapshot } from "../itinerary/types";
 
 export interface DestinationRecommendation {
   destination: string;
@@ -38,6 +39,7 @@ export interface AssistantMessage {
   flight?: FlightOption;
   /** Follow-up prompts shown as chips; clicking one sends it as a message. */
   suggestions?: string[];
+  itinerary?: ItinerarySnapshot;
 }
 
 export type ChatMessage = UserMessage | AssistantMessage;
@@ -58,6 +60,7 @@ export interface AskRequest {
   prompt: string;
   history?: { role: "user" | "assistant"; content: string }[];
   mode?: "Hands-on" | "Co-pilot" | "Surprise me";
+  current_itinerary?: ItinerarySnapshot;
   preferences?: {
     interests: string[];
     pace?: string;
@@ -72,4 +75,5 @@ export interface AskRequest {
 /** Response of POST /api/ask. */
 export interface AskResponse {
   reply: string;
+  itinerary?: ItinerarySnapshot;
 }

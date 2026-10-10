@@ -24,7 +24,7 @@ cp backend/.env.example backend/.env   # fill in the AWS keys the team shares wi
 docker compose up --build              # builds both base images, then starts them
 ```
 
-When it finishes, open http://localhost:5173 and start a journey or send a trip request. Roam returns a live Strands/Bedrock reply; follow-ups include that journey’s conversation so you can revise your plan. The New journey form and Settings preferences reach the agent. Your plan appears in chat; structured Plan/Map/Budget data is still pending. Edit code in `frontend/` or `backend/` on your machine and it reloads inside the containers. Next time, `git pull` then `docker compose up` is enough; add `--build -V` if someone changed dependencies. Details are below.
+When it finishes, open http://localhost:5173 and start a journey or send a trip request. Roam returns a live Strands/Bedrock reply; follow-ups include that journey’s conversation so you can revise your plan. The New journey form and Settings preferences reach the agent. The agent updates the Plan, Map and Budget panels alongside its chat reply; follow-up requests revise the current plan. Edit code in `frontend/` or `backend/` on your machine and it reloads inside the containers. Next time, `git pull` then `docker compose up` is enough; add `--build -V` if someone changed dependencies. Details are below.
 
 ## Local dev with Docker
 
@@ -87,7 +87,7 @@ Features today: `trips` (sidebar list, header), `chat` (conversation and compose
 
 ## Backend connectivity and mock data
 
-The frontend uses live Strands chat by default. Set `VITE_USE_MOCKS=true` for the offline design demo with sample conversations and itineraries. Journeys, profile edits, settings, and conversation history stay in browser memory in both modes. Each feature owns its service; proposed HTTP endpoints are not called until implemented.
+The frontend uses live Strands chat by default. Set `VITE_USE_MOCKS=true` for the offline design demo with sample conversations and itineraries. Journeys, itineraries, profile edits, settings, and conversation history stay in browser memory in both modes (page reload clears them). Each feature owns its service; proposed HTTP endpoints are not called until implemented.
 
 ```sh
 cp frontend/.env.example frontend/.env   # then edit
@@ -100,14 +100,14 @@ docker compose restart frontend          # Vite only reads .env on start
 | `VITE_API_BASE_URL` | empty (same origin)      | Prefix for API calls; leave empty to use the Vite proxy |
 | `BACKEND_URL`       | `http://backend:8000`    | Where the Vite proxy sends `/api` (use `http://localhost:8000` outside Docker) |
 
-Chat calls `/api/ask` with prompt, successful conversation history, preferences, and planning mode. Real itinerary endpoints are not implemented yet, so the live panel stays empty and the plan appears in chat. The offline demo keeps the interactive sample Plan/Map/Budget screens.
+Chat calls `/api/ask` with prompt, successful conversation history, preferences, planning mode, and the latest structured itinerary for that journey. The Strands `update_itinerary` tool returns a validated full plan with the reply, and the panels update automatically. Plan days, map markers and budget totals share the same items. Costs are USD planning estimates; unknown costs are excluded from totals and marked TBD. Coordinates come from place lookups; stops without coordinates remain listed. The last good plan stays visible while a request is pending or fails. The offline demo retains its sample plans.
 
 | Feature   | Data today | Backend endpoint |
 |-----------|------------|------------------|
 | chat: send message | live Strands/Bedrock | `POST /api/ask` **implemented** (needs AWS keys in `backend/.env`) |
 | chat: conversation history | browser memory | `GET /api/trips/{id}/messages` proposed |
 | trips | browser memory | `GET /api/trips`, `GET /api/trips/{id}` proposed |
-| itinerary | sample in demo; empty in live mode | `GET /api/trips/{id}/itinerary` proposed |
+| itinerary | live agent updates, stored per journey in browser memory | `POST /api/ask` returns optional `itinerary`; standalone GET proposed |
 | profile | browser memory | `GET /api/me` proposed |
 | health | real | `GET /api/health` **implemented** |
 

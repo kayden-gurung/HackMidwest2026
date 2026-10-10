@@ -20,8 +20,14 @@ explain excluded costs. Use find_places and locate to verify specific places and
 coordinates with OpenStreetMap. Attribute source links from tools. These tools
 do not provide prices, availability, ratings or bookings. Opening hours are map
 data that may need confirmation. Say when information needs verification. Do not
-claim to have booked, saved, or updated the app's itinerary panel. When plans
-change, preserve unaffected activities and explain the changes.""",
+claim to have booked anything. Use update_itinerary whenever you suggest or revise
+a concrete plan so the Plan, Map and Budget panels match the chat. Do not only
+describe the plan in text. When plans change, preserve unaffected activities and
+explain the changes. Treat the current itinerary as the latest plan; older chat
+may describe superseded plans. If dates are flexible, choose explicitly stated
+example dates and label them as assumptions. Keep USD estimates separate from
+any requested display currency. Keep place lookups focused and avoid repeated
+searches for unchanged stops.""",
 )
 
 
@@ -31,7 +37,7 @@ def word_count(text: str) -> int:
     return len(text.split())
 
 
-def build_agent(messages: list | None = None) -> Agent:
+def build_agent(messages: list | None = None, extra_tools: list | None = None) -> Agent:
     model = BedrockModel(
         model_id=os.getenv("BEDROCK_MODEL_ID", "").strip() or DEFAULT_MODEL_ID,
         region_name=(os.getenv("AWS_REGION", "").strip()
@@ -44,5 +50,5 @@ def build_agent(messages: list | None = None) -> Agent:
     )
     # Let botocore retry transient failures once. Strands' default six attempts
     # otherwise keep requests waiting for minutes when account quotas are zero.
-    return Agent(model=model, messages=messages, system_prompt=SYSTEM_PROMPT, tools=[word_count, *get_travel_tools()],
+    return Agent(model=model, messages=messages, system_prompt=SYSTEM_PROMPT, tools=[word_count, *get_travel_tools(), *(extra_tools or [])],
                  callback_handler=None, retry_strategy=None)

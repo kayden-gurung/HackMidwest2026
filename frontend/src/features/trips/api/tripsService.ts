@@ -4,6 +4,7 @@ import { createId, mockResponse } from "../../../lib/mock";
 import { formatDateRange } from "../../../lib/format";
 import type { TripCard, TripDetails, TripSummary } from "../types";
 import { mockTripCards, mockTripDetails, mockTrips } from "./mockData";
+import { itineraryStore } from "../../itinerary/api/itineraryStore";
 
 export interface TripsService {
   listTrips(): Promise<TripSummary[]>;
@@ -56,11 +57,12 @@ export const localTripsService: TripsService = {
   },
   listTripCards: () => mockResponse(config.useMocks ? mockTripCards.filter((card) => trips.some((trip) => trip.id === card.id)) : trips.map((trip): TripCard => {
     const info = details[trip.id];
+    const plan = itineraryStore.get(trip.id);
     return {
       id: trip.id,
       title: trip.title,
       place: trip.country ?? "Planning in chat",
-      dates: info?.startDate && info.endDate ? formatDateRange(info.startDate, info.endDate) : "Flexible dates",
+      dates: plan ? formatDateRange(plan.startDate, plan.endDate) : info?.startDate && info.endDate ? formatDateRange(info.startDate, info.endDate) : "Flexible dates",
       status: trip.isDraft ? "Idea" : "In progress",
     };
   })),
