@@ -3,6 +3,7 @@ import os
 from botocore.config import Config
 from strands import Agent, tool
 from strands.models import BedrockModel
+from tools import get_travel_tools
 
 DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
@@ -15,9 +16,10 @@ the destination, dates, budget, travelers, and interests. Ask a short clarifying
 question when an essential detail is missing, or state reasonable assumptions
 when the traveler wants suggestions. Keep replies concise and easy to scan.
 Respect the total trip budget for all travelers. Label costs as estimates and
-explain excluded costs. Only claim live prices, availability, weather, opening
-hours, or bookings when a real tool confirms them. You currently have no live
-travel-data or booking tools; say when information needs verification. Do not
+explain excluded costs. Use find_places and locate to verify specific places and
+coordinates with OpenStreetMap. Attribute source links from tools. These tools
+do not provide prices, availability, ratings or bookings. Opening hours are map
+data that may need confirmation. Say when information needs verification. Do not
 claim to have booked, saved, or updated the app's itinerary panel. When plans
 change, preserve unaffected activities and explain the changes.""",
 )
@@ -42,5 +44,5 @@ def build_agent(messages: list | None = None) -> Agent:
     )
     # Let botocore retry transient failures once. Strands' default six attempts
     # otherwise keep requests waiting for minutes when account quotas are zero.
-    return Agent(model=model, messages=messages, system_prompt=SYSTEM_PROMPT, tools=[word_count],
+    return Agent(model=model, messages=messages, system_prompt=SYSTEM_PROMPT, tools=[word_count, *get_travel_tools()],
                  callback_handler=None, retry_strategy=None)

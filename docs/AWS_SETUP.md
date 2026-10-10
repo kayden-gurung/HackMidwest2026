@@ -77,14 +77,18 @@ inference blocker was no longer reproduced. No billing-plan upgrade was made.
 
 The localhost chat now calls the Strands backend with travel-planning instructions
 and conversation history. Open http://localhost:5173, choose a suggested trip or
-send your own request, then send follow-ups to revise it. New journey clears the
-current conversation. Loading and retry states handle failed requests. Conversation
+send your own request, then send follow-ups to revise it. New journey starts a separate conversation; switching journeys preserves each
+journey’s history in browser memory. Loading and retry states handle failed requests. Conversation
 history is held in browser memory and is cleared by a page reload.
 
-The sidebar trips and Plan/Map/Budget panels remain labeled sample data. Live
-plans appear in the conversation. The agent has a demonstration word-count tool;
-live travel-data tools, bookings, and generated itinerary panels remain to be
-implemented. Prices and availability in chat are estimates to verify.
+The merged frontend includes New journey parameters, Settings, profile editing,
+local journey navigation, dark mode, and the interactive itinerary views. Live
+Strands chat is the default; `VITE_USE_MOCKS=true` enables the offline design demo.
+Settings preferences and header planning mode reach the agent. It has the
+OpenStreetMap `find_places` and `locate` tools as well as `word_count`. Generated
+itinerary panels and bookings remain to be implemented; live plans appear in
+the conversation and the live itinerary panel stays empty. Prices and
+availability are estimates to verify.
 
 The backend returns safe JSON errors (503 for access/configuration, 429 for
 quotas, 504 for timeouts, 502 for other upstream failures). Streaming returns an

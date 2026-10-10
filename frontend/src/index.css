@@ -20,6 +20,9 @@
   --color-ink: #173b3a;
   --color-muted: #77817e;
   --color-line: #ddded7;
+  --color-surface: #ffffff;
+  /* Solid dark fill (primary buttons, dark cards) that always sits behind white text. */
+  --color-deep: #173b3a;
 
   /* Brand and accent colors */
   --color-sea: #126e6b;
@@ -78,4 +81,21 @@ body {
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-muted) 35%, transparent);
   background-clip: padding-box;
+}
+
+/* Dark mode: same tokens, darker values. Applied via <html data-theme="dark">. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: #0f1b1a;
+  --color-sidebar: #0b1413;
+  --color-panel: #172726;
+  --color-surface: #162625;
+  --color-ink: #e7efec;
+  --color-deep: #1d4a47;
+  --color-muted: #94a6a2;
+  --color-line: #274240;
+
+  --color-sea: #2a9690;
+  --color-mint: #173532;
+  --color-peach: #3b2b26;
 }

@@ -2,3 +2,5 @@ fastapi
 uvicorn[standard]
 strands-agents
 strands-agents-tools
+httpx
+pytest

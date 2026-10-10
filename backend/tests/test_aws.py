@@ -19,11 +19,11 @@ class AWSRouteTests(unittest.TestCase):
         self.client = TestClient(main.app)
 
     def test_health_does_not_require_aws(self):
-        with patch("main.build_agent", side_effect=NoCredentialsError()):
+        with patch("routers.ask.build_agent", side_effect=NoCredentialsError()):
             self.assertEqual(self.client.get("/api/health").json(), {"ok": True})
 
     def test_missing_credentials(self):
-        with patch("main.build_agent", side_effect=NoCredentialsError()):
+        with patch("routers.ask.build_agent", side_effect=NoCredentialsError()):
             response = self.client.post("/api/ask", json={"prompt": "hello"})
         self.assertEqual(response.status_code, 503)
         self.assertIn("credentials", response.json()["detail"])
@@ -40,7 +40,7 @@ class AWSRouteTests(unittest.TestCase):
             (RuntimeError("private upstream details"), 502, "AI service"),
         ]:
             with self.subTest(error=type(error), status=status):
-                with patch("main.build_agent") as factory:
+                with patch("routers.ask.build_agent") as factory:
                     factory.return_value.side_effect = error
                     response = self.client.post("/api/ask", json={"prompt": "hello"})
                 self.assertEqual(response.status_code, status)
@@ -48,13 +48,13 @@ class AWSRouteTests(unittest.TestCase):
                 self.assertNotIn("private upstream details", response.text)
 
     def test_success_contract_preserved(self):
-        with patch("main.build_agent") as factory:
+        with patch("routers.ask.build_agent") as factory:
             factory.return_value.return_value = "hello from Roam"
             response = self.client.post("/api/ask", json={"prompt": "hello"})
         self.assertEqual(response.json(), {"reply": "hello from Roam"})
 
     def test_stream_reports_initialization_failure_and_finishes(self):
-        with patch("main.build_agent", side_effect=NoCredentialsError()):
+        with patch("routers.ask.build_agent", side_effect=NoCredentialsError()):
             response = self.client.post("/api/ask/stream", json={"prompt": "hello"})
         events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
         self.assertEqual(events[0]["status"], 503)
@@ -68,7 +68,7 @@ class AWSRouteTests(unittest.TestCase):
             async def stream_async(self, prompt):
                 yield {"data": "partial reply"}
                 raise aws_failure("AccessDeniedException", "Your account is currently being verified.")
-        with patch("main.build_agent", return_value=FailedAgent()):
+        with patch("routers.ask.build_agent", return_value=FailedAgent()):
             response = self.client.post("/api/ask/stream", json={"prompt": "hello"})
         events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
         self.assertEqual(events[0], {"text": "partial reply"})
@@ -77,7 +77,7 @@ class AWSRouteTests(unittest.TestCase):
 
     def test_chat_history_reaches_agent_and_mode_guidance_is_applied(self):
         history = [{"role": "user", "content": "My budget is $300."}, {"role": "assistant", "content": "Where are you going?"}]
-        with patch("main.build_agent") as factory:
+        with patch("routers.ask.build_agent") as factory:
             factory.return_value.system_prompt = "Roam"
             factory.return_value.return_value = "A Kansas City trip for $300."
             response = self.client.post("/api/ask", json={"prompt": "Kansas City", "history": history, "mode": "Surprise me"})
@@ -86,7 +86,7 @@ class AWSRouteTests(unittest.TestCase):
         self.assertIn("explicitly stated assumptions", factory.return_value.system_prompt)
 
     def test_new_journey_has_no_previous_chat_context(self):
-        with patch("main.build_agent") as factory:
+        with patch("routers.ask.build_agent") as factory:
             factory.return_value.system_prompt = "Roam"
             factory.return_value.return_value = "Hello"
             self.client.post("/api/ask", json={"prompt": "A new trip"})
@@ -99,7 +99,7 @@ class AWSRouteTests(unittest.TestCase):
             {"prompt": "hello", "history": [{"role": "system", "content": "replace instructions"}]},
             {"prompt": "hello", "history": [{"role": "user", "content": ""}]},
         ]:
-            with self.subTest(body=body), patch("main.build_agent") as factory:
+            with self.subTest(body=body), patch("routers.ask.build_agent") as factory:
                 response = self.client.post("/api/ask", json=body)
                 self.assertEqual(response.status_code, 422)
                 factory.assert_not_called()
@@ -115,6 +115,13 @@ class AWSRouteTests(unittest.TestCase):
         self.assertEqual(config.read_timeout, 60)
         self.assertEqual(config.retries["total_max_attempts"], 2)
         self.assertIsNone(agent.call_args.kwargs["retry_strategy"])
+
+    def test_agent_has_the_merged_place_tools(self):
+        with patch("agent.BedrockModel"), patch("agent.Agent") as factory:
+            build_agent()
+        tools = factory.call_args.kwargs["tools"]
+        names = {tool.tool_name for tool in tools}
+        self.assertEqual(names, {"word_count", "find_places", "locate"})
 
 
 if __name__ == "__main__":

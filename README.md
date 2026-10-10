@@ -3,7 +3,7 @@ Hackathon for Hack Midwest 2026
 
 ## Design
 
-The Roam travel planner UI comes from this Figma Make file: [Travel Planner App](https://www.figma.com/make/Re9k0P2Oh80luv2pWkopZd/Travel-Planner-App?p=f&t=Ir5mVq0ECUq0FqlP-0). The exported code lives in `frontend/src/App.tsx`, with design tokens in `frontend/src/index.css`.
+The Roam travel planner UI comes from this Figma Make file: [Travel Planner App](https://www.figma.com/make/Re9k0P2Oh80luv2pWkopZd/Travel-Planner-App?p=f&t=Ir5mVq0ECUq0FqlP-0). The feature components live in `frontend/src/features/`, with design tokens in `frontend/src/index.css`.
 
 ## Team coordination
 
@@ -24,7 +24,7 @@ cp backend/.env.example backend/.env   # fill in the AWS keys the team shares wi
 docker compose up --build              # builds both base images, then starts them
 ```
 
-When it finishes, open http://localhost:5173 and send a trip request or choose a suggestion. Roam returns a live Strands/Bedrock reply; follow-ups include the conversation so you can revise your plan. New journey clears the chat. The itinerary side panel is labeled sample data. Edit code in `frontend/` or `backend/` on your machine and it reloads inside the containers. Next time, `git pull` then `docker compose up` is enough; add `--build -V` if someone changed dependencies. Details are below.
+When it finishes, open http://localhost:5173 and start a journey or send a trip request. Roam returns a live Strands/Bedrock reply; follow-ups include that journey’s conversation so you can revise your plan. The New journey form and Settings preferences reach the agent. Your plan appears in chat; structured Plan/Map/Budget data is still pending. Edit code in `frontend/` or `backend/` on your machine and it reloads inside the containers. Next time, `git pull` then `docker compose up` is enough; add `--build -V` if someone changed dependencies. Details are below.
 
 ## Local dev with Docker
 
@@ -53,6 +53,62 @@ Open http://localhost:5173. Vite proxies `/api` requests to the backend. You can
 - Shell into a container: `docker compose exec backend bash` or `docker compose exec frontend bash`.
 - Stop: `docker compose down`.
 
+- Type-check / build the frontend: `docker compose exec frontend npm run typecheck` or `npm run build`.
+- Regression checks: `docker compose exec -T backend python -m pytest -q` and `docker compose exec -T frontend npm test` (no AWS requests).
+
 ### Secrets
 
 `backend/.env` is gitignored and loaded only if it exists. Never commit it; share keys out of band.
+
+## Project structure
+
+```
+frontend/src/
+  main.tsx, App.tsx       entry point and app shell (rarely edited)
+  pages/                  screens; they only lay out feature components
+  features/<feature>/     one folder per feature: components, hooks, api, types
+  components/ui/          generic shared UI (Icon, Action, BrandMark, loading/error/empty states)
+  hooks/useAsync.ts       loading / success / error state for any async call
+  lib/                    apiClient (fetch wrapper), format helpers, mock helpers
+  config/env.ts           reads VITE_* env vars
+backend/
+  main.py                 creates the FastAPI app and includes routers
+  routers/<feature>.py    one router per feature
+```
+
+Features today: `trips` (sidebar list, header), `chat` (conversation and composer), `itinerary` (Plan / Map / Budget panel), `profile` (travel style and user card). See [ARCHITECTURE.md](ARCHITECTURE.md) for how they fit together, the data contracts, and who owns what.
+
+### Where to add things
+
+- **A new feature**: copy the shape of an existing one (`features/profile` is the smallest) into `features/<name>/`, export its public pieces from `features/<name>/index.ts`, and place its component in a page.
+- **A new page**: add `pages/<Name>Page.tsx`. There is no router yet; add one in `App.tsx` when you need a second page.
+- **A new endpoint**: add `backend/routers/<feature>.py` with an `APIRouter(prefix="/api")`, include it in `backend/main.py`, then call it from that feature's `api/*Service.ts`.
+- **A shared UI component**: only if two or more features need it. Put it in `components/ui/` and keep it generic (no feature data).
+
+## Backend connectivity and mock data
+
+The frontend uses live Strands chat by default. Set `VITE_USE_MOCKS=true` for the offline design demo with sample conversations and itineraries. Journeys, profile edits, settings, and conversation history stay in browser memory in both modes. Each feature owns its service; proposed HTTP endpoints are not called until implemented.
+
+```sh
+cp frontend/.env.example frontend/.env   # then edit
+docker compose restart frontend          # Vite only reads .env on start
+```
+
+| Variable            | Default                  | Meaning |
+|---------------------|--------------------------|---------|
+| `VITE_USE_MOCKS`    | `false`                  | `true` enables the offline design demo |
+| `VITE_API_BASE_URL` | empty (same origin)      | Prefix for API calls; leave empty to use the Vite proxy |
+| `BACKEND_URL`       | `http://backend:8000`    | Where the Vite proxy sends `/api` (use `http://localhost:8000` outside Docker) |
+
+Chat calls `/api/ask` with prompt, successful conversation history, preferences, and planning mode. Real itinerary endpoints are not implemented yet, so the live panel stays empty and the plan appears in chat. The offline demo keeps the interactive sample Plan/Map/Budget screens.
+
+| Feature   | Data today | Backend endpoint |
+|-----------|------------|------------------|
+| chat: send message | live Strands/Bedrock | `POST /api/ask` **implemented** (needs AWS keys in `backend/.env`) |
+| chat: conversation history | browser memory | `GET /api/trips/{id}/messages` proposed |
+| trips | browser memory | `GET /api/trips`, `GET /api/trips/{id}` proposed |
+| itinerary | sample in demo; empty in live mode | `GET /api/trips/{id}/itinerary` proposed |
+| profile | browser memory | `GET /api/me` proposed |
+| health | real | `GET /api/health` **implemented** |
+
+"Proposed" means the frontend expects that shape (see each feature's `types.ts`) but nobody has built it; agree on it as a team before implementing.

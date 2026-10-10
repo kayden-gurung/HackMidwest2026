@@ -1,0 +1,70 @@
+/* Styles for the Leaflet map in MapView. Leaflet draws its own DOM, so these can't be Tailwind classes. */
+
+.roam-map {
+  /* Shown while tiles load, and behind the markers if the tile server can't be reached. */
+  background: var(--color-map);
+  font-family: var(--font-sans);
+}
+
+.roam-marker {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(18, 38, 38, 0.35);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  transition: transform 0.15s;
+}
+
+.roam-marker-selected {
+  transform: scale(1.3);
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
+/* The popup follows the app theme, so its text stays readable in dark mode. */
+.roam-popup .leaflet-popup-content-wrapper,
+.roam-popup .leaflet-popup-tip {
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.roam-popup .leaflet-popup-content-wrapper {
+  border-radius: 14px;
+}
+
+.roam-popup a.leaflet-popup-close-button {
+  color: var(--color-muted);
+}
+
+.roam-popup .leaflet-popup-content {
+  margin: 12px 14px;
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.roam-popup-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.roam-popup-meta {
+  color: var(--color-muted);
+}
+
+.roam-popup-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+}
+
+.roam-popup-links a {
+  color: var(--color-sea);
+  font-weight: 600;
+}
