@@ -5,6 +5,12 @@ Hackathon for Hack Midwest 2026
 
 The Roam travel planner UI comes from this Figma Make file: [Travel Planner App](https://www.figma.com/make/Re9k0P2Oh80luv2pWkopZd/Travel-Planner-App?p=f&t=Ir5mVq0ECUq0FqlP-0). The exported code lives in `frontend/src/App.tsx`, with design tokens in `frontend/src/index.css`.
 
+## Team coordination
+
+The [Strands implementation guide](docs/STRANDS.md) explains the planning flow, team ownership, and optional Decider integration.
+
+See [TEAM_PLAN.md](TEAM_PLAN.md) for task ownership, folder boundaries, API contracts, and integration order. Claim a lane before coding so teammates can work without overlapping.
+
 ## Quickstart for teammates
 
 You only need Git and Docker Desktop (or Docker Engine with Compose v2). Make sure Docker is running first.
