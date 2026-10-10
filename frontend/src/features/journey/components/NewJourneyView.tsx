@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Action, Icon, ScreenHeader } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
+import { useProfile } from "../../profile";
 import { budgetSliderUsd, journeyDefaults, travelerLimits, vibes } from "../api/mockData";
 import { describeParty } from "../describeJourney";
 import type { DateRange, JourneyRequest } from "../types";
@@ -40,7 +41,9 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
   const [budgetUsd, setBudgetUsd] = useState(journeyDefaults.budgetUsd);
   // null means flexible dates.
   const [dates, setDates] = useState<DateRange | null>(null);
-  const [origin, setOrigin] = useState(journeyDefaults.origin);
+  // Starts as the home airport from the Settings profile card; the traveler can type any other place.
+  const { homeAirport } = useProfile();
+  const [origin, setOrigin] = useState(homeAirport || journeyDefaults.origin);
   const [adults, setAdults] = useState(journeyDefaults.adults);
   const [children, setChildren] = useState(journeyDefaults.children);
 

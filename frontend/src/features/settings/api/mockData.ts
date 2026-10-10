@@ -1,13 +1,5 @@
 // MOCK DATA: settings content from the Figma design. Choices are kept in settingsStore (browser memory) and reset on reload.
 
-export const accountProfile = {
-  name: "Alex Morgan",
-  initials: "AM",
-  email: "alex.morgan@example.com",
-  homeAirport: "New York · JFK",
-  defaultTravelers: "2 adults",
-};
-
 export const interestOptions = ["Local food", "Beaches", "Hiking", "Art & culture", "Nightlife", "Wellness", "Shopping", "History"];
 
 export const paceOptions = ["Slow", "Balanced", "Packed"];

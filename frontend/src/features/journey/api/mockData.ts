@@ -11,6 +11,7 @@ export const travelerLimits = { maxTotal: 10, minAdults: 1 };
 export const journeyDefaults = {
   vibe: "Beach & coast",
   budgetUsd: 3000 as number | null,
+  /** Used only when the profile has no home airport. */
   origin: "New York · JFK",
   adults: 2,
   children: 0,
