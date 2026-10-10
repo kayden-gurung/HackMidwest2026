@@ -11,7 +11,13 @@ export type SendStatus = "idle" | "sending" | "error";
  *
  * Arrays are replaced, never mutated, so React can tell when a conversation changed.
  */
-const conversations = new Map<string, ChatMessage[]>(config.useMocks ? Object.entries(structuredClone(mockConversations)) : []);
+// With mocks off, only the Puglia example's conversation is kept (if showExample); new journeys start empty.
+const seed = config.useMocks
+  ? structuredClone(mockConversations)
+  : config.showExample
+    ? { puglia: structuredClone(mockConversations.puglia) }
+    : {};
+const conversations = new Map<string, ChatMessage[]>(Object.entries(seed));
 const statuses = new Map<string, SendStatus>();
 const listeners = new Set<() => void>();
 const EMPTY: ChatMessage[] = [];
