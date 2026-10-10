@@ -1,6 +1,10 @@
 # HackMidwest2026
 Hackathon for Hack Midwest 2026
 
+## Design
+
+The Roam travel planner UI comes from this Figma Make file: [Travel Planner App](https://www.figma.com/make/Re9k0P2Oh80luv2pWkopZd/Travel-Planner-App?p=f&t=Ir5mVq0ECUq0FqlP-0). The exported code lives in `frontend/src/App.tsx`, with design tokens in `frontend/src/index.css`.
+
 ## Quickstart for teammates
 
 You only need Git and Docker Desktop (or Docker Engine with Compose v2). Make sure Docker is running first.
