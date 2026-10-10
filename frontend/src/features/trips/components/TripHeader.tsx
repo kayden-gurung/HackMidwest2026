@@ -29,14 +29,14 @@ export function TripHeader({ tripId, title, leading }: { tripId: string; title: 
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <div className="hidden items-center gap-1 rounded-full border border-line bg-white p-1 sm:flex">
+        <div className="hidden items-center gap-1 rounded-full border border-line bg-surface p-1 sm:flex">
           {planningModes.map((item) => (
-            <Action key={item} onClick={() => setMode(item)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${mode === item ? "bg-ink text-white" : "text-muted hover:text-ink"}`}>
+            <Action key={item} onClick={() => setMode(item)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${mode === item ? "bg-deep text-white" : "text-muted hover:text-ink"}`}>
               {item}
             </Action>
           ))}
         </div>
-        <Action className="grid size-9 place-items-center rounded-full border border-line bg-white">
+        <Action className="grid size-9 place-items-center rounded-full border border-line bg-surface">
           <Icon name="more" className="size-5" />
         </Action>
       </div>

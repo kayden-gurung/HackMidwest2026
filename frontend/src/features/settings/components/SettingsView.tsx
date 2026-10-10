@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Action, Icon, ScreenHeader, Toggle, type IconName } from "../../../components/ui";
+import { useTheme } from "../../../lib/theme";
 import {
   accountProfile,
   currencies,
@@ -16,13 +17,14 @@ const sections: { id: string; label: string; icon: IconName | "avatar" }[] = [
   { id: "settings-profile", label: "Profile", icon: "avatar" },
   { id: "settings-preferences", label: "Travel preferences", icon: "compass" },
   { id: "settings-planning", label: "Planning style", icon: "sparkles" },
+  { id: "settings-appearance", label: "Appearance", icon: "sun" },
   { id: "settings-notifications", label: "Notifications", icon: "bell" },
   { id: "settings-privacy", label: "Privacy & data", icon: "settings" },
 ];
 
 function Card({ id, children, className = "" }: { id?: string; children: ReactNode; className?: string }) {
   return (
-    <section id={id} className={`scroll-mt-4 rounded-2xl border border-line bg-white shadow-sm ${className}`}>
+    <section id={id} className={`scroll-mt-4 rounded-2xl border border-line bg-surface shadow-sm ${className}`}>
       {children}
     </section>
   );
@@ -33,7 +35,7 @@ function Segmented({ options, value, onChange }: { options: string[]; value: str
   return (
     <div className="mt-2 flex rounded-xl bg-panel p-1">
       {options.map((option) => (
-        <Action key={option} onClick={() => onChange(option)} className={`flex-1 rounded-lg py-2 text-center text-xs font-bold ${value === option ? "bg-white text-ink shadow-sm" : "text-muted"}`}>
+        <Action key={option} onClick={() => onChange(option)} className={`flex-1 rounded-lg py-2 text-center text-xs font-bold ${value === option ? "bg-surface text-ink shadow-sm" : "text-muted"}`}>
           {option}
         </Action>
       ))}
@@ -50,6 +52,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
   const setStay = (value: string) => update({ stay: value });
   const setPlanningStyle = (value: string) => update({ planningStyle: value });
   const setCurrency = (value: string) => update({ currency: value });
+  const { theme, setTheme } = useTheme();
   const [activeSection, setActiveSection] = useState(sections[0].id);
 
   const toggleInterest = (interest: string) =>
@@ -66,7 +69,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
         title="Settings"
         subtitle="Shape how Roam plans with you"
         action={
-          <Action onClick={onClose} className="flex items-center gap-2 rounded-xl border border-line bg-white px-3.5 py-2 text-xs font-bold shadow-sm hover:border-sea hover:text-sea">
+          <Action onClick={onClose} className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3.5 py-2 text-xs font-bold shadow-sm hover:border-sea hover:text-sea">
             Back to trip <Icon name="chevron" className="size-3.5 rotate-180" />
           </Action>
         }
@@ -81,7 +84,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                 <Action
                   key={section.id}
                   onClick={() => goToSection(section.id)}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${activeSection === section.id ? "bg-white text-ink shadow-sm ring-1 ring-line" : "text-muted hover:bg-white/60 hover:text-ink"}`}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${activeSection === section.id ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:bg-surface/60 hover:text-ink"}`}
                 >
                   {section.icon === "avatar" ? (
                     <div className="grid size-7 place-items-center rounded-full bg-coral text-[9px] font-bold text-white">{accountProfile.initials}</div>
@@ -133,7 +136,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                   {interestOptions.map((interest) => {
                     const selected = interests.includes(interest);
                     return (
-                      <Action key={interest} onClick={() => toggleInterest(interest)} className={`rounded-full border px-3.5 py-2 text-xs font-semibold ${selected ? "border-sea bg-mint text-sea" : "border-line bg-white text-muted hover:border-sea"}`}>
+                      <Action key={interest} onClick={() => toggleInterest(interest)} className={`rounded-full border px-3.5 py-2 text-xs font-semibold ${selected ? "border-sea bg-mint text-sea" : "border-line bg-surface text-muted hover:border-sea"}`}>
                         {selected && <span className="mr-1">✓</span>}
                         {interest}
                       </Action>
@@ -181,6 +184,23 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
               </div>
             </Card>
 
+            {/* Appearance */}
+            <Card id="settings-appearance" className="p-5 md:p-6">
+              <div className="font-display text-xl font-semibold">Appearance</div>
+              <div className="mt-1 text-sm text-muted">Dark mode is easier on the eyes in low light.</div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {([["light", "Light", "sun"], ["dark", "Dark", "moon"]] as const).map(([value, label, icon]) => (
+                  <Action key={value} label={`${label} mode`} onClick={() => setTheme(value)} className={`flex items-center gap-3 rounded-2xl border p-4 ${theme === value ? "border-sea bg-mint/50 ring-1 ring-sea" : "border-line hover:border-sea/50"}`}>
+                    <div className="grid size-9 place-items-center rounded-xl bg-panel"><Icon name={icon} className="size-4" /></div>
+                    <div className="flex-1 text-sm font-bold">{label}</div>
+                    <div className={`grid size-4 place-items-center rounded-full border ${theme === value ? "border-sea bg-sea" : "border-line"}`}>
+                      {theme === value && <div className="size-1.5 rounded-full bg-white" />}
+                    </div>
+                  </Action>
+                ))}
+              </div>
+            </Card>
+
             {/* Notifications */}
             <Card id="settings-notifications">
               <div className="border-b border-line p-5 md:p-6">
@@ -212,7 +232,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                   <div className="text-[10px] font-bold uppercase tracking-widest text-muted">Currency</div>
                   <div className="mt-2 flex gap-2">
                     {currencies.map((item) => (
-                      <Action key={item} onClick={() => setCurrency(item)} className={`rounded-lg px-2.5 py-1 text-xs font-bold ${currency === item ? "bg-ink text-white" : "bg-panel text-muted"}`}>
+                      <Action key={item} onClick={() => setCurrency(item)} className={`rounded-lg px-2.5 py-1 text-xs font-bold ${currency === item ? "bg-deep text-white" : "bg-panel text-muted"}`}>
                         {item}
                       </Action>
                     ))}

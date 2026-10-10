@@ -34,7 +34,7 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
       <div className="flex-1 overflow-y-auto px-5 py-8 md:px-8 lg:px-12">
         <div className="mx-auto max-w-4xl">
           {/* Hero */}
-          <div className="overflow-hidden rounded-3xl bg-ink text-white shadow-xl">
+          <div className="overflow-hidden rounded-3xl bg-deep text-white shadow-xl">
             <div className="grid lg:grid-cols-[1.1fr_.9fr]">
               <div className="p-6 md:p-10">
                 <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-sun">
@@ -48,7 +48,7 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
           </div>
 
           {/* Request form, overlapping the bottom of the hero */}
-          <div className="relative mx-auto -mt-7 max-w-3xl rounded-3xl border border-line bg-white p-5 shadow-[0_20px_60px_rgba(18,38,38,0.12)] md:p-7">
+          <div className="relative mx-auto -mt-7 max-w-3xl rounded-3xl border border-line bg-surface p-5 shadow-[0_20px_60px_rgba(18,38,38,0.12)] md:p-7">
             <FieldLabel>What are you imagining?</FieldLabel>
             <textarea
               value={prompt}
@@ -75,7 +75,7 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
                 <FieldLabel><Icon name="wallet" className="size-3.5" /> Total budget</FieldLabel>
                 <div className="mt-3 flex gap-1.5">
                   {budgetOptionsUsd.map((amount) => (
-                    <Action key={amount} onClick={() => setBudgetUsd(amount)} className={`rounded-lg px-2 py-1.5 text-xs font-bold ${budgetUsd === amount ? "bg-ink text-white" : "bg-panel text-muted"}`}>
+                    <Action key={amount} onClick={() => setBudgetUsd(amount)} className={`rounded-lg px-2 py-1.5 text-xs font-bold ${budgetUsd === amount ? "bg-deep text-white" : "bg-panel text-muted"}`}>
                       {formatUsd(amount)}
                     </Action>
                   ))}
@@ -96,7 +96,7 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
 
             <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-line pt-5 sm:flex-row">
               <div className="text-xs text-muted">For {travelers} travelers · Flights included</div>
-              <Action onClick={findTrip} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sea px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-ink sm:w-auto">
+              <Action onClick={findTrip} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sea px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-deep sm:w-auto">
                 Find my trip <Icon name="sparkles" className="size-4 text-sun" />
               </Action>
             </div>

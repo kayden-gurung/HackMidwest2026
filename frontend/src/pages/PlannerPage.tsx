@@ -77,7 +77,7 @@ export function PlannerPage() {
                   <Action
                     key={link.screen}
                     onClick={() => setScreen(link.screen)}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${screen === link.screen ? "bg-white text-ink shadow-sm ring-1 ring-line" : "text-muted hover:bg-white/60 hover:text-ink"}`}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${screen === link.screen ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:bg-surface/60 hover:text-ink"}`}
                   >
                     <Icon name={link.icon} className="size-4" /> {link.label}
                   </Action>

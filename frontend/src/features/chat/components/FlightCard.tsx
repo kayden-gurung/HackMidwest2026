@@ -6,7 +6,7 @@ export function FlightCard({ flight }: { flight: FlightOption }) {
   const stopsLabel = flight.stops === 0 ? "Nonstop" : `${flight.stops} stop${flight.stops > 1 ? "s" : ""}`;
 
   return (
-    <div className="mt-5 rounded-2xl border border-line bg-white p-4">
+    <div className="mt-5 rounded-2xl border border-line bg-surface p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-bold"><Icon name="plane" className="size-4 text-sea" /> Best flight option</div>
         {flight.withinBudget && <div className="rounded-full bg-mint px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sea">Within budget</div>}

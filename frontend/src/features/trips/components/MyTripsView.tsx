@@ -20,12 +20,12 @@ function matchesQuery(card: TripCard, query: string): boolean {
 
 function TripCardTile({ card, onOpen }: { card: TripCard; onOpen: () => void }) {
   return (
-    <Action onClick={onOpen} className="group overflow-hidden rounded-2xl border border-line bg-white shadow-sm hover:-translate-y-1 hover:shadow-lg">
+    <Action onClick={onOpen} className="group overflow-hidden rounded-2xl border border-line bg-surface shadow-sm hover:-translate-y-1 hover:shadow-lg">
       <div className="relative h-48 overflow-hidden bg-map">
         {card.imageUrl && <img src={card.imageUrl} alt="" className="size-full object-cover transition-transform duration-500 group-hover:scale-105" />}
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-        <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold text-ink backdrop-blur">{card.status}</div>
-        <div className="absolute bottom-3 right-3 grid size-8 place-items-center rounded-full bg-white/90 text-ink"><Icon name="more" className="size-4" /></div>
+        <div className="absolute left-3 top-3 rounded-full bg-surface/90 px-2.5 py-1 text-[10px] font-bold text-ink backdrop-blur">{card.status}</div>
+        <div className="absolute bottom-3 right-3 grid size-8 place-items-center rounded-full bg-surface/90 text-ink"><Icon name="more" className="size-4" /></div>
       </div>
       <div className="p-5">
         <div className="font-display text-xl font-semibold">{card.title}</div>
@@ -33,8 +33,8 @@ function TripCardTile({ card, onOpen }: { card: TripCard; onOpen: () => void }) 
         <div className="mt-5 flex items-center justify-between border-t border-line pt-4">
           {/* Traveler avatars: sample values from the design. */}
           <div className="flex -space-x-2">
-            <div className="grid size-7 place-items-center rounded-full border-2 border-white bg-coral text-[8px] font-bold text-white">AM</div>
-            <div className="grid size-7 place-items-center rounded-full border-2 border-white bg-sun text-[8px] font-bold text-ink">+1</div>
+            <div className="grid size-7 place-items-center rounded-full border-2 border-surface bg-coral text-[8px] font-bold text-white">AM</div>
+            <div className="grid size-7 place-items-center rounded-full border-2 border-surface bg-sun text-[8px] font-bold text-ink">+1</div>
           </div>
           <div className="flex items-center gap-1 text-xs font-bold text-sea">Open plan <Icon name="chevron" className="size-3.5" /></div>
         </div>
@@ -58,7 +58,7 @@ export function MyTripsView({ onOpenTrip, onNewJourney }: { onOpenTrip: (tripId:
         title="My trips"
         subtitle="Every idea, plan, and journey in one place"
         action={
-          <Action onClick={onNewJourney} className="flex items-center gap-2 rounded-xl bg-ink px-3.5 py-2.5 text-xs font-bold text-white hover:bg-sea">
+          <Action onClick={onNewJourney} className="flex items-center gap-2 rounded-xl bg-deep px-3.5 py-2.5 text-xs font-bold text-white hover:bg-sea">
             <Icon name="plus" className="size-4" /> New journey
           </Action>
         }
@@ -68,12 +68,12 @@ export function MyTripsView({ onOpenTrip, onNewJourney }: { onOpenTrip: (tripId:
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div className="flex w-fit gap-1 rounded-xl bg-panel p-1">
               {(Object.keys(statusesByFilter) as TripFilter[]).map((item) => (
-                <Action key={item} onClick={() => setFilter(item)} className={`rounded-lg px-4 py-2 text-xs font-bold ${filter === item ? "bg-white text-ink shadow-sm" : "text-muted"}`}>
+                <Action key={item} onClick={() => setFilter(item)} className={`rounded-lg px-4 py-2 text-xs font-bold ${filter === item ? "bg-surface text-ink shadow-sm" : "text-muted"}`}>
                   {item}
                 </Action>
               ))}
             </div>
-            <div className="flex items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 text-xs text-muted focus-within:border-sea sm:w-64">
+            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs text-muted focus-within:border-sea sm:w-64">
               <Icon name="search" className="size-4 shrink-0" />
               <input
                 type="text"
@@ -104,7 +104,7 @@ export function MyTripsView({ onOpenTrip, onNewJourney }: { onOpenTrip: (tripId:
               <div className="font-display text-2xl font-semibold text-ink">Have a destination saved somewhere else?</div>
               <div className="mt-2 text-sm text-ink/60">Drop a link, note, or screenshot and Roam will turn it into a plan.</div>
             </div>
-            <Action className="mt-5 w-fit rounded-xl bg-sea px-4 py-2.5 text-xs font-bold text-white hover:bg-ink md:mt-0">Import an idea</Action>
+            <Action className="mt-5 w-fit rounded-xl bg-sea px-4 py-2.5 text-xs font-bold text-white hover:bg-deep md:mt-0">Import an idea</Action>
           </div>
         </div>
       </div>
