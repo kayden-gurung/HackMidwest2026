@@ -20,7 +20,8 @@ export type IconName =
   | "clock"
   | "bell"
   | "pencil"
-  | "trash";
+  | "trash"
+  | "users";
 
 const paths: Record<IconName, ReactNode> = {
   sparkles: <path d="m12 3-1.2 3.8L7 8l3.8 1.2L12 13l1.2-3.8L17 8l-3.8-1.2L12 3ZM5.5 14l-.8 2.7L2 17.5l2.7.8.8 2.7.8-2.7 2.7-.8-2.7-.8L5.5 14Zm12 0-.8 2.7-2.7.8 2.7.8.8 2.7.8-2.7 2.7-.8-2.7-.8-.8-2.7Z" />,
@@ -49,6 +50,7 @@ const paths: Record<IconName, ReactNode> = {
   bell: <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9Zm4.3 13a1.94 1.94 0 0 0 3.4 0" />,
   pencil: <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Zm-2 2 4 4" />,
   trash: <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m-6 5v6m4-6v6" />,
+  users: <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m20 0v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" />,
 };
 
 export function Icon({ name, className = "size-5" }: { name: IconName; className?: string }) {
