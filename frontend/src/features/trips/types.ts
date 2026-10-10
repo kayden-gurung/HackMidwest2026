@@ -23,3 +23,17 @@ export interface TripDetails {
 }
 
 export type PlanningMode = "Co-pilot" | "Surprise me";
+
+/** Where a trip stands. Drives the badge on its card and which My trips filter shows it. */
+export type TripStatus = "Ready to book" | "In progress" | "Idea" | "Completed";
+
+/** A trip as shown on the My trips screen. `id` matches the TripSummary, so a card opens that trip in the planner. */
+export interface TripCard {
+  id: string;
+  title: string;
+  place: string;
+  /** Display label, e.g. "Jun 18–25". */
+  dates: string;
+  status: TripStatus;
+  imageUrl?: string;
+}

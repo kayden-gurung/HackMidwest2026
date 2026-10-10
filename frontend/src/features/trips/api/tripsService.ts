@@ -1,8 +1,8 @@
 import { config } from "../../../config/env";
 import { api } from "../../../lib/apiClient";
 import { createId, mockResponse } from "../../../lib/mock";
-import type { TripDetails, TripSummary } from "../types";
-import { mockTripDetails, mockTrips } from "./mockData";
+import type { TripCard, TripDetails, TripSummary } from "../types";
+import { mockTripCards, mockTripDetails, mockTrips } from "./mockData";
 
 export interface TripsService {
   listTrips(): Promise<TripSummary[]>;
@@ -11,6 +11,10 @@ export interface TripsService {
   createTrip(): Promise<TripSummary>;
   /** Gives a journey its real title, which also ends its draft state. */
   renameTrip(tripId: string, title: string): Promise<TripSummary>;
+  /** Removes a journey. */
+  deleteTrip(tripId: string): Promise<void>;
+  /** Cards for the My trips screen. */
+  listTripCards(): Promise<TripCard[]>;
 }
 
 export const DRAFT_TITLE = "New journey";
@@ -43,6 +47,13 @@ export const localTripsService: TripsService = {
     trips = trips.map((item) => (item.id === tripId ? renamed : item));
     return mockResponse(renamed);
   },
+  deleteTrip: (tripId) => {
+    trips = trips.filter((item) => item.id !== tripId);
+    delete details[tripId];
+    return mockResponse(undefined);
+  },
+  // The My trips cards are design samples in both modes until the backend stores trip status and photos.
+  listTripCards: () => mockResponse(mockTripCards),
 };
 
 /** PROPOSED endpoints: not implemented in backend/ yet. */
@@ -51,6 +62,8 @@ export const httpTripsService: TripsService = {
   getTrip: (tripId) => api.get<TripDetails>(`/api/trips/${encodeURIComponent(tripId)}`),
   createTrip: () => api.post<TripSummary>("/api/trips", {}),
   renameTrip: (tripId, title) => api.post<TripSummary>(`/api/trips/${encodeURIComponent(tripId)}/title`, { title }),
+  deleteTrip: (tripId) => api.delete(`/api/trips/${encodeURIComponent(tripId)}`),
+  listTripCards: () => api.get<TripCard[]>("/api/trips/cards"),
 };
 
 // The backend has no trips endpoints yet, so journeys are kept locally in both mock and real mode.

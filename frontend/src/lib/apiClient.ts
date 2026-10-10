@@ -19,10 +19,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     throw new ApiError(`${init.method ?? "GET"} ${path} failed with ${response.status}`, response.status);
   }
+  // 204 No Content (e.g. after a DELETE) has no body to parse.
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) => request<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  delete: <T = void>(path: string) => request<T>(path, { method: "DELETE" }),
 };

@@ -8,6 +8,11 @@ export function useTrip(tripId: string, title: string) {
   return useAsync(() => tripsService.getTrip(tripId), [tripId, title]);
 }
 
+/** Cards for the My trips screen. */
+export function useTripCards() {
+  return useAsync(() => tripsService.listTripCards(), []);
+}
+
 /** Longest title made from a first message before it is cut with an ellipsis. */
 const MAX_TITLE_LENGTH = 42;
 
@@ -71,5 +76,33 @@ export function useTrips() {
     [trips],
   );
 
-  return { trips, status, reload, startNewTrip, nameDraftFromMessage };
+  /**
+   * Opens a journey already titled after `message` (used by New journey's "Find my trip").
+   * Done in one step because nameDraftFromMessage would not yet see a draft created in the same tick.
+   */
+  const startTripFromMessage = useCallback(
+    async (message: string): Promise<TripSummary> => {
+      const draft = await startNewTrip();
+      const renamed = await tripsService.renameTrip(draft.id, titleFromMessage(message) || draft.title);
+      setTrips((current) => current.map((trip) => (trip.id === draft.id ? renamed : trip)));
+      return renamed;
+    },
+    [startNewTrip],
+  );
+
+  /** Renames a journey from the sidebar menu. Blank names are ignored. */
+  const renameTrip = useCallback(async (tripId: string, title: string) => {
+    const trimmed = title.replace(/\s+/g, " ").trim();
+    if (!trimmed) return;
+    const renamed = await tripsService.renameTrip(tripId, trimmed);
+    setTrips((current) => current.map((trip) => (trip.id === tripId ? renamed : trip)));
+  }, []);
+
+  /** Deletes a journey from the sidebar menu. */
+  const deleteTrip = useCallback(async (tripId: string) => {
+    await tripsService.deleteTrip(tripId);
+    setTrips((current) => current.filter((trip) => trip.id !== tripId));
+  }, []);
+
+  return { trips, status, reload, startNewTrip, nameDraftFromMessage, startTripFromMessage, renameTrip, deleteTrip };
 }

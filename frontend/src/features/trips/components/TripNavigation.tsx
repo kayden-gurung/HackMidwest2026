@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Action, EmptyState, ErrorState, Icon, LoadingState } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
 import type { TripSummary } from "../types";
+import { JourneyListItem } from "./JourneyListItem";
 
 /** "Italy · $3,200" when known, otherwise where the journey stands. */
 function tripMeta(trip: TripSummary): string {
@@ -16,7 +17,7 @@ function matchesQuery(trip: TripSummary, query: string): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
-/** Sidebar block: "New journey", trip search, and the recent journeys list. */
+/** Sidebar block: "New journey", optional screen links, trip search, and the recent journeys list (each with rename / delete). */
 export function TripNavigation({
   trips,
   status,
@@ -24,6 +25,9 @@ export function TripNavigation({
   onSelect,
   onNewTrip,
   onRetry,
+  onRename,
+  onDelete,
+  links,
 }: {
   trips: TripSummary[];
   status: "loading" | "success" | "error";
@@ -31,6 +35,10 @@ export function TripNavigation({
   onSelect: (tripId: string) => void;
   onNewTrip: () => void;
   onRetry: () => void;
+  onRename: (tripId: string, title: string) => void;
+  onDelete: (tripId: string) => void;
+  /** Rendered under "New journey", e.g. the My trips / Explore links. */
+  links?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const searching = query.trim().length > 0;
@@ -48,6 +56,8 @@ export function TripNavigation({
       >
         <Icon name="plus" className="size-4" /> New journey
       </Action>
+
+      {links}
 
       <div className="mt-7 flex items-center gap-2 rounded-xl border border-line bg-white/60 px-3 py-2.5 text-sm text-muted transition-colors focus-within:border-sea focus-within:bg-white">
         <Icon name="search" className="size-4 shrink-0" />
@@ -73,20 +83,17 @@ export function TripNavigation({
         {status === "error" && <ErrorState message="Couldn’t load trips." onRetry={onRetry} />}
         {status === "success" && trips.length === 0 && <EmptyState message="No trips yet. Start a new journey." />}
         {status === "success" && trips.length > 0 && visibleTrips.length === 0 && <EmptyState message={`No trips match “${query.trim()}”.`} />}
-        {visibleTrips.map((trip) => {
-          const active = trip.id === activeTripId;
-          return (
-            <Action key={trip.id} onClick={() => onSelect(trip.id)} className={`group rounded-xl px-3 py-3 ${active ? "bg-white shadow-sm ring-1 ring-line" : "hover:bg-white/60"}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{trip.title}</div>
-                  <div className="mt-1 text-xs text-muted">{tripMeta(trip)}</div>
-                </div>
-                {active && <Icon name="more" className="mt-0.5 size-4 shrink-0 text-muted" />}
-              </div>
-            </Action>
-          );
-        })}
+        {visibleTrips.map((trip) => (
+          <JourneyListItem
+            key={trip.id}
+            title={trip.title}
+            meta={tripMeta(trip)}
+            active={trip.id === activeTripId}
+            onSelect={() => onSelect(trip.id)}
+            onRename={(title) => onRename(trip.id, title)}
+            onDelete={() => onDelete(trip.id)}
+          />
+        ))}
       </div>
     </>
   );
