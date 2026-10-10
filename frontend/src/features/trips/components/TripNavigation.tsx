@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Action, EmptyState, ErrorState, Icon, LoadingState } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
 import type { TripSummary } from "../types";
@@ -16,7 +16,7 @@ function matchesQuery(trip: TripSummary, query: string): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
-/** Sidebar block: "New journey", trip search, and the recent journeys list. */
+/** Sidebar block: "New journey", optional screen links, trip search, and the recent journeys list. */
 export function TripNavigation({
   trips,
   status,
@@ -24,6 +24,7 @@ export function TripNavigation({
   onSelect,
   onNewTrip,
   onRetry,
+  links,
 }: {
   trips: TripSummary[];
   status: "loading" | "success" | "error";
@@ -31,6 +32,8 @@ export function TripNavigation({
   onSelect: (tripId: string) => void;
   onNewTrip: () => void;
   onRetry: () => void;
+  /** Rendered under "New journey", e.g. the My trips / Explore links. */
+  links?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const searching = query.trim().length > 0;
@@ -48,6 +51,8 @@ export function TripNavigation({
       >
         <Icon name="plus" className="size-4" /> New journey
       </Action>
+
+      {links}
 
       <div className="mt-7 flex items-center gap-2 rounded-xl border border-line bg-white/60 px-3 py-2.5 text-sm text-muted transition-colors focus-within:border-sea focus-within:bg-white">
         <Icon name="search" className="size-4 shrink-0" />
