@@ -42,9 +42,29 @@ export interface AssistantMessage {
 
 export type ChatMessage = UserMessage | AssistantMessage;
 
-/** Body of POST /api/ask (implemented in backend/routers/ask.py). */
+/** The traveler's settings that shape what Roam plans. The page passes these in from the settings feature. */
+export interface TravelPreferences {
+  interests: string[];
+  pace?: string;
+  stayStyle?: string;
+  planningStyle?: string;
+  currency?: string;
+  homeAirport?: string;
+  travelers?: string;
+}
+
+/** Body of POST /api/ask (backend/routers/ask.py). `preferences` mirrors `Preferences` in backend/schemas.py. */
 export interface AskRequest {
   prompt: string;
+  preferences?: {
+    interests: string[];
+    pace?: string;
+    stay_style?: string;
+    planning_style?: string;
+    currency?: string;
+    home_airport?: string;
+    travelers?: string;
+  };
 }
 
 /** Response of POST /api/ask. */

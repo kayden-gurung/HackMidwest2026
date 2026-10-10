@@ -1,4 +1,4 @@
-// MOCK DATA: settings content from the Figma design. Nothing is saved yet; changes reset on reload.
+// MOCK DATA: settings content from the Figma design. Choices are kept in settingsStore (browser memory) and reset on reload.
 
 export const accountProfile = {
   name: "Alex Morgan",

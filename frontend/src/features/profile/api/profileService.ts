@@ -1,4 +1,3 @@
-import { config } from "../../../config/env";
 import { api } from "../../../lib/apiClient";
 import { mockResponse } from "../../../lib/mock";
 import type { UserProfile } from "../types";
@@ -17,4 +16,7 @@ export const httpProfileService: ProfileService = {
   getProfile: () => api.get<UserProfile>("/api/me"),
 };
 
-export const profileService: ProfileService = config.useMocks ? mockProfileService : httpProfileService;
+// The backend has no /api/me yet, so the sample profile is used in both mock and real mode.
+// Otherwise the sidebar's profile card fails with mocks off, taking the Settings button with it.
+// Switch this to httpProfileService once the endpoint exists.
+export const profileService: ProfileService = mockProfileService;

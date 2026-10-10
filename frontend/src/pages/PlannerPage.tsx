@@ -5,7 +5,7 @@ import { ExploreView } from "../features/explore";
 import { TripPanel } from "../features/itinerary";
 import { describeJourney, NewJourneyView, type JourneyRequest } from "../features/journey";
 import { ProfilePanel } from "../features/profile";
-import { SettingsView } from "../features/settings";
+import { SettingsView, useTravelPreferences } from "../features/settings";
 import { MyTripsView, TripHeader, TripNavigation, useTrips } from "../features/trips";
 
 /** Which screen fills the main area. "trip" is the chat + itinerary planner for the open journey. */
@@ -23,6 +23,8 @@ const screenLinks: { screen: Screen; label: string; icon: IconName }[] = [
  */
 export function PlannerPage() {
   const { trips, status, reload, nameDraftFromMessage, startTripFromMessage, renameTrip, deleteTrip } = useTrips();
+  // The traveler's settings, handed to the chat so Roam plans with them.
+  const preferences = useTravelPreferences();
   const [screen, setScreen] = useState<Screen>("trip");
   const [selectedTripId, setSelectedTripId] = useState<string>();
   // Prompt carried from an Explore idea into the New journey form.
@@ -46,7 +48,7 @@ export function PlannerPage() {
     startTripFromMessage(request.prompt || message).then((trip) => {
       openTrip(trip.id);
       // Failures show up in the chat panel as its error state.
-      chatService.sendMessage(trip.id, message).catch(() => undefined);
+      chatService.sendMessage(trip.id, message, preferences).catch(() => undefined);
     }, () => undefined);
   };
 
@@ -100,7 +102,7 @@ export function PlannerPage() {
                 <TripHeader tripId={activeTrip.id} title={activeTrip.title} leading={<BrandMark className="lg:hidden" />} />
                 <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_390px]">
                   {/* Keyed by trip so each journey gets its own composer and scroll position. */}
-                  <ChatPanel key={activeTrip.id} tripId={activeTrip.id} onUserMessage={(text) => nameDraftFromMessage(activeTrip.id, text)} />
+                  <ChatPanel key={activeTrip.id} tripId={activeTrip.id} preferences={preferences} onUserMessage={(text) => nameDraftFromMessage(activeTrip.id, text)} />
                   <TripPanel key={`panel-${activeTrip.id}`} tripId={activeTrip.id} />
                 </div>
               </>
