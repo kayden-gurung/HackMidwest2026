@@ -30,10 +30,7 @@ export function Composer({ onSend, disabled = false }: { onSend: (text: string) 
         }}
       />
       <div className="flex items-center justify-between px-2 pb-1">
-        <div className="flex items-center gap-2">
-          <Action className="grid size-8 place-items-center rounded-full border border-line text-muted"><Icon name="plus" className="size-4" /></Action>
-          <div className="text-xs text-muted">Roam can make mistakes. Check key details.</div>
-        </div>
+        <div className="text-xs text-muted">Roam can make mistakes. Check key details.</div>
         <Action label="Send message" onClick={submit} className={`grid size-9 place-items-center rounded-xl bg-sea text-white hover:bg-deep ${disabled ? "opacity-50" : ""}`}><Icon name="send" className="size-4" /></Action>
       </div>
     </div>
