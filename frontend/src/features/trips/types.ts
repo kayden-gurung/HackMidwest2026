@@ -22,8 +22,6 @@ export interface TripDetails {
   origin?: string;
 }
 
-export type PlanningMode = "Co-pilot" | "Surprise me";
-
 /** Where a trip stands. Drives the badge on its card and which My trips filter shows it. */
 export type TripStatus = "Ready to book" | "In progress" | "Idea" | "Completed";
 
