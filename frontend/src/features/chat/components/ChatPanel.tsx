@@ -1,16 +1,26 @@
 import { useEffect, useRef } from "react";
 import { ErrorState, LoadingState } from "../../../components/ui";
 import { useChat } from "../hooks/useChat";
+import type { TravelPreferences } from "../types";
 import { AssistantReply } from "./AssistantReply";
 import { Composer } from "./Composer";
 import { UserBubble } from "./UserBubble";
 
 /**
  * The center column: conversation with Roam plus the message composer.
+ * `preferences` are the traveler's settings, sent to Roam with every message.
  * `onUserMessage` fires with each message the traveler sends, before Roam replies.
  */
-export function ChatPanel({ tripId, onUserMessage }: { tripId: string; onUserMessage?: (text: string) => void }) {
-  const { messages, sendStatus, send } = useChat(tripId);
+export function ChatPanel({
+  tripId,
+  preferences,
+  onUserMessage,
+}: {
+  tripId: string;
+  preferences?: TravelPreferences;
+  onUserMessage?: (text: string) => void;
+}) {
+  const { messages, sendStatus, send } = useChat(tripId, preferences);
   const endRef = useRef<HTMLDivElement>(null);
 
   // Keep the newest message in view, including when a saved conversation is reopened.

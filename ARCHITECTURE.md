@@ -47,6 +47,8 @@ If two features need the same data, the page passes it down as props (or you lif
 | | | `sendMessage(tripId, prompt)` | `POST /api/ask` `{prompt}` → `{reply}` | **implemented** |
 | `itinerary` | Plan / Map / Budget panel: expandable days, interactive map with a marker per item, every item listed under its budget category | `getItinerary(tripId)` | `GET /api/trips/{id}/itinerary` | proposed (mock data for the sample trip) |
 | `profile` | Travel style card, user card | `getProfile()` | `GET /api/me` | proposed |
+| `settings` | Settings screen | none (kept in `settingsStore`, browser memory) | sent as `preferences` on `POST /api/ask` | **implemented** |
+| (places) | none yet | none yet | `GET /api/places/search`, `GET /api/places/locate` | **implemented** |
 | (health) | none | none | `GET /api/health` → `{ok}` | **implemented** |
 
 The exact JSON shapes are the TypeScript interfaces in each feature's `types.ts`. Proposed endpoints are only what the current UI needs to render; nothing about storage, auth, or AI behavior has been decided. When the backend implements one, match its Pydantic models to that `types.ts` (or update both together in one PR).
@@ -56,6 +58,19 @@ Journeys and their conversations are saved locally for now: `features/trips/api/
 The itinerary panel is driven by one list, `Itinerary.items` (see `features/itinerary/types.ts`). Each item has a date, a category, a cost and an optional location and website. Day summaries, per-category budget totals and map markers are all derived from that list in `features/itinerary/lib/itinerary.ts`, so the backend only sends `startDate`, `endDate`, `items` and `budget.plannedUsd`. An item needs `location.lat` and `location.lng` to get a map marker; without them it is still listed, with a Google Maps search link. `features/itinerary/api/fromPlanResponse.ts` converts the `POST /api/trips/plan` response from TEAM_PLAN.md into this shape; it is not called yet, and it proposes four extra activity fields (`category`, `lat`, `lng`, `website_url`). The map uses Leaflet with OpenStreetMap tiles, which needs internet but no API key.
 
 `POST /api/ask` ignores the trip today: it sends only the prompt to a Strands `Agent()` (Amazon Bedrock), so it needs AWS keys in `backend/.env`. Without keys it returns 500 and the chat shows "Roam couldn't reply".
+
+## Real place data
+
+`backend/tools/places.py` looks up real places on OpenStreetMap: free, no API key. `geocode(place)` turns a name into coordinates (Nominatim) and `search_places(near, category, keyword, radius_m, limit)` finds named restaurants, stays or things to do around it (Overpass). Results carry coordinates, address, website, opening hours and a source link, using the field names the itinerary panel reads (`category`, `lat`, `lng`, `website_url`, `source_urls`). OpenStreetMap has no prices, ratings or availability, so those must never be presented as looked up.
+
+- **For the agent:** `from tools import get_travel_tools` then `Agent(tools=get_travel_tools())`. The tools return a dict with `status` (`ok`, `no_results`, `unavailable` or `error`) and never raise.
+- **Without the agent:** `GET /api/places/search?near=Polignano a Mare, Italy&category=Food&keyword=seafood` and `GET /api/places/locate?q=Bari Airport`. Try them at http://localhost:8000/docs.
+- **Limits:** Nominatim allows one request per second, so lookups are spaced out and cached in memory until the backend restarts. Both services are public and can be slow or busy; failures come back as 503 with a readable message.
+- **Tests:** `docker compose exec backend python -m pytest` (offline, the map services are stubbed).
+
+## Traveler preferences
+
+The Settings screen keeps its choices in `features/settings/api/settingsStore.ts`. `PlannerPage` reads them with `useTravelPreferences()` and passes them to the chat, which sends them as `preferences` on every `POST /api/ask` (shape: `Preferences` in `backend/schemas.py`). For now `routers/ask.py` puts them in front of the message as plain text; the agent owner should move them into the system prompt. The header's Co-pilot / Surprise me toggle is still separate from the Settings planning style.
 
 ## Async states
 

@@ -1,11 +1,12 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { chatService } from "../api/chatService";
 import { conversationStore } from "../api/conversationStore";
+import type { TravelPreferences } from "../types";
 
 export type { SendStatus } from "../api/conversationStore";
 
 /** A trip's saved conversation, kept in sync with conversationStore, and a way to send new messages. */
-export function useChat(tripId: string) {
+export function useChat(tripId: string, preferences?: TravelPreferences) {
   const messages = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getMessages(tripId));
   const sendStatus = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getStatus(tripId));
 
@@ -14,9 +15,9 @@ export function useChat(tripId: string) {
       const prompt = text.trim();
       if (!prompt || conversationStore.getStatus(tripId) === "sending") return;
       // Failures are recorded in the store as the "error" status, which the panel renders.
-      chatService.sendMessage(tripId, prompt).catch(() => undefined);
+      chatService.sendMessage(tripId, prompt, preferences).catch(() => undefined);
     },
-    [tripId],
+    [tripId, preferences],
   );
 
   return { messages, sendStatus, send };

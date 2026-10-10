@@ -8,9 +8,9 @@ import {
   notificationOptions,
   paceOptions,
   planningStyles,
-  settingsDefaults,
   stayOptions,
 } from "../api/mockData";
+import { useSettings } from "../hooks/useSettings";
 
 /** Left-hand section list. `id` matches the section it scrolls to. */
 const sections: { id: string; label: string; icon: IconName | "avatar" }[] = [
@@ -45,17 +45,18 @@ function Segmented({ options, value, onChange }: { options: string[]; value: str
 
 /** "Settings" screen: profile, travel preferences, planning style, notifications, region and privacy. */
 export function SettingsView({ onClose }: { onClose: () => void }) {
-  const [interests, setInterests] = useState(settingsDefaults.interests);
-  const [pace, setPace] = useState(settingsDefaults.pace);
-  const [stay, setStay] = useState(settingsDefaults.stay);
-  const [planningStyle, setPlanningStyle] = useState(settingsDefaults.planningStyle);
-  const [currency, setCurrency] = useState(settingsDefaults.currency);
-  const [notifications, setNotifications] = useState(settingsDefaults.notifications);
+  // Kept in the settings store, so choices survive leaving this screen and reach the chat.
+  const { settings, update } = useSettings();
+  const { interests, pace, stay, planningStyle, currency, notifications } = settings;
+  const setPace = (value: string) => update({ pace: value });
+  const setStay = (value: string) => update({ stay: value });
+  const setPlanningStyle = (value: string) => update({ planningStyle: value });
+  const setCurrency = (value: string) => update({ currency: value });
   const { theme, setTheme } = useTheme();
   const [activeSection, setActiveSection] = useState(sections[0].id);
 
   const toggleInterest = (interest: string) =>
-    setInterests((current) => (current.includes(interest) ? current.filter((item) => item !== interest) : [...current, interest]));
+    update({ interests: interests.includes(interest) ? interests.filter((item) => item !== interest) : [...interests, interest] });
 
   const goToSection = (id: string) => {
     setActiveSection(id);
@@ -213,7 +214,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                       <div className="text-sm font-bold">{title}</div>
                       <div className="mt-1 text-xs text-muted">{description}</div>
                     </div>
-                    <Toggle label={title} checked={notifications[key]} onChange={() => setNotifications((current) => ({ ...current, [key]: !current[key] }))} />
+                    <Toggle label={title} checked={notifications[key]} onChange={() => update({ notifications: { ...notifications, [key]: !notifications[key] } })} />
                   </div>
                 ))}
               </div>
