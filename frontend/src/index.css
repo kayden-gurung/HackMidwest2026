@@ -1,0 +1,70 @@
+/* Roam design system, exported from the Figma Make "Travel Planner App" design. */
+
+/* Fonts: DM Sans for UI text, Newsreader for headings. */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap");
+@import "tailwindcss";
+
+/*
+ * Design tokens. Tailwind v4 turns each variable into utility classes,
+ * e.g. --color-sea gives bg-sea / text-sea / border-sea, and
+ * --font-display gives font-display. Change a color here to restyle the whole app.
+ */
+@theme {
+  --font-sans: "DM Sans", sans-serif;
+  --font-display: "Newsreader", serif;
+
+  /* Surfaces and text */
+  --color-canvas: #f8f7f2;
+  --color-sidebar: #efeee7;
+  --color-panel: #f3f2ec;
+  --color-ink: #173b3a;
+  --color-muted: #77817e;
+  --color-line: #ddded7;
+
+  /* Brand and accent colors */
+  --color-sea: #126e6b;
+  --color-mint: #dcece6;
+  --color-sun: #f4cc63;
+  --color-coral: #df745d;
+  --color-peach: #f5dfd7;
+
+  /* Itinerary day markers and the route map */
+  --color-blue: #68a9bd;
+  --color-yellow: #e5b847;
+  --color-green: #65a77d;
+  --color-map: #8db5ac;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--color-canvas);
+}
+
+::selection {
+  background: var(--color-mint);
+  color: var(--color-ink);
+}
+
+/* Placeholder text for the contentEditable chat composer, which has no native placeholder. */
+.composer:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-muted);
+  pointer-events: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted) 35%, transparent);
+  background-clip: padding-box;
+}
