@@ -7,6 +7,8 @@ The Roam travel planner UI comes from this Figma Make file: [Travel Planner App]
 
 ## Team coordination
 
+The [Strands implementation guide](docs/STRANDS.md) explains the planning flow, team ownership, and optional Decider integration.
+
 See [TEAM_PLAN.md](TEAM_PLAN.md) for task ownership, folder boundaries, API contracts, and integration order. Claim a lane before coding so teammates can work without overlapping.
 
 ## Quickstart for teammates

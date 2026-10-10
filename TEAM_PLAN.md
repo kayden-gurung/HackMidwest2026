@@ -2,6 +2,8 @@
 
 Goal: enter trip preferences, generate an itinerary, and revise it when plans change. Finish this complete flow before adding more platforms.
 
+See [docs/STRANDS.md](docs/STRANDS.md) for agent responsibilities, real data tools, and an optional Decider experiment. B owns the agent and decision routing; C owns data integrations; D owns schemas and hard constraint validation. Build the core Strands flow before adding Decider.
+
 This is a proposed implementation contract, not a description of features already built. The repository includes a health endpoint, a generic Strands `/api/ask` endpoint, and the Roam frontend exported from Figma. Verify existing UI behavior before replacing it.
 
 ## Claim your lane before coding
