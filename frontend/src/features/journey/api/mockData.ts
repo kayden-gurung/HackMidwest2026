@@ -10,6 +10,7 @@ export const journeyDefaults = {
   flexibleDates: true,
   /** Shown when dates are not flexible. */
   fixedDates: "Jun 18–25",
+  /** Used only when the profile has no home airport. */
   origin: "New York · JFK",
   travelers: 2,
 };

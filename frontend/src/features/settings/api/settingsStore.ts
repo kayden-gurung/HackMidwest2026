@@ -1,4 +1,5 @@
-import { accountProfile, settingsDefaults } from "./mockData";
+import { profileStore } from "../../profile";
+import { settingsDefaults } from "./mockData";
 
 /** Everything the traveler can change on the Settings screen. */
 export interface Settings {
@@ -37,11 +38,21 @@ function toPreferences(current: Settings): TravelPreferences {
     stayStyle: current.stay,
     planningStyle: current.planningStyle,
     currency: current.currency,
-    // Not editable yet: these come from the profile mock data.
-    homeAirport: accountProfile.homeAirport,
-    travelers: accountProfile.defaultTravelers,
+    // Edited on the Settings profile card, kept in the profile store.
+    homeAirport: profileStore.get().homeAirport,
+    travelers: profileStore.get().defaultTravelers,
   };
 }
+
+function notify() {
+  listeners.forEach((listener) => listener());
+}
+
+// Profile edits (e.g. a new home airport) change the preferences sent to the agent, so recompute them.
+profileStore.subscribe(() => {
+  preferences = toPreferences(settings);
+  notify();
+});
 
 export const settingsStore = {
   get: (): Settings => settings,
@@ -49,7 +60,7 @@ export const settingsStore = {
   update(changes: Partial<Settings>) {
     settings = { ...settings, ...changes };
     preferences = toPreferences(settings);
-    listeners.forEach((listener) => listener());
+    notify();
   },
   /** For React's useSyncExternalStore. Returns the unsubscribe function. */
   subscribe(listener: () => void) {

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Action, Icon, ScreenHeader } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
+import { useProfile } from "../../profile";
 import { budgetOptionsUsd, journeyDefaults, vibes } from "../api/mockData";
 import type { JourneyRequest } from "../types";
 
@@ -20,7 +21,9 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
   const [vibe, setVibe] = useState(journeyDefaults.vibe);
   const [budgetUsd, setBudgetUsd] = useState(journeyDefaults.budgetUsd);
   const [flexibleDates, setFlexibleDates] = useState(journeyDefaults.flexibleDates);
-  const { origin, travelers, fixedDates } = journeyDefaults;
+  const { travelers, fixedDates } = journeyDefaults;
+  // Leaving from the home airport set on the Settings profile card.
+  const origin = useProfile().homeAirport || journeyDefaults.origin;
 
   const findTrip = () => onStart({ prompt: prompt.trim(), vibe, budgetUsd, flexibleDates, fixedDates, origin, travelers });
 

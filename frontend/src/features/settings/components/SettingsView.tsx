@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { Action, Icon, ScreenHeader, Toggle, type IconName } from "../../../components/ui";
 import { useTheme } from "../../../lib/theme";
+import { Avatar, ProfileCard, useProfile } from "../../profile";
 import {
-  accountProfile,
   currencies,
   interestOptions,
   notificationOptions,
@@ -53,6 +53,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
   const setPlanningStyle = (value: string) => update({ planningStyle: value });
   const setCurrency = (value: string) => update({ currency: value });
   const { theme, setTheme } = useTheme();
+  const profile = useProfile();
   const [activeSection, setActiveSection] = useState(sections[0].id);
 
   const toggleInterest = (interest: string) =>
@@ -87,7 +88,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                   className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${activeSection === section.id ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:bg-surface/60 hover:text-ink"}`}
                 >
                   {section.icon === "avatar" ? (
-                    <div className="grid size-7 place-items-center rounded-full bg-coral text-[9px] font-bold text-white">{accountProfile.initials}</div>
+                    <Avatar name={profile.name} avatarUrl={profile.avatarUrl} className="size-7 text-[9px]" />
                   ) : (
                     <div className="grid size-7 place-items-center"><Icon name={section.icon} className="size-4" /></div>
                   )}
@@ -100,30 +101,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
           <div className="space-y-6">
             {/* Profile */}
             <Card id="settings-profile" className="overflow-hidden">
-              <div className="border-b border-line p-5 md:p-6">
-                <div className="font-display text-xl font-semibold">Your profile</div>
-                <div className="mt-1 text-sm text-muted">The basics Roam uses for bookings and recommendations.</div>
-              </div>
-              <div className="p-5 md:p-6">
-                <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-                  <div className="grid size-16 shrink-0 place-items-center rounded-full bg-coral font-display text-xl font-semibold text-white ring-4 ring-peach">{accountProfile.initials}</div>
-                  <div className="flex-1">
-                    <div className="text-base font-bold">{accountProfile.name}</div>
-                    <div className="mt-1 text-sm text-muted">{accountProfile.email}</div>
-                  </div>
-                  <Action className="w-fit rounded-xl border border-line px-3.5 py-2 text-xs font-bold hover:border-sea hover:text-sea">Edit profile</Action>
-                </div>
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl bg-panel p-4">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted">Home airport</div>
-                    <div className="mt-2 flex items-center gap-2 text-sm font-bold"><Icon name="plane" className="size-4 text-sea" /> {accountProfile.homeAirport}</div>
-                  </div>
-                  <div className="rounded-xl bg-panel p-4">
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted">Default travelers</div>
-                    <div className="mt-2 text-sm font-bold">{accountProfile.defaultTravelers}</div>
-                  </div>
-                </div>
-              </div>
+              <ProfileCard />
             </Card>
 
             {/* Travel preferences */}
