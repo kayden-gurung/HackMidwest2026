@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Action, ErrorState, LoadingState } from "../../../components/ui";
+import { Action, EmptyState, ErrorState, LoadingState } from "../../../components/ui";
 import { useItinerary } from "../hooks/useItinerary";
 import { BudgetView } from "./BudgetView";
 import { MapView } from "./MapView";
@@ -26,7 +26,8 @@ export function TripPanel({ tripId }: { tripId: string }) {
       <div className="flex-1 overflow-y-auto p-5">
         {itinerary.status === "loading" && <LoadingState label="Loading itinerary…" />}
         {itinerary.status === "error" && <ErrorState message="Couldn’t load the itinerary." onRetry={itinerary.reload} />}
-        {itinerary.status === "success" && (
+        {itinerary.status === "success" && !itinerary.data && <EmptyState message="No plan yet. Ask Roam to plan this trip and it will appear here." />}
+        {itinerary.status === "success" && itinerary.data && (
           <>
             {activeView === "Plan" && <PlanView itinerary={itinerary.data} />}
             {activeView === "Map" && <MapView route={itinerary.data.route} />}

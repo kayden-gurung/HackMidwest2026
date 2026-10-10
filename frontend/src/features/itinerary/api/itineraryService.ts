@@ -1,24 +1,28 @@
 import { config } from "../../../config/env";
-import { api } from "../../../lib/apiClient";
+import { ApiError, api } from "../../../lib/apiClient";
 import { mockResponse } from "../../../lib/mock";
 import type { Itinerary } from "../types";
 import { mockItineraries } from "./mockData";
 
 export interface ItineraryService {
-  getItinerary(tripId: string): Promise<Itinerary>;
+  /** Resolves with null when the trip has no plan yet (a new journey, for example). */
+  getItinerary(tripId: string): Promise<Itinerary | null>;
 }
 
 export const mockItineraryService: ItineraryService = {
-  getItinerary: async (tripId) => {
-    const itinerary = mockItineraries[tripId];
-    if (!itinerary) throw new Error(`No mock itinerary for trip "${tripId}"`);
-    return mockResponse(itinerary);
-  },
+  getItinerary: (tripId) => mockResponse(mockItineraries[tripId] ?? null),
 };
 
 /** PROPOSED endpoint: not implemented in backend/ yet. */
 export const httpItineraryService: ItineraryService = {
-  getItinerary: (tripId) => api.get<Itinerary>(`/api/trips/${encodeURIComponent(tripId)}/itinerary`),
+  getItinerary: async (tripId) => {
+    try {
+      return await api.get<Itinerary>(`/api/trips/${encodeURIComponent(tripId)}/itinerary`);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  },
 };
 
 export const itineraryService: ItineraryService = config.useMocks ? mockItineraryService : httpItineraryService;

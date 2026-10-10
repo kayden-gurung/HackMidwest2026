@@ -42,14 +42,16 @@ If two features need the same data, the page passes it down as props (or you lif
 
 | Feature | UI | Service methods | Endpoint | Status |
 |---------|----|-----------------|----------|--------|
-| `trips` | Sidebar trip list, header | `listTrips()`, `getTrip(id)` | `GET /api/trips`, `GET /api/trips/{id}` | proposed |
-| `chat` | Conversation, composer, suggestion chips | `getConversation(tripId)` | `GET /api/trips/{id}/messages` | proposed |
+| `trips` | Sidebar trip list (select, search, "New journey"), header | `listTrips()`, `getTrip(id)`, `createTrip()`, `renameTrip(id, title)` | `GET /api/trips`, `GET /api/trips/{id}` | **local** (browser memory), endpoints proposed |
+| `chat` | Conversation, composer, suggestion chips | `getConversation(tripId)` | `GET /api/trips/{id}/messages` | **local** (browser memory), endpoint proposed |
 | | | `sendMessage(tripId, prompt)` | `POST /api/ask` `{prompt}` → `{reply}` | **implemented** |
 | `itinerary` | Plan / Map / Budget panel | `getItinerary(tripId)` | `GET /api/trips/{id}/itinerary` | proposed |
 | `profile` | Travel style card, user card | `getProfile()` | `GET /api/me` | proposed |
 | (health) | none | none | `GET /api/health` → `{ok}` | **implemented** |
 
 The exact JSON shapes are the TypeScript interfaces in each feature's `types.ts`. Proposed endpoints are only what the current UI needs to render; nothing about storage, auth, or AI behavior has been decided. When the backend implements one, match its Pydantic models to that `types.ts` (or update both together in one PR).
+
+Journeys and their conversations are saved locally for now: `features/trips/api/tripsService.ts` and `features/chat/api/conversationStore.ts` keep them in browser memory, in both mock and real mode. They survive switching between journeys and reset on page reload. `PlannerPage` owns which journey is open and passes its id to the chat and itinerary features. A new journey is titled from the traveler's first message. With mocks on, the list starts with the Figma sample trips; with mocks off it starts with one empty journey. A trip with no itinerary shows an empty Plan panel, not an error.
 
 `POST /api/ask` ignores the trip today: it sends only the prompt to a Strands `Agent()` (Amazon Bedrock), so it needs AWS keys in `backend/.env`. Without keys it returns 500 and the chat shows "Roam couldn't reply".
 

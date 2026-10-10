@@ -1,39 +1,23 @@
-import { useCallback, useState } from "react";
-import { useAsync } from "../../../hooks/useAsync";
-import { createId } from "../../../lib/mock";
+import { useCallback, useSyncExternalStore } from "react";
 import { chatService } from "../api/chatService";
-import type { ChatMessage } from "../types";
+import { conversationStore } from "../api/conversationStore";
 
-export type SendStatus = "idle" | "sending" | "error";
+export type { SendStatus } from "../api/conversationStore";
 
-/** Loads a trip's conversation and sends new messages through chatService. */
+/** A trip's saved conversation, kept in sync with conversationStore, and a way to send new messages. */
 export function useChat(tripId: string) {
-  const history = useAsync(() => chatService.getConversation(tripId), [tripId]);
-  const [sent, setSent] = useState<ChatMessage[]>([]);
-  const [sendStatus, setSendStatus] = useState<SendStatus>("idle");
+  const messages = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getMessages(tripId));
+  const sendStatus = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getStatus(tripId));
 
   const send = useCallback(
-    async (text: string) => {
+    (text: string) => {
       const prompt = text.trim();
-      if (!prompt) return;
-      setSent((current) => [...current, { id: createId(), role: "user", text: prompt }]);
-      setSendStatus("sending");
-      try {
-        const reply = await chatService.sendMessage(tripId, prompt);
-        setSent((current) => [...current, reply]);
-        setSendStatus("idle");
-      } catch {
-        setSendStatus("error");
-      }
+      if (!prompt || conversationStore.getStatus(tripId) === "sending") return;
+      // Failures are recorded in the store as the "error" status, which the panel renders.
+      chatService.sendMessage(tripId, prompt).catch(() => undefined);
     },
     [tripId],
   );
 
-  return {
-    messages: [...(history.data ?? []), ...sent],
-    historyStatus: history.status,
-    reloadHistory: history.reload,
-    sendStatus,
-    send,
-  };
+  return { messages, sendStatus, send };
 }

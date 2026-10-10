@@ -7,8 +7,15 @@ import type { PlanningMode } from "../types";
 const planningModes: PlanningMode[] = ["Co-pilot", "Surprise me"];
 
 /** Top bar: current trip title and summary, planning-mode toggle, and the overflow menu button. */
-export function TripHeader({ tripId, leading }: { tripId: string; leading?: ReactNode }) {
-  const trip = useTrip(tripId);
+export function TripHeader({ tripId, title, leading }: { tripId: string; title: string; leading?: ReactNode }) {
+  // The title comes from the sidebar's list so it updates the moment a journey is named.
+  const trip = useTrip(tripId, title);
+  const details = trip.status === "success" ? trip.data : undefined;
+  const summary = [
+    details?.startDate && details.endDate ? formatDateRange(details.startDate, details.endDate) : undefined,
+    details?.travelers ? `${details.travelers} ${details.travelers === 1 ? "traveler" : "travelers"}` : undefined,
+    details?.origin ? `From ${details.origin}` : undefined,
+  ].filter(Boolean);
   // Only visual for now. Lift into the page and pass to the chat feature when the backend uses it.
   const [mode, setMode] = useState<PlanningMode>("Co-pilot");
 
@@ -17,16 +24,8 @@ export function TripHeader({ tripId, leading }: { tripId: string; leading?: Reac
       <div className="flex items-center gap-3">
         {leading}
         <div>
-          {trip.status === "success" ? (
-            <>
-              <div className="font-display text-lg font-semibold">{trip.data.title}</div>
-              <div className="hidden text-xs text-muted sm:block">
-                {formatDateRange(trip.data.startDate, trip.data.endDate)} · {trip.data.travelers} travelers · From {trip.data.origin}
-              </div>
-            </>
-          ) : (
-            <div className="font-display text-lg font-semibold text-muted">{trip.status === "error" ? "Couldn’t load trip" : "Loading trip…"}</div>
-          )}
+          <div className="font-display text-lg font-semibold">{title}</div>
+          <div className="hidden text-xs text-muted sm:block">{trip.status === "loading" ? "\u00a0" : summary.length > 0 ? summary.join(" · ") : "No dates yet. Tell Roam where you want to go."}</div>
         </div>
       </div>
       <div className="flex items-center gap-2">
