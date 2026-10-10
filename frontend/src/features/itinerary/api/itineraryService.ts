@@ -25,4 +25,10 @@ export const httpItineraryService: ItineraryService = {
   },
 };
 
-export const itineraryService: ItineraryService = config.useMocks ? mockItineraryService : httpItineraryService;
+/** Real backend for real journeys, but the example journey keeps its mock itinerary so the map and budget stay filled in. */
+const realWithExample: ItineraryService = {
+  getItinerary: (tripId) =>
+    config.showExample && tripId in mockItineraries ? mockItineraryService.getItinerary(tripId) : httpItineraryService.getItinerary(tripId),
+};
+
+export const itineraryService: ItineraryService = config.useMocks ? mockItineraryService : realWithExample;

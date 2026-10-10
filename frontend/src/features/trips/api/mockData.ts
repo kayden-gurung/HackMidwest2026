@@ -2,6 +2,9 @@ import type { TripCard, TripDetails, TripSummary } from "../types";
 
 // MOCK DATA: example content from the Figma design. Replace by switching tripsService to the http implementation.
 
+/** The one fully built-out example journey, kept in the sidebar even with mocks off (config.showExample). */
+export const EXAMPLE_TRIP_ID = "puglia";
+
 export const mockTrips: TripSummary[] = [
   { id: "puglia", title: "A slow week in Puglia", country: "Italy", budgetUsd: 3200 },
   { id: "patagonia", title: "Hiking in Patagonia", country: "Chile", budgetUsd: 4800 },

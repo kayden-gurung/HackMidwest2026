@@ -2,7 +2,7 @@ import { config } from "../../../config/env";
 import { api } from "../../../lib/apiClient";
 import { createId, mockResponse } from "../../../lib/mock";
 import type { TripCard, TripDetails, TripSummary } from "../types";
-import { mockTripCards, mockTripDetails, mockTrips } from "./mockData";
+import { EXAMPLE_TRIP_ID, mockTripCards, mockTripDetails, mockTrips } from "./mockData";
 
 export interface TripsService {
   listTrips(): Promise<TripSummary[]>;
@@ -25,8 +25,19 @@ export const DRAFT_TITLE = "New journey";
  * trips; with mocks off it starts with one empty journey so the real backend gets a clean slate.
  */
 const newDraft = (): TripSummary => ({ id: createId(), title: DRAFT_TITLE, isDraft: true });
-let trips: TripSummary[] = config.useMocks ? structuredClone(mockTrips) : [newDraft()];
-const details: Record<string, TripDetails> = config.useMocks ? structuredClone(mockTripDetails) : {};
+const exampleTrips = mockTrips.filter((trip) => trip.id === EXAMPLE_TRIP_ID);
+const exampleDetails = { [EXAMPLE_TRIP_ID]: mockTripDetails[EXAMPLE_TRIP_ID] };
+// With mocks off: the Puglia example (if showExample) is listed first and opens on load; "New journey" makes real ones.
+let trips: TripSummary[] = config.useMocks
+  ? structuredClone(mockTrips)
+  : config.showExample
+    ? structuredClone(exampleTrips)
+    : [newDraft()];
+const details: Record<string, TripDetails> = config.useMocks
+  ? structuredClone(mockTripDetails)
+  : config.showExample
+    ? structuredClone(exampleDetails)
+    : {};
 
 export const localTripsService: TripsService = {
   listTrips: () => mockResponse(trips),
