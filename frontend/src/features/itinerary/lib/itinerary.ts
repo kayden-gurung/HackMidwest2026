@@ -2,7 +2,20 @@ import { parseIsoDate } from "../../../lib/format";
 import type { BudgetCategory, Itinerary, ItineraryItem } from "../types";
 
 /** The Budget sections, in the order they are shown. */
-export const budgetCategories: BudgetCategory[] = ["Flights", "Stays", "Food", "Activities"];
+export const budgetCategories: BudgetCategory[] = ["Flights", "Driving", "Stays", "Food", "Activities"];
+
+/**
+ * The Budget sections to show for these items. A trip is usually either flown or driven, so an empty
+ * "Driving" section is hidden, and an empty "Flights" section is hidden on a trip that has driving costs.
+ */
+export function visibleBudgetCategories(items: ItineraryItem[]): BudgetCategory[] {
+  const has = (category: BudgetCategory) => items.some((item) => item.category === category);
+  return budgetCategories.filter((category) => {
+    if (category === "Driving") return has("Driving");
+    if (category === "Flights") return has("Flights") || !has("Driving");
+    return true;
+  });
+}
 
 function toIsoDate(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");

@@ -1,6 +1,6 @@
 import { Icon } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
-import { budgetCategories, budgetTotals, inTripOrder, totalCost } from "../lib/itinerary";
+import { budgetTotals, inTripOrder, totalCost, visibleBudgetCategories } from "../lib/itinerary";
 import type { Itinerary } from "../types";
 import { categoryStyle } from "./categoryStyle";
 import { ItemRow } from "./ItemRow";
@@ -20,7 +20,7 @@ export function BudgetView({ itinerary, onShowOnMap }: { itinerary: Itinerary; o
       <p className="mt-3 text-xs leading-5 text-muted">Planning estimates, not live quotes or bookings.{unknownCosts > 0 && ` ${unknownCosts} ${unknownCosts === 1 ? "item has" : "items have"} an unknown cost and ${unknownCosts === 1 ? "is" : "are"} excluded from this total.`}</p>
 
       <div className="mt-6 space-y-6">
-        {budgetCategories.map((category) => {
+        {visibleBudgetCategories(itinerary.items).map((category) => {
           const items = inTripOrder(itinerary.items.filter((item) => item.category === category));
           const style = categoryStyle[category];
           return (

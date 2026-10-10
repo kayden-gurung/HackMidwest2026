@@ -17,6 +17,11 @@ export interface JourneyRequest {
   dates: DateRange | null;
   /** Where the trip starts: any free-text place, e.g. "New York · JFK" or "Omaha, NE". May be empty. */
   origin: string;
+  /**
+   * True when the traveler wants to drive rather than fly. False means no preference: Roam may still
+   * suggest driving when flights would not fit the budget.
+   */
+  roadTrip: boolean;
   /** At least 1. */
   adults: number;
   /** Travelers under 18. */

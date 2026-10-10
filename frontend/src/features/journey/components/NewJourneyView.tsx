@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Action, Icon, ScreenHeader } from "../../../components/ui";
+import { Action, Icon, ScreenHeader, Toggle } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
 import { useProfile } from "../../profile";
 import { budgetSliderUsd, journeyDefaults, travelerLimits, vibes } from "../api/mockData";
@@ -44,10 +44,11 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
   // Starts as the home airport from the Settings profile card; the traveler can type any other place.
   const { homeAirport } = useProfile();
   const [origin, setOrigin] = useState(homeAirport || journeyDefaults.origin);
+  const [roadTrip, setRoadTrip] = useState(journeyDefaults.roadTrip);
   const [adults, setAdults] = useState(journeyDefaults.adults);
   const [children, setChildren] = useState(journeyDefaults.children);
 
-  const findTrip = () => onStart({ prompt: prompt.trim(), vibe, budgetUsd, dates, origin: origin.trim(), adults, children });
+  const findTrip = () => onStart({ prompt: prompt.trim(), vibe, budgetUsd, dates, origin: origin.trim(), roadTrip, adults, children });
 
   return (
     <main className="flex min-w-0 flex-1 flex-col lg:h-screen">
@@ -141,7 +142,7 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
                 <DateRangePicker value={dates} onChange={setDates} />
               </div>
               <div className="rounded-2xl border border-line p-4">
-                <FieldLabel><Icon name="plane" className="size-3.5" /> Leaving from</FieldLabel>
+                <FieldLabel><Icon name={roadTrip ? "car" : "plane"} className="size-3.5" /> {roadTrip ? "Driving from" : "Leaving from"}</FieldLabel>
                 <input
                   type="text"
                   value={origin}
@@ -160,8 +161,20 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
               </div>
             </div>
 
+            {/* Road trip switch */}
+            <div className={`mt-3 flex items-center gap-4 rounded-2xl border p-4 ${roadTrip ? "border-sea bg-mint/50" : "border-line"}`}>
+              <div className={`grid size-9 shrink-0 place-items-center rounded-xl ${roadTrip ? "bg-sea text-white" : "bg-panel text-muted"}`}><Icon name="car" className="size-4" /></div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold">Make it a road trip</div>
+                <div className="mt-0.5 text-xs leading-5 text-muted">
+                  {roadTrip ? "Roam plans a drive from your starting point: route, stops and fuel, no flights." : "Drive instead of flying. Left off, Roam still suggests driving if flights don’t fit your budget."}
+                </div>
+              </div>
+              <Toggle label="Make it a road trip" checked={roadTrip} onChange={() => setRoadTrip((current) => !current)} />
+            </div>
+
             <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-line pt-5 sm:flex-row">
-              <div className="text-xs text-muted">For {describeParty(adults, children)} · Flights included</div>
+              <div className="text-xs text-muted">For {describeParty(adults, children)} · {roadTrip ? "Driving, no flights" : "Flying or driving, whichever fits"}</div>
               <Action onClick={findTrip} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sea px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-deep sm:w-auto">
                 Find my trip <Icon name="sparkles" className="size-4 text-sun" />
               </Action>
