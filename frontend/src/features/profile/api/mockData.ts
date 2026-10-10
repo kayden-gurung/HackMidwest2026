@@ -5,5 +5,4 @@ import type { UserProfile } from "../types";
 export const mockProfile: UserProfile = {
   name: "Alex Morgan",
   plan: "Explorer plan",
-  travelStyle: "Slow mornings, local food, a little adventure.",
 };
