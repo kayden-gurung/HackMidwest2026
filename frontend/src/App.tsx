@@ -7,11 +7,12 @@
  *   - Right panel: Plan / Map / Budget tabs for the current trip
  * On smaller screens the side panels are hidden and only the chat is shown.
  *
- * NOTE: All trip content below (Puglia trip, flights, stays, budget) is placeholder
- * data from the design. It will be replaced by responses from the Strands agent
- * backend via /api.
+ * Chat uses the Strands backend via /api. Sidebar trips and the right-hand
+ * Puglia itinerary remain sample data from the design.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import { askRoam, type ChatMessage } from "./api/chat";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -78,16 +79,18 @@ function Action({
   onClick,
   className = "",
   label,
+  disabled = false,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   className?: string;
   label?: string;
+  disabled?: boolean;
 }) {
   return (
-    <div role="button" aria-label={label} tabIndex={0} onClick={onClick} onKeyDown={(event) => event.key === "Enter" && onClick?.()} className={`cursor-pointer select-none transition-all active:scale-[0.98] ${className}`}>
+    <button type="button" aria-label={label} disabled={disabled} onClick={onClick} className={`cursor-pointer select-none transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${className}`}>
       {children}
-    </div>
+    </button>
   );
 }
 
@@ -115,25 +118,64 @@ const calendarDays = [
 // App
 // ---------------------------------------------------------------------------
 
+type ChatTurn = { id: number; prompt: string; reply?: string; error?: string; pending: boolean };
+
 export default function App() {
   // Selected tab in the right-hand trip panel: "Plan" | "Map" | "Budget".
   const [activeView, setActiveView] = useState("Plan");
-  // Messages the traveler has sent in this session (shown after the sample conversation).
-  const [messages, setMessages] = useState<string[]>([]);
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [draft, setDraft] = useState("");
   // How much the agent decides on its own: "Co-pilot" (asks first) or "Surprise me".
-  const [involvement, setInvolvement] = useState("Co-pilot");
-  // The composer is a contentEditable div, so its text is read through a ref rather than state.
-  const composerRef = useRef<HTMLDivElement>(null);
+  const [involvement, setInvolvement] = useState<"Co-pilot" | "Surprise me">("Co-pilot");
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const requestRef = useRef<AbortController | null>(null);
+  const nextId = useRef(0);
+  const pending = turns.some((turn) => turn.pending);
 
-  /**
-   * Adds the composer text to the chat and clears the input.
-   * TODO: POST the message to the backend agent (/api) and render its reply.
-   */
-  const sendMessage = () => {
-    const value = composerRef.current?.innerText.trim();
-    if (!value) return;
-    setMessages((current) => [...current, value]);
-    if (composerRef.current) composerRef.current.innerText = "";
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ block: "end" }); }, [turns]);
+  useEffect(() => () => requestRef.current?.abort(), []);
+
+  const sendMessage = async (text = draft, retryId?: number) => {
+    const value = text.trim();
+    if (!value || requestRef.current) return;
+    const id = retryId ?? nextId.current++;
+    // Only successful exchanges become model context. Keep the last 20 turns
+    // within the API's 40-message limit, with no context shared across users.
+    const history: ChatMessage[] = turns.filter((turn) => turn.reply && turn.id < id).slice(-20).flatMap((turn) => [
+      { role: "user", content: turn.prompt },
+      { role: "assistant", content: turn.reply! },
+    ]);
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setTurns((current) => retryId === undefined
+      ? [...current, { id, prompt: value, pending: true }]
+      : current.map((turn) => turn.id === id ? { ...turn, error: undefined, pending: true } : turn));
+    if (retryId === undefined) setDraft("");
+    const timeout = window.setTimeout(() => controller.abort(), 180000);
+    try {
+      const reply = await askRoam(value, history, involvement, controller.signal);
+      setTurns((current) => current.map((turn) => turn.id === id ? { ...turn, reply, pending: false } : turn));
+    } catch (error) {
+      const detail = controller.signal.aborted
+        ? "Roam took too long to respond. Please try again."
+        : error instanceof TypeError
+          ? "Cannot reach Roam. Check your connection and try again."
+          : error instanceof Error ? error.message : "Something went wrong. Please try again.";
+      setTurns((current) => current.map((turn) => turn.id === id ? { ...turn, error: detail, pending: false } : turn));
+    } finally {
+      window.clearTimeout(timeout);
+      requestRef.current = null;
+      composerRef.current?.focus();
+    }
+  };
+
+  const newJourney = () => {
+    if (requestRef.current) return;
+    setTurns([]);
+    setDraft("");
+    setActiveView("Plan");
+    composerRef.current?.focus();
   };
 
   return (
@@ -146,7 +188,7 @@ export default function App() {
             <div className="font-display text-xl font-semibold tracking-tight">Roam</div>
           </div>
 
-          <Action className="mt-5 flex items-center gap-2 rounded-xl bg-ink px-3.5 py-3 text-sm font-semibold text-white shadow-sm">
+          <Action onClick={newJourney} disabled={pending} className="mt-5 flex w-full items-center gap-2 rounded-xl bg-ink px-3.5 py-3 text-sm font-semibold text-white shadow-sm">
             <Icon name="plus" className="size-4" /> New journey
           </Action>
 
@@ -155,10 +197,10 @@ export default function App() {
             <div>Search your trips</div>
           </div>
 
-          <div className="mt-7 px-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted">Recent journeys</div>
+          <div className="mt-7 px-2 text-[11px] font-bold uppercase tracking-[0.16em] text-muted">Example journeys</div>
           <div className="mt-2 space-y-1">
             {history.map((item) => (
-              <Action key={item.title} className={`group rounded-xl px-3 py-3 ${item.active ? "bg-white shadow-sm ring-1 ring-line" : "hover:bg-white/60"}`}>
+              <Action key={item.title} className={`group w-full rounded-xl px-3 py-3 text-left ${item.active ? "bg-white shadow-sm ring-1 ring-line" : "hover:bg-white/60"}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="text-sm font-semibold">{item.title}</div>
@@ -195,19 +237,19 @@ export default function App() {
             <div className="flex items-center gap-3">
               <div className="grid size-8 place-items-center rounded-xl bg-ink text-white lg:hidden"><Icon name="compass" className="size-5" /></div>
               <div>
-                <div className="font-display text-lg font-semibold">A slow week in Puglia</div>
-                <div className="hidden text-xs text-muted sm:block">Jun 18–25 · 2 travelers · From New York</div>
+                <div className="font-display text-lg font-semibold">Your next journey</div>
+                <div className="text-xs text-muted">Plan your trip with Roam</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="hidden items-center gap-1 rounded-full border border-line bg-white p-1 sm:flex">
-                {["Co-pilot", "Surprise me"].map((item) => (
-                  <Action key={item} onClick={() => setInvolvement(item)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${involvement === item ? "bg-ink text-white" : "text-muted hover:text-ink"}`}>
+                {(["Co-pilot", "Surprise me"] as const).map((item) => (
+                  <Action key={item} disabled={pending} onClick={() => setInvolvement(item)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${involvement === item ? "bg-ink text-white" : "text-muted hover:text-ink"}`}>
                     {item}
                   </Action>
                 ))}
               </div>
-              <Action className="grid size-9 place-items-center rounded-full border border-line bg-white"><Icon name="more" className="size-5" /></Action>
+              <Action label="New journey" onClick={newJourney} disabled={pending} className="grid size-9 place-items-center rounded-full border border-line bg-white lg:hidden"><Icon name="plus" className="size-5" /></Action>
             </div>
           </header>
 
@@ -216,90 +258,64 @@ export default function App() {
             <section className="flex min-h-0 flex-col border-line xl:border-r">
               <div className="flex-1 overflow-y-auto px-5 py-7 md:px-10 lg:px-12">
                 <div className="mx-auto max-w-3xl">
-                  {/* Sample traveler request */}
-                  <div className="mb-8 flex justify-end">
-                    <div className="max-w-xl rounded-[22px] rounded-tr-md bg-ink px-5 py-4 text-[15px] leading-relaxed text-white">
-                      I want a relaxing beach trip somewhere in Europe with great food and a little hiking. Around $3,200 for two, including flights from NYC.
-                    </div>
-                  </div>
-
-                  {/* Sample agent reply: destination card, best flight and quick follow-up chips */}
-                  <div className="flex gap-3">
-                    <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-sea text-white"><Icon name="sparkles" className="size-4" /></div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-bold">Roam</div>
-                      <div className="mt-2 text-[15px] leading-7 text-ink/80">
-                        Puglia feels just right. You’ll get Adriatic coves, incredible cucina povera, and coastal trails—without the Amalfi crowds or prices.
-                      </div>
-
-                      <div className="mt-5 overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
-                        <div className="relative h-48 overflow-hidden md:h-56">
-                          <img
-                            src="https://images.unsplash.com/photo-1770493967117-6ae3927c0d05?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=85&w=1400"
-                            alt="Clifftop homes along the turquoise coast of Polignano a Mare, Puglia"
-                            className="size-full object-cover"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                          <div className="absolute bottom-0 p-5 text-white">
-                            <div className="mb-2 inline-flex rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest backdrop-blur">Top match · 94%</div>
-                            <div className="font-display text-2xl font-semibold">Puglia, Italy</div>
-                            <div className="mt-1 text-sm text-white/80">Bari · Polignano a Mare · Alberobello</div>
-                          </div>
+                  {turns.length === 0 && (
+                    <div className="flex gap-3">
+                      <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-sea text-white"><Icon name="sparkles" className="size-4" /></div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold">Roam</div>
+                        <h1 className="mt-3 font-display text-3xl font-semibold">A great trip starts with an idea.</h1>
+                        <p className="mt-3 text-[15px] leading-7 text-ink/80">Tell me where you'd like to go, your dates, budget, and who's coming. We'll build a plan together, then adjust it as you go.</p>
+                        <div className="mt-5 flex flex-wrap gap-2">
+                          {[
+                            ["A weekend in Kansas City", "Plan a two-day Kansas City trip for two travelers with a $300 total budget for activities and meals. We like museums and local food. Lodging and travel to the city are excluded."],
+                            ["A relaxing week in Italy", "Help me plan a relaxing week in Puglia for two travelers. We like beaches, local food, and easy hikes. Our total budget is $3200 including flights from New York. Ask me what else you need."],
+                            ["Surprise me with a getaway", "Suggest three destinations for a relaxing three-day US getaway for two travelers with a $1000 total budget, excluding travel to the destination. We like local food and nature."],
+                          ].map(([label, prompt]) => (
+                            <Action key={label} onClick={() => void sendMessage(prompt)} disabled={pending} className="rounded-full border border-line bg-white px-3.5 py-2 text-xs font-semibold hover:border-sea hover:text-sea">{label}</Action>
+                          ))}
                         </div>
-                        <div className="grid grid-cols-3 divide-x divide-line">
-                          <div className="p-4"><div className="text-xs text-muted">Est. total</div><div className="mt-1 font-bold">$3,080</div></div>
-                          <div className="p-4"><div className="text-xs text-muted">Round trip</div><div className="mt-1 font-bold">$648 pp</div></div>
-                          <div className="p-4"><div className="text-xs text-muted">Trip pace</div><div className="mt-1 font-bold">Relaxed</div></div>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 rounded-2xl border border-line bg-white p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 text-sm font-bold"><Icon name="plane" className="size-4 text-sea" /> Best flight option</div>
-                          <div className="rounded-full bg-mint px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sea">Within budget</div>
-                        </div>
-                        <div className="mt-4 flex items-center gap-4">
-                          <div><div className="text-lg font-bold">6:10 PM</div><div className="text-xs text-muted">JFK</div></div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 text-[10px] text-muted"><div className="h-px flex-1 bg-line" /> 10h 25m · 1 stop <div className="h-px flex-1 bg-line" /></div>
-                          </div>
-                          <div className="text-right"><div className="text-lg font-bold">12:35 PM</div><div className="text-xs text-muted">BRI +1</div></div>
-                          <div className="hidden border-l border-line pl-4 text-right sm:block"><div className="font-bold">$648</div><div className="text-xs text-muted">per person</div></div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {["Swap the boat tour", "Show hotel options", "Make it more relaxing"].map((label) => (
-                          <Action key={label} className="rounded-full border border-line bg-white px-3.5 py-2 text-xs font-semibold hover:border-sea hover:text-sea">{label}</Action>
-                        ))}
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Messages sent by the traveler in this session */}
-                  {messages.map((message, index) => (
-                    <div key={`${message}-${index}`} className="mt-7 flex justify-end">
-                      <div className="max-w-xl rounded-[22px] rounded-tr-md bg-ink px-5 py-4 text-[15px] leading-relaxed text-white">{message}</div>
+                  {turns.map((turn, index) => (
+                    <div key={turn.id} className="mb-8">
+                      <div className="flex justify-end">
+                        <div className="max-w-xl whitespace-pre-wrap rounded-[22px] rounded-tr-md bg-ink px-5 py-4 text-[15px] leading-relaxed text-white">{turn.prompt}</div>
+                      </div>
+                      <div className="mt-6 flex gap-3">
+                        <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-sea text-white"><Icon name="sparkles" className="size-4" /></div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-bold">Roam</div>
+                          {turn.pending && <div role="status" className="mt-2 flex items-center gap-2 text-sm text-muted"><span className="size-2 rounded-full bg-sea motion-safe:animate-pulse" />Planning your journey…</div>}
+                          {turn.reply && <div className="chat-response mt-2 text-[15px] leading-7 text-ink/90"><Markdown components={{ a: ({ children, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer">{children}</a> }}>{turn.reply}</Markdown></div>}
+                          {turn.error && <div role="alert" className="mt-3 rounded-xl border border-coral/30 bg-peach/50 p-4 text-sm leading-6"><p>{turn.error}</p>{index === turns.length - 1 && <Action onClick={() => void sendMessage(turn.prompt, turn.id)} disabled={pending} className="mt-2 font-semibold text-sea underline">Try again</Action>}</div>}
+                        </div>
+                      </div>
                     </div>
                   ))}
+                  <div ref={chatEndRef} />
                 </div>
               </div>
 
               {/* Composer: Enter sends, Shift+Enter adds a new line */}
               <div className="shrink-0 px-5 pb-5 pt-2 md:px-10 lg:px-12">
                 <div className="mx-auto max-w-3xl rounded-2xl border border-line bg-white p-2 shadow-[0_12px_40px_rgba(18,38,38,0.08)]">
-                  <div
+                  <textarea
                     ref={composerRef}
                     role="textbox"
                     aria-label="Message Roam"
-                    contentEditable
-                    suppressContentEditableWarning
-                    data-placeholder="Ask Roam to change anything..."
-                    className="composer min-h-12 px-3 py-3 text-sm leading-6 outline-none"
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    disabled={pending}
+                    maxLength={8000}
+                    rows={2}
+                    placeholder="Where would you like to go?"
+                    className="min-h-12 max-h-40 w-full resize-y px-3 py-3 text-sm leading-6 outline-none placeholder:text-muted disabled:opacity-60"
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
+                      if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                         event.preventDefault();
-                        sendMessage();
+                        void sendMessage();
                       }
                     }}
                   />
@@ -308,7 +324,7 @@ export default function App() {
                       <Action className="grid size-8 place-items-center rounded-full border border-line text-muted"><Icon name="plus" className="size-4" /></Action>
                       <div className="text-xs text-muted">Roam can make mistakes. Check key details.</div>
                     </div>
-                    <Action label="Send message" onClick={sendMessage} className="grid size-9 place-items-center rounded-xl bg-sea text-white hover:bg-ink"><Icon name="send" className="size-4" /></Action>
+                    <Action label="Send message" disabled={pending || !draft.trim()} onClick={() => void sendMessage()} className="grid size-9 place-items-center rounded-xl bg-sea text-white hover:bg-ink"><Icon name="send" className="size-4" /></Action>
                   </div>
                 </div>
               </div>
@@ -325,6 +341,7 @@ export default function App() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-5">
+                <div className="mb-5 rounded-xl border border-line bg-white p-3 text-xs leading-5 text-muted"><span className="font-semibold text-ink">Example itinerary</span><br />These Puglia details are sample data. Your live plan and revisions appear in the conversation.</div>
                 {/* Plan tab: day-by-day itinerary, stays and restaurants, budget summary */}
                 {activeView === "Plan" && (
                   <>

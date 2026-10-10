@@ -51,6 +51,17 @@ body {
   color: var(--color-ink);
 }
 
+.chat-response > * + * { margin-top: 0.85rem; }
+.chat-response h1, .chat-response h2, .chat-response h3 { font-weight: 700; margin-top: 1rem; }
+.chat-response ul, .chat-response ol { padding-left: 1.4rem; }
+.chat-response ul { list-style: disc; }
+.chat-response ol { list-style: decimal; }
+.chat-response li + li { margin-top: 0.35rem; }
+.chat-response a { color: var(--color-sea); text-decoration: underline; overflow-wrap: anywhere; }
+.chat-response pre { overflow-x: auto; padding: 0.75rem; border-radius: 0.75rem; background: var(--color-panel); }
+.chat-response blockquote { border-left: 3px solid var(--color-line); padding-left: 1rem; }
+.chat-response { overflow-wrap: anywhere; }
+
 /* Placeholder text for the contentEditable chat composer, which has no native placeholder. */
 .composer:empty::before {
   content: attr(data-placeholder);
