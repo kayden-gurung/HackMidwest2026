@@ -63,7 +63,7 @@ export function JourneyListItem({
     setMode("idle");
   };
 
-  const rowStyle = active ? "bg-white shadow-sm ring-1 ring-line" : "hover:bg-white/60";
+  const rowStyle = active ? "bg-surface shadow-sm ring-1 ring-line" : "hover:bg-surface/60";
 
   if (mode === "renaming") {
     return (
@@ -79,7 +79,7 @@ export function JourneyListItem({
           onBlur={() => finishRename(true)}
           aria-label="Journey name"
           maxLength={80}
-          className="w-full rounded-lg border border-sea bg-white px-2 py-1.5 text-sm font-semibold text-ink outline-none"
+          className="w-full rounded-lg border border-sea bg-surface px-2 py-1.5 text-sm font-semibold text-ink outline-none"
         />
         <div className="mt-1.5 px-0.5 text-[11px] text-muted">Enter to save · Esc to cancel</div>
       </div>
@@ -103,7 +103,7 @@ export function JourneyListItem({
       </Action>
 
       {mode === "menu" && (
-        <div role="menu" className="absolute right-2 top-10 z-20 w-40 overflow-hidden rounded-xl border border-line bg-white py-1 text-sm shadow-lg">
+        <div role="menu" className="absolute right-2 top-10 z-20 w-40 overflow-hidden rounded-xl border border-line bg-surface py-1 text-sm shadow-lg">
           <Action onClick={startRename} className="flex items-center gap-2 px-3 py-2 font-semibold hover:bg-panel">
             <Icon name="pencil" className="size-3.5 text-muted" /> Rename
           </Action>
@@ -114,7 +114,7 @@ export function JourneyListItem({
       )}
 
       {mode === "confirmDelete" && (
-        <div role="alertdialog" aria-label="Delete journey" className="absolute right-2 top-10 z-20 w-52 rounded-xl border border-line bg-white p-3 text-sm shadow-lg">
+        <div role="alertdialog" aria-label="Delete journey" className="absolute right-2 top-10 z-20 w-52 rounded-xl border border-line bg-surface p-3 text-sm shadow-lg">
           <div className="font-semibold">Delete this journey?</div>
           <div className="mt-1 text-xs text-muted">“{title}” and its plan will be removed.</div>
           <div className="mt-3 flex justify-end gap-2">

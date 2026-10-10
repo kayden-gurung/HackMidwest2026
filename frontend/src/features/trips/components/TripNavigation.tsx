@@ -52,14 +52,14 @@ export function TripNavigation({
           setQuery("");
           onNewTrip();
         }}
-        className="mt-5 flex items-center gap-2 rounded-xl bg-ink px-3.5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-sea"
+        className="mt-5 flex items-center gap-2 rounded-xl bg-deep px-3.5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-sea"
       >
         <Icon name="plus" className="size-4" /> New journey
       </Action>
 
       {links}
 
-      <div className="mt-7 flex items-center gap-2 rounded-xl border border-line bg-white/60 px-3 py-2.5 text-sm text-muted transition-colors focus-within:border-sea focus-within:bg-white">
+      <div className="mt-7 flex items-center gap-2 rounded-xl border border-line bg-surface/60 px-3 py-2.5 text-sm text-muted transition-colors focus-within:border-sea focus-within:bg-surface">
         <Icon name="search" className="size-4 shrink-0" />
         <input
           type="text"

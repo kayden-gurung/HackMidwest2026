@@ -20,7 +20,7 @@ const COLLAPSED_DAY_COUNT = 4;
 function PlaceCard({ place }: { place: Place }) {
   const isStay = place.kind === "stay";
   return (
-    <div className="rounded-2xl border border-line bg-white p-3">
+    <div className="rounded-2xl border border-line bg-surface p-3">
       <div className={`grid size-8 place-items-center rounded-lg ${isStay ? "bg-mint text-sea" : "bg-peach text-coral"}`}>
         <Icon name={isStay ? "hotel" : "utensils"} className="size-4" />
       </div>
@@ -74,12 +74,12 @@ export function PlanView({
 
           return (
             <div key={isoDate}>
-              <Action onClick={() => toggleDay(isoDate)} label={`${open ? "Hide" : "Show"} details for ${title}`} className="group grid grid-cols-[44px_1fr] gap-3 rounded-xl p-2 hover:bg-white">
+              <Action onClick={() => toggleDay(isoDate)} label={`${open ? "Hide" : "Show"} details for ${title}`} className="group grid grid-cols-[44px_1fr] gap-3 rounded-xl p-2 hover:bg-surface">
                 <div className="text-center">
                   <div className="text-[9px] font-bold tracking-widest text-muted">{date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}</div>
                   <div className="mt-0.5 font-display text-xl font-semibold">{date.getDate()}</div>
                 </div>
-                <div className={`relative rounded-xl border border-line bg-white p-3 pl-4 shadow-sm before:absolute before:inset-y-3 before:left-0 before:w-1 before:rounded-r-full ${accentClass[headline?.accent ?? accentOrder[dayIndex % accentOrder.length]]}`}>
+                <div className={`relative rounded-xl border border-line bg-surface p-3 pl-4 shadow-sm before:absolute before:inset-y-3 before:left-0 before:w-1 before:rounded-r-full ${accentClass[headline?.accent ?? accentOrder[dayIndex % accentOrder.length]]}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="text-sm font-bold">{title}</div>
@@ -118,7 +118,7 @@ export function PlanView({
         </>
       )}
 
-      <Action onClick={onOpenBudget} label="Open the budget breakdown" className="mt-7 block rounded-2xl bg-ink p-4 text-white">
+      <Action onClick={onOpenBudget} label="Open the budget breakdown" className="mt-7 block rounded-2xl bg-deep p-4 text-white">
         <div className="flex items-center justify-between text-xs"><span className="font-bold uppercase tracking-widest text-white/60">Budget</span><span className="font-bold">{formatUsd(spentUsd)} / {formatUsd(itinerary.budget.plannedUsd)}</span></div>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15"><div className={`h-full rounded-full ${remainingUsd < 0 ? "bg-coral" : "bg-sun"}`} style={{ width: `${Math.min(percentUsed, 100)}%` }} /></div>
         <div className="mt-3 flex justify-between text-[11px] text-white/60"><span>{flightsUsd > 0 && `Flights ${formatUsd(flightsUsd)}`}</span><span>{remainingUsd >= 0 ? `${formatUsd(remainingUsd)} left` : `${formatUsd(-remainingUsd)} over`}</span></div>

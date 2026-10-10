@@ -36,7 +36,7 @@ export function ExploreView({ onPlan }: { onPlan: (prompt: string) => void }) {
               <div className="text-xs font-bold uppercase tracking-[0.2em] text-sun">{featuredCollection.eyebrow}</div>
               <div className="mt-3 font-display text-4xl font-semibold md:text-5xl">{featuredCollection.title}</div>
               <div className="mt-3 text-sm leading-6 text-white/70">{featuredCollection.description}</div>
-              <Action onClick={() => onPlan(featuredCollection.prompt)} className="mt-5 flex w-fit items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-ink">
+              <Action onClick={() => onPlan(featuredCollection.prompt)} className="mt-5 flex w-fit items-center gap-2 rounded-xl bg-surface px-4 py-2.5 text-xs font-bold text-ink">
                 Explore the collection <Icon name="chevron" className="size-4" />
               </Action>
             </div>
@@ -45,7 +45,7 @@ export function ExploreView({ onPlan }: { onPlan: (prompt: string) => void }) {
           {/* Interest and budget filters */}
           <div className="mt-8 flex gap-2 overflow-x-auto pb-2">
             {filters.map((item) => (
-              <Action key={item} onClick={() => setFilter(item)} className={`whitespace-nowrap rounded-full border px-4 py-2 text-xs font-bold ${filter === item ? "border-ink bg-ink text-white" : "border-line bg-white text-muted"}`}>
+              <Action key={item} onClick={() => setFilter(item)} className={`whitespace-nowrap rounded-full border px-4 py-2 text-xs font-bold ${filter === item ? "border-deep bg-deep text-white" : "border-line bg-surface text-muted"}`}>
                 {item}
               </Action>
             ))}
@@ -64,7 +64,7 @@ export function ExploreView({ onPlan }: { onPlan: (prompt: string) => void }) {
                   <div className="mt-2 text-xs text-white/70">From {formatUsd(idea.fromPriceUsd)} · {idea.days} days</div>
                 </div>
                 {/* Save-for-later heart: visual only for now. */}
-                <div className="absolute right-3 top-3 grid size-9 place-items-center rounded-full bg-white/90 text-ink">♡</div>
+                <div className="absolute right-3 top-3 grid size-9 place-items-center rounded-full bg-surface/90 text-ink">♡</div>
               </Action>
             ))}
           </div>
@@ -74,7 +74,7 @@ export function ExploreView({ onPlan }: { onPlan: (prompt: string) => void }) {
             <div className="font-display text-2xl font-semibold">Because you like local food</div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               {foodIdeas.map((item) => (
-                <Action key={item.label} onClick={() => onPlan(item.label)} className="flex items-center gap-3 rounded-2xl border border-line bg-white p-3 shadow-sm hover:border-sea">
+                <Action key={item.label} onClick={() => onPlan(item.label)} className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-3 shadow-sm hover:border-sea">
                   <div className={`grid size-10 place-items-center rounded-xl ${item.tone}`}>
                     <Icon name={item.icon} className="size-5" />
                   </div>

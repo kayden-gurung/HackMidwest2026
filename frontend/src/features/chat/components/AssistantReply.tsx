@@ -15,7 +15,7 @@ export function AssistantReply({ message, onSuggestion }: { message: AssistantMe
         {message.suggestions && message.suggestions.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
             {message.suggestions.map((label) => (
-              <Action key={label} onClick={() => onSuggestion(label)} className="rounded-full border border-line bg-white px-3.5 py-2 text-xs font-semibold hover:border-sea hover:text-sea">{label}</Action>
+              <Action key={label} onClick={() => onSuggestion(label)} className="rounded-full border border-line bg-surface px-3.5 py-2 text-xs font-semibold hover:border-sea hover:text-sea">{label}</Action>
             ))}
           </div>
         )}

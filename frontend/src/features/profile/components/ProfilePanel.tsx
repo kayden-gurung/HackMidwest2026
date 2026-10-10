@@ -32,7 +32,7 @@ export function ProfilePanel({ onOpenSettings }: { onOpenSettings?: () => void }
           <div className="text-sm font-semibold">{name}</div>
           <div className="text-xs text-muted">{plan}</div>
         </div>
-        <Action label="Open settings" onClick={onOpenSettings} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-white hover:text-ink">
+        <Action label="Open settings" onClick={onOpenSettings} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface hover:text-ink">
           <Icon name="settings" className="size-4" />
         </Action>
       </div>

@@ -9,7 +9,7 @@ export function DestinationCard({ recommendation }: { recommendation: Destinatio
   ];
 
   return (
-    <div className="mt-5 overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+    <div className="mt-5 overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
       <div className="relative h-48 overflow-hidden md:h-56">
         <img src={recommendation.imageUrl} alt={recommendation.imageAlt} className="size-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />

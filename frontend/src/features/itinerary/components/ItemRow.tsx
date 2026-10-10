@@ -33,7 +33,7 @@ export function ItemRow({
   const when = [showDate ? formatDay(item.date) : undefined, item.time ? formatTime(item.time) : undefined, item.location?.name].filter(Boolean).join(" · ");
 
   return (
-    <div className={`rounded-xl border bg-white p-3 ${selected ? "border-sea ring-1 ring-sea" : "border-line"}`}>
+    <div className={`rounded-xl border bg-surface p-3 ${selected ? "border-sea ring-1 ring-sea" : "border-line"}`}>
       <div className="flex items-start gap-2.5">
         {markerNumber === undefined ? (
           <div className={`grid size-7 shrink-0 place-items-center rounded-lg ${style.chip}`}>
