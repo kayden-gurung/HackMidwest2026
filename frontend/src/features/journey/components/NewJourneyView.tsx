@@ -2,8 +2,10 @@ import { useState, type ReactNode } from "react";
 import { Action, Icon, ScreenHeader } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
 import { useProfile } from "../../profile";
-import { budgetOptionsUsd, journeyDefaults, vibes } from "../api/mockData";
-import type { JourneyRequest } from "../types";
+import { budgetSliderUsd, journeyDefaults, travelerLimits, vibes } from "../api/mockData";
+import { describeParty } from "../describeJourney";
+import type { DateRange, JourneyRequest } from "../types";
+import { DateRangePicker } from "./DateRangePicker";
 
 const HERO_IMAGE = "https://images.unsplash.com/photo-1763571588664-a8748e5e2b75?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=85&w=1000";
 
@@ -12,20 +14,40 @@ function FieldLabel({ children }: { children: ReactNode }) {
   return <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted">{children}</div>;
 }
 
+/** "Adults  − 2 +" row of the Travelers field. */
+function Stepper({ label, hint, value, min, max, onChange }: { label: string; hint: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+  const button = (enabled: boolean) => `grid size-7 place-items-center rounded-full border text-sm font-bold ${enabled ? "border-line hover:border-sea hover:text-sea" : "pointer-events-none border-line/50 text-muted/40"}`;
+  return (
+    <div className="flex items-center justify-between">
+      <div className="text-sm font-bold">
+        {label} <span className="text-[11px] font-semibold text-muted">{hint}</span>
+      </div>
+      <div className="flex items-center gap-2.5">
+        <Action onClick={() => value > min && onChange(value - 1)} label={`Fewer ${label.toLowerCase()}`} className={button(value > min)}>−</Action>
+        <span className="w-4 text-center text-sm font-bold" aria-live="polite">{value}</span>
+        <Action onClick={() => value < max && onChange(value + 1)} label={`More ${label.toLowerCase()}`} className={button(value < max)}>+</Action>
+      </div>
+    </div>
+  );
+}
+
 /**
- * "New journey" screen: the traveler describes a place or a vibe, picks a budget and dates,
- * and "Find my trip" hands the request to the planner.
+ * "New journey" screen: the traveler describes a place or a vibe, picks a budget, dates, a starting point
+ * and who is coming, and "Find my trip" hands the request to the planner.
  */
 export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (request: JourneyRequest) => void; initialPrompt?: string }) {
   const [prompt, setPrompt] = useState(initialPrompt);
   const [vibe, setVibe] = useState(journeyDefaults.vibe);
   const [budgetUsd, setBudgetUsd] = useState(journeyDefaults.budgetUsd);
-  const [flexibleDates, setFlexibleDates] = useState(journeyDefaults.flexibleDates);
-  const { travelers, fixedDates } = journeyDefaults;
-  // Leaving from the home airport set on the Settings profile card.
-  const origin = useProfile().homeAirport || journeyDefaults.origin;
+  // null means flexible dates.
+  const [dates, setDates] = useState<DateRange | null>(null);
+  // Starts as the home airport from the Settings profile card; the traveler can type any other place.
+  const { homeAirport } = useProfile();
+  const [origin, setOrigin] = useState(homeAirport || journeyDefaults.origin);
+  const [adults, setAdults] = useState(journeyDefaults.adults);
+  const [children, setChildren] = useState(journeyDefaults.children);
 
-  const findTrip = () => onStart({ prompt: prompt.trim(), vibe, budgetUsd, flexibleDates, fixedDates, origin, travelers });
+  const findTrip = () => onStart({ prompt: prompt.trim(), vibe, budgetUsd, dates, origin: origin.trim(), adults, children });
 
   return (
     <main className="flex min-w-0 flex-1 flex-col lg:h-screen">
@@ -73,32 +95,73 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
               ))}
             </div>
 
-            <div className="mt-7 grid gap-3 md:grid-cols-3">
+            <div className="mt-7 grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-line p-4">
-                <FieldLabel><Icon name="wallet" className="size-3.5" /> Total budget</FieldLabel>
-                <div className="mt-3 flex gap-1.5">
-                  {budgetOptionsUsd.map((amount) => (
-                    <Action key={amount} onClick={() => setBudgetUsd(amount)} className={`rounded-lg px-2 py-1.5 text-xs font-bold ${budgetUsd === amount ? "bg-deep text-white" : "bg-panel text-muted"}`}>
-                      {formatUsd(amount)}
+                <div className="flex items-center justify-between">
+                  <FieldLabel><Icon name="wallet" className="size-3.5" /> Total budget</FieldLabel>
+                  {budgetUsd !== null && (
+                    <Action onClick={() => setBudgetUsd(null)} className="text-[11px] font-semibold text-muted hover:text-sea">
+                      Clear
                     </Action>
-                  ))}
+                  )}
+                </div>
+                <div className="mt-3 flex items-center gap-1 rounded-lg bg-panel px-3 py-2 ring-sea focus-within:ring-2">
+                  <span className="text-sm font-bold text-muted">$</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={budgetUsd ?? ""}
+                    onChange={(event) => {
+                      const digits = event.target.value.replace(/\D/g, "").slice(0, 7);
+                      setBudgetUsd(digits ? Number(digits) : null);
+                    }}
+                    placeholder="No limit"
+                    aria-label="Total budget in US dollars"
+                    className="w-full bg-transparent text-sm font-bold outline-none placeholder:font-semibold placeholder:text-muted"
+                  />
+                </div>
+                <input
+                  type="range"
+                  min={budgetSliderUsd.min}
+                  max={budgetSliderUsd.max}
+                  step={budgetSliderUsd.step}
+                  value={Math.min(Math.max(budgetUsd ?? budgetSliderUsd.min, budgetSliderUsd.min), budgetSliderUsd.max)}
+                  onChange={(event) => setBudgetUsd(Number(event.target.value))}
+                  aria-label="Total budget slider"
+                  className={`mt-3 w-full accent-sea ${budgetUsd === null ? "opacity-40" : ""}`}
+                />
+                <div className="mt-1 flex justify-between text-[10px] font-semibold text-muted">
+                  <span>{formatUsd(budgetSliderUsd.min)}</span>
+                  <span>{budgetUsd === null ? "Flexible budget" : "For everyone, all in"}</span>
+                  <span>{formatUsd(budgetSliderUsd.max)}+</span>
                 </div>
               </div>
               <div className="rounded-2xl border border-line p-4">
                 <FieldLabel><Icon name="calendar" className="size-3.5" /> When</FieldLabel>
-                {/* Toggles between flexible dates and the fixed dates; a real date picker can replace this later. */}
-                <Action onClick={() => setFlexibleDates(!flexibleDates)} className="mt-3 flex items-center justify-between text-sm font-bold">
-                  {flexibleDates ? "I’m flexible" : fixedDates} <Icon name="chevron" className="size-4 rotate-90 text-muted" />
-                </Action>
+                <DateRangePicker value={dates} onChange={setDates} />
               </div>
               <div className="rounded-2xl border border-line p-4">
                 <FieldLabel><Icon name="plane" className="size-3.5" /> Leaving from</FieldLabel>
-                <div className="mt-3 text-sm font-bold">{origin}</div>
+                <input
+                  type="text"
+                  value={origin}
+                  onChange={(event) => setOrigin(event.target.value)}
+                  placeholder="City, airport or address"
+                  aria-label="Leaving from"
+                  className="mt-3 w-full rounded-lg bg-panel px-3 py-2 text-sm font-bold outline-none ring-sea placeholder:font-semibold placeholder:text-muted focus:ring-2"
+                />
+              </div>
+              <div className="rounded-2xl border border-line p-4">
+                <FieldLabel><Icon name="users" className="size-3.5" /> Travelers</FieldLabel>
+                <div className="mt-3 space-y-2">
+                  <Stepper label="Adults" hint="18+" value={adults} min={travelerLimits.minAdults} max={travelerLimits.maxTotal - children} onChange={setAdults} />
+                  <Stepper label="Kids" hint="Under 18" value={children} min={0} max={travelerLimits.maxTotal - adults} onChange={setChildren} />
+                </div>
               </div>
             </div>
 
             <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-line pt-5 sm:flex-row">
-              <div className="text-xs text-muted">For {travelers} travelers · Flights included</div>
+              <div className="text-xs text-muted">For {describeParty(adults, children)} · Flights included</div>
               <Action onClick={findTrip} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sea px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-deep sm:w-auto">
                 Find my trip <Icon name="sparkles" className="size-4 text-sun" />
               </Action>

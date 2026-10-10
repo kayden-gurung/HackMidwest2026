@@ -2,15 +2,17 @@
 
 export const vibes = ["Beach & coast", "Big adventure", "Food first", "City energy", "Rest & reset", "Surprise me"];
 
-export const budgetOptionsUsd = [2000, 3000, 5000];
+/** Range of the budget slider. Typed amounts can go above the max; the slider then sits at the end. */
+export const budgetSliderUsd = { min: 500, max: 20000, step: 100 };
+
+/** Party size limits, matching `travelers` 1–10 in TEAM_PLAN.md. */
+export const travelerLimits = { maxTotal: 10, minAdults: 1 };
 
 export const journeyDefaults = {
   vibe: "Beach & coast",
-  budgetUsd: 3000,
-  flexibleDates: true,
-  /** Shown when dates are not flexible. */
-  fixedDates: "Jun 18–25",
+  budgetUsd: 3000 as number | null,
   /** Used only when the profile has no home airport. */
   origin: "New York · JFK",
-  travelers: 2,
+  adults: 2,
+  children: 0,
 };
