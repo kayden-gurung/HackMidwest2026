@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ErrorState, LoadingState } from "../../../components/ui";
 import { useChat } from "../hooks/useChat";
-import type { TravelPreferences } from "../types";
+import type { AskRequest, TravelPreferences } from "../types";
 import { AssistantReply } from "./AssistantReply";
 import { Composer } from "./Composer";
 import { UserBubble } from "./UserBubble";
@@ -14,13 +14,15 @@ import { UserBubble } from "./UserBubble";
 export function ChatPanel({
   tripId,
   preferences,
+  mode,
   onUserMessage,
 }: {
   tripId: string;
   preferences?: TravelPreferences;
+  mode?: AskRequest["mode"];
   onUserMessage?: (text: string) => void;
 }) {
-  const { messages, sendStatus, send } = useChat(tripId, preferences);
+  const { messages, sendStatus, error, send, retry } = useChat(tripId, preferences, mode);
   const endRef = useRef<HTMLDivElement>(null);
 
   // Keep the newest message in view, including when a saved conversation is reopened.
@@ -47,7 +49,7 @@ export function ChatPanel({
             ),
           )}
           {sendStatus === "sending" && <LoadingState label="Roam is thinking…" className="pl-11" />}
-          {sendStatus === "error" && <ErrorState message="Roam couldn’t reply. Check the backend and try again." className="pl-11" />}
+          {sendStatus === "error" && <ErrorState message={error ?? "Roam couldn’t reply. Please try again."} onRetry={retry} className="pl-11" />}
           <div ref={endRef} />
         </div>
       </div>

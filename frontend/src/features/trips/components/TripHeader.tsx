@@ -2,14 +2,16 @@ import type { ReactNode } from "react";
 import { formatDateRange } from "../../../lib/format";
 import { useSettings } from "../../settings";
 import { useTrip } from "../hooks/useTrips";
+import { useItinerary } from "../../itinerary/hooks/useItinerary";
 
 /** Top bar: current trip title and summary, and the planning-mode label. */
 export function TripHeader({ tripId, title, leading }: { tripId: string; title: string; leading?: ReactNode }) {
   // The title comes from the sidebar's list so it updates the moment a journey is named.
   const trip = useTrip(tripId, title);
+  const plan = useItinerary(tripId).data;
   const details = trip.status === "success" ? trip.data : undefined;
   const summary = [
-    details?.startDate && details.endDate ? formatDateRange(details.startDate, details.endDate) : undefined,
+    plan ? formatDateRange(plan.startDate, plan.endDate) : details?.startDate && details.endDate ? formatDateRange(details.startDate, details.endDate) : undefined,
     details?.travelers ? `${details.travelers} ${details.travelers === 1 ? "traveler" : "travelers"}` : undefined,
     details?.origin ? `From ${details.origin}` : undefined,
   ].filter(Boolean);

@@ -19,6 +19,7 @@ const seed = config.useMocks
     : {};
 const conversations = new Map<string, ChatMessage[]>(Object.entries(seed));
 const statuses = new Map<string, SendStatus>();
+const errors = new Map<string, string>();
 const listeners = new Set<() => void>();
 const EMPTY: ChatMessage[] = [];
 
@@ -29,11 +30,17 @@ function notify() {
 export const conversationStore = {
   getMessages: (tripId: string): ChatMessage[] => conversations.get(tripId) ?? EMPTY,
   getStatus: (tripId: string): SendStatus => statuses.get(tripId) ?? "idle",
+  getError: (tripId: string): string | undefined => errors.get(tripId),
+  setError(tripId: string, message: string) {
+    errors.set(tripId, message);
+    notify();
+  },
   append(tripId: string, message: ChatMessage) {
     conversations.set(tripId, [...(conversations.get(tripId) ?? EMPTY), message]);
     notify();
   },
   setStatus(tripId: string, status: SendStatus) {
+    if (status !== "error") errors.delete(tripId);
     statuses.set(tripId, status);
     notify();
   },

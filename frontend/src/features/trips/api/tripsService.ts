@@ -1,8 +1,10 @@
 import { config } from "../../../config/env";
 import { api } from "../../../lib/apiClient";
 import { createId, mockResponse } from "../../../lib/mock";
+import { formatDateRange } from "../../../lib/format";
 import type { TripCard, TripDetails, TripSummary } from "../types";
 import { EXAMPLE_TRIP_ID, mockTripCards, mockTripDetails, mockTrips } from "./mockData";
+import { itineraryStore } from "../../itinerary/api/itineraryStore";
 
 export interface TripsService {
   listTrips(): Promise<TripSummary[]>;
@@ -10,7 +12,7 @@ export interface TripsService {
   /** Creates an empty draft journey and resolves with it. */
   createTrip(): Promise<TripSummary>;
   /** Gives a journey its real title, which also ends its draft state. */
-  renameTrip(tripId: string, title: string): Promise<TripSummary>;
+  renameTrip(tripId: string, title: string, initialDetails?: Omit<TripDetails, "id" | "title">): Promise<TripSummary>;
   /** Removes a journey. */
   deleteTrip(tripId: string): Promise<void>;
   /** Cards for the My trips screen. */
@@ -51,11 +53,12 @@ export const localTripsService: TripsService = {
     trips = [trip, ...trips];
     return mockResponse(trip);
   },
-  renameTrip: async (tripId, title) => {
+  renameTrip: async (tripId, title, initialDetails) => {
     const trip = trips.find((item) => item.id === tripId);
     if (!trip) throw new Error(`No trip with id "${tripId}"`);
     const renamed: TripSummary = { ...trip, title, isDraft: false };
     trips = trips.map((item) => (item.id === tripId ? renamed : item));
+    if (initialDetails) details[tripId] = { ...details[tripId], ...initialDetails, id: tripId, title };
     return mockResponse(renamed);
   },
   deleteTrip: (tripId) => {
@@ -63,8 +66,17 @@ export const localTripsService: TripsService = {
     delete details[tripId];
     return mockResponse(undefined);
   },
-  // The My trips cards are design samples in both modes until the backend stores trip status and photos.
-  listTripCards: () => mockResponse(mockTripCards),
+  listTripCards: () => mockResponse(config.useMocks ? mockTripCards.filter((card) => trips.some((trip) => trip.id === card.id)) : trips.map((trip): TripCard => {
+    const info = details[trip.id];
+    const plan = itineraryStore.get(trip.id);
+    return {
+      id: trip.id,
+      title: trip.title,
+      place: trip.country ?? "Planning in chat",
+      dates: plan ? formatDateRange(plan.startDate, plan.endDate) : info?.startDate && info.endDate ? formatDateRange(info.startDate, info.endDate) : "Flexible dates",
+      status: trip.isDraft ? "Idea" : "In progress",
+    };
+  })),
 };
 
 /** PROPOSED endpoints: not implemented in backend/ yet. */
@@ -72,7 +84,7 @@ export const httpTripsService: TripsService = {
   listTrips: () => api.get<TripSummary[]>("/api/trips"),
   getTrip: (tripId) => api.get<TripDetails>(`/api/trips/${encodeURIComponent(tripId)}`),
   createTrip: () => api.post<TripSummary>("/api/trips", {}),
-  renameTrip: (tripId, title) => api.post<TripSummary>(`/api/trips/${encodeURIComponent(tripId)}/title`, { title }),
+  renameTrip: (tripId, title, initialDetails) => api.post<TripSummary>(`/api/trips/${encodeURIComponent(tripId)}/title`, { title, ...initialDetails }),
   deleteTrip: (tripId) => api.delete(`/api/trips/${encodeURIComponent(tripId)}`),
   listTripCards: () => api.get<TripCard[]>("/api/trips/cards"),
 };

@@ -51,7 +51,7 @@ export function itineraryFromPlan(tripId: string, request: PlanRequestDates, pla
     title: activity.title,
     description: activity.description,
     category: activity.category && categories.includes(activity.category) ? activity.category : "Activities",
-    costUsd: Number.isFinite(activity.estimated_cost_usd) ? Math.max(activity.estimated_cost_usd ?? 0, 0) : 0,
+    costUsd: Number.isFinite(activity.estimated_cost_usd) ? Math.max(activity.estimated_cost_usd ?? 0, 0) : null,
     location: activity.location ? { name: activity.location, lat: activity.lat, lng: activity.lng } : undefined,
     websiteUrl: activity.website_url,
     sourceUrls: activity.source_urls,

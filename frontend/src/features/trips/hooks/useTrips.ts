@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAsync } from "../../../hooks/useAsync";
 import { tripsService } from "../api/tripsService";
-import type { TripSummary } from "../types";
+import type { TripDetails, TripSummary } from "../types";
 
 /** Details for the planner header. `title` is a dependency so the header refetches after a rename. */
 export function useTrip(tripId: string, title: string) {
@@ -81,9 +81,9 @@ export function useTrips() {
    * Done in one step because nameDraftFromMessage would not yet see a draft created in the same tick.
    */
   const startTripFromMessage = useCallback(
-    async (message: string): Promise<TripSummary> => {
+    async (message: string, initialDetails?: Omit<TripDetails, "id" | "title">): Promise<TripSummary> => {
       const draft = await startNewTrip();
-      const renamed = await tripsService.renameTrip(draft.id, titleFromMessage(message) || draft.title);
+      const renamed = await tripsService.renameTrip(draft.id, titleFromMessage(message) || draft.title, initialDetails);
       setTrips((current) => current.map((trip) => (trip.id === draft.id ? renamed : trip)));
       return renamed;
     },

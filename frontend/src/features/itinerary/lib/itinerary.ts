@@ -33,7 +33,7 @@ export function itemsOn(items: ItineraryItem[], date: string): ItineraryItem[] {
 }
 
 export function totalCost(items: ItineraryItem[]): number {
-  return items.reduce((sum, item) => sum + item.costUsd, 0);
+  return items.reduce((sum, item) => sum + (item.costUsd ?? 0), 0);
 }
 
 /** Spent, remaining and percent of the planned budget. All arithmetic on money happens here, in code. */
@@ -42,9 +42,14 @@ export function budgetTotals(itinerary: Itinerary) {
   const { plannedUsd } = itinerary.budget;
   return {
     spentUsd,
-    remainingUsd: plannedUsd - spentUsd,
-    percentUsed: plannedUsd > 0 ? Math.round((spentUsd / plannedUsd) * 100) : 0,
+    remainingUsd: plannedUsd == null ? null : plannedUsd - spentUsd,
+    percentUsed: plannedUsd != null && plannedUsd > 0 ? Math.round((spentUsd / plannedUsd) * 100) : 0,
+    unknownCosts: itinerary.items.filter((item) => item.costUsd == null).length,
   };
+}
+
+export function itemCostLabel(item: ItineraryItem): string {
+  return item.costUsd == null ? "Cost TBD" : item.costUsd === 0 ? "Free" : `Est. $${item.costUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
 export function hasCoordinates(item: ItineraryItem): item is ItineraryItem & { location: { name: string; lat: number; lng: number } } {

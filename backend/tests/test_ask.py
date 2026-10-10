@@ -19,15 +19,23 @@ def test_describe_preferences_keeps_each_setting_on_one_line():
     assert text.count("\n") == 1
 
 
-def test_ask_puts_preferences_in_front_of_the_message(monkeypatch):
+def test_ask_adds_preferences_to_system_prompt(monkeypatch):
     seen = []
+    agents = []
 
     class FakeAgent:
+        system_prompt = "Roam"
+
         def __call__(self, prompt):
             seen.append(prompt)
             return "ok"
 
-    monkeypatch.setattr(ask_router, "Agent", FakeAgent)
+    def factory(**kwargs):
+        agent = FakeAgent()
+        agents.append(agent)
+        return agent
+
+    monkeypatch.setattr(ask_router, "build_agent", factory)
     app = FastAPI()
     app.include_router(ask_router.router)
     client = TestClient(app)
@@ -37,6 +45,35 @@ def test_ask_puts_preferences_in_front_of_the_message(monkeypatch):
 
     body = {"prompt": "Beach trip", "preferences": {"interests": ["Beaches"], "stay_style": "Boutique"}}
     assert client.post("/api/ask", json=body).status_code == 200
-    assert seen[-1] == "Traveler's saved preferences:\n- Interests: Beaches\n- Stay style: Boutique\n\nTraveler's message:\nBeach trip"
+    assert seen[-1] == "Beach trip"
+    assert "Traveler's saved preferences:\n- Interests: Beaches\n- Stay style: Boutique" in agents[-1].system_prompt
 
     assert client.post("/api/ask", json={"prompt": ""}).status_code == 422
+
+
+def test_settings_style_applies_until_header_overrides_it(monkeypatch):
+    agents = []
+
+    class FakeAgent:
+        system_prompt = "Roam"
+
+        def __call__(self, prompt):
+            return "ok"
+
+    def factory(**kwargs):
+        agent = FakeAgent()
+        agents.append(agent)
+        return agent
+
+    monkeypatch.setattr(ask_router, "build_agent", factory)
+    app = FastAPI()
+    app.include_router(ask_router.router)
+    client = TestClient(app)
+    body = {"prompt": "Plan a weekend", "preferences": {"planning_style": "Hands-on", "currency": "EUR"}}
+    assert client.post("/api/ask", json=body).status_code == 200
+    assert "ask the traveler to choose" in agents[-1].system_prompt
+    assert "Currency: EUR" in agents[-1].system_prompt
+    body["mode"] = "Surprise me"
+    assert client.post("/api/ask", json=body).status_code == 200
+    assert "explicitly stated assumptions" in agents[-1].system_prompt
+    assert "ask the traveler to choose" not in agents[-1].system_prompt

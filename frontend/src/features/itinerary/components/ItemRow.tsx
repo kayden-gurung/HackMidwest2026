@@ -1,6 +1,5 @@
 import { Action, Icon } from "../../../components/ui";
-import { formatUsd } from "../../../lib/format";
-import { formatDay, formatTime, googleMapsUrl, hasCoordinates, safeWebUrl } from "../lib/itinerary";
+import { formatDay, formatTime, googleMapsUrl, hasCoordinates, itemCostLabel, safeWebUrl } from "../lib/itinerary";
 import type { ItineraryItem } from "../types";
 import { categoryStyle } from "./categoryStyle";
 
@@ -47,7 +46,7 @@ export function ItemRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div className="text-sm font-semibold leading-5">{item.title}</div>
-            <div className="shrink-0 text-sm font-bold leading-5">{item.costUsd > 0 ? formatUsd(item.costUsd) : "Free"}</div>
+            <div className="shrink-0 text-xs font-bold leading-5">{itemCostLabel(item)}</div>
           </div>
           {when && <div className="mt-0.5 text-xs text-muted">{when}</div>}
           {item.description && <div className="mt-1.5 text-xs leading-5 text-ink/70">{item.description}</div>}

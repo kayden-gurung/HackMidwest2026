@@ -1,4 +1,5 @@
 import { Action, Icon } from "../../../components/ui";
+import Markdown from "react-markdown";
 import type { AssistantMessage } from "../types";
 import { DestinationCard } from "./DestinationCard";
 import { FlightCard } from "./FlightCard";
@@ -9,7 +10,7 @@ export function AssistantReply({ message, onSuggestion }: { message: AssistantMe
       <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-sea text-white"><Icon name="sparkles" className="size-4" /></div>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-bold">Roam</div>
-        <div className="mt-2 text-[15px] leading-7 text-ink/80">{message.text}</div>
+        <div className="chat-response mt-2 text-[15px] leading-7 text-ink/80"><Markdown components={{ a: ({ children, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer">{children}</a> }}>{message.text}</Markdown></div>
         {message.recommendation && <DestinationCard recommendation={message.recommendation} />}
         {message.flight && <FlightCard flight={message.flight} />}
         {message.suggestions && message.suggestions.length > 0 && (

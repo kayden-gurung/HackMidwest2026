@@ -2,8 +2,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef } from "react";
 import { EmptyState } from "../../../components/ui";
-import { formatUsd } from "../../../lib/format";
-import { formatDay, formatTime, googleMapsUrl, hasCoordinates, inTripOrder, safeWebUrl } from "../lib/itinerary";
+import { formatDay, formatTime, googleMapsUrl, hasCoordinates, inTripOrder, itemCostLabel, safeWebUrl } from "../lib/itinerary";
 import type { Itinerary, ItineraryItem } from "../types";
 import { categoryStyle } from "./categoryStyle";
 import { ItemRow } from "./ItemRow";
@@ -26,7 +25,7 @@ function popupContent(item: ItineraryItem, markerNumber: number): HTMLElement {
     root.append(element);
   };
   add("roam-popup-title", `${markerNumber}. ${item.title}`);
-  add("roam-popup-meta", [formatDay(item.date), item.time ? formatTime(item.time) : undefined, item.costUsd > 0 ? formatUsd(item.costUsd) : "Free"].filter(Boolean).join(" · "));
+  add("roam-popup-meta", [formatDay(item.date), item.time ? formatTime(item.time) : undefined, itemCostLabel(item)].filter(Boolean).join(" · "));
   if (item.location?.name) add("roam-popup-meta", item.location.name);
 
   const links = document.createElement("div");

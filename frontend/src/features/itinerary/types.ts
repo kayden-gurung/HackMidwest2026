@@ -37,8 +37,8 @@ export interface ItineraryItem {
   description?: string;
   /** Which Budget section the cost is counted under. */
   category: BudgetCategory;
-  /** Total for all travelers, in USD. 0 means free. */
-  costUsd: number;
+  /** Estimated total for all travelers, in USD. Null means unknown; 0 means free. */
+  costUsd: number | null;
   location?: ItemLocation;
   /** The place's own website. Only http(s) links are shown. */
   websiteUrl?: string;
@@ -56,7 +56,12 @@ export interface Itinerary {
   startDate: string;
   endDate: string;
   items: ItineraryItem[];
-  budget: { plannedUsd: number };
+  budget: { plannedUsd: number | null };
+  summary?: string;
+  assumptions?: string[];
   days?: ItineraryDay[];
   places?: Place[];
 }
+
+/** Structured plan sent with chat, without the browser's journey ID or demo extras. */
+export type ItinerarySnapshot = Pick<Itinerary, "startDate" | "endDate" | "items" | "budget" | "summary" | "assumptions">;

@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     server: {
       proxy: { '/api': env.BACKEND_URL || 'http://backend:8000' },
-      watch: { usePolling: true },
+      watch: { usePolling: true, ignored: ['**/*.tsbuildinfo'] },
     },
   }
 })

@@ -3,6 +3,7 @@ import { ApiError, api } from "../../../lib/apiClient";
 import { mockResponse } from "../../../lib/mock";
 import type { Itinerary } from "../types";
 import { mockItineraries } from "./mockData";
+import { itineraryStore } from "./itineraryStore";
 
 export interface ItineraryService {
   /** Resolves with null when the trip has no plan yet (a new journey, for example). */
@@ -25,10 +26,7 @@ export const httpItineraryService: ItineraryService = {
   },
 };
 
-/** Real backend for real journeys, but the example journey keeps its mock itinerary so the map and budget stay filled in. */
-const realWithExample: ItineraryService = {
-  getItinerary: (tripId) =>
-    config.showExample && tripId in mockItineraries ? mockItineraryService.getItinerary(tripId) : httpItineraryService.getItinerary(tripId),
+// Live plans arrive with chat replies, and are stored per journey in browser memory.
+export const itineraryService: ItineraryService = config.useMocks ? mockItineraryService : {
+  getItinerary: async (tripId) => itineraryStore.get(tripId),
 };
-
-export const itineraryService: ItineraryService = config.useMocks ? mockItineraryService : realWithExample;

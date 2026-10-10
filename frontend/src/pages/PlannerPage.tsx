@@ -45,7 +45,12 @@ export function PlannerPage() {
   /** "Find my trip": create a journey named after the request, open it, and send the request to Roam as the first message. */
   const startJourney = (request: JourneyRequest) => {
     const message = describeJourney(request);
-    startTripFromMessage(request.prompt || message).then((trip) => {
+    startTripFromMessage(request.prompt || message, {
+      startDate: request.dates?.start,
+      endDate: request.dates?.end,
+      travelers: request.adults + request.children,
+      origin: request.origin.trim() || undefined,
+    }).then((trip) => {
       openTrip(trip.id);
       // Failures show up in the chat panel as its error state.
       chatService.sendMessage(trip.id, message, preferences).catch(() => undefined);
