@@ -1,6 +1,19 @@
 # HackMidwest2026
 Hackathon for Hack Midwest 2026
 
+## Quickstart for teammates
+
+You only need Git and Docker Desktop (or Docker Engine with Compose v2). Make sure Docker is running first.
+
+```sh
+git clone https://github.com/kayden-gurung/HackMidwest2026.git
+cd HackMidwest2026
+cp backend/.env.example backend/.env   # fill in the AWS keys the team shares with you
+docker compose up --build              # builds both base images, then starts them
+```
+
+When it finishes, open http://localhost:5173 and look for "backend ok". Edit code in `frontend/` or `backend/` on your machine and it reloads inside the containers. Next time, `git pull` then `docker compose up` is enough; add `--build -V` if someone changed dependencies. Details are below.
+
 ## Local dev with Docker
 
 Everyone runs the same two images, so nobody needs Python or Node installed locally. Only Docker Desktop (or Docker Engine with Compose v2) is required.
