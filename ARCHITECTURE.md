@@ -45,13 +45,15 @@ If two features need the same data, the page passes it down as props (or you lif
 | `trips` | Sidebar trip list (select, search, "New journey"), header | `listTrips()`, `getTrip(id)`, `createTrip()`, `renameTrip(id, title)` | `GET /api/trips`, `GET /api/trips/{id}` | **local** (browser memory), endpoints proposed |
 | `chat` | Conversation, composer, suggestion chips | `getConversation(tripId)` | `GET /api/trips/{id}/messages` | **local** (browser memory), endpoint proposed |
 | | | `sendMessage(tripId, prompt)` | `POST /api/ask` `{prompt}` → `{reply}` | **implemented** |
-| `itinerary` | Plan / Map / Budget panel | `getItinerary(tripId)` | `GET /api/trips/{id}/itinerary` | proposed |
+| `itinerary` | Plan / Map / Budget panel: expandable days, interactive map with a marker per item, every item listed under its budget category | `getItinerary(tripId)` | `GET /api/trips/{id}/itinerary` | proposed (mock data for the sample trip) |
 | `profile` | Travel style card, user card | `getProfile()` | `GET /api/me` | proposed |
 | (health) | none | none | `GET /api/health` → `{ok}` | **implemented** |
 
 The exact JSON shapes are the TypeScript interfaces in each feature's `types.ts`. Proposed endpoints are only what the current UI needs to render; nothing about storage, auth, or AI behavior has been decided. When the backend implements one, match its Pydantic models to that `types.ts` (or update both together in one PR).
 
 Journeys and their conversations are saved locally for now: `features/trips/api/tripsService.ts` and `features/chat/api/conversationStore.ts` keep them in browser memory, in both mock and real mode. They survive switching between journeys and reset on page reload. `PlannerPage` owns which journey is open and passes its id to the chat and itinerary features. A new journey is titled from the traveler's first message. With mocks on, the list starts with the Figma sample trips; with mocks off it starts with one empty journey. A trip with no itinerary shows an empty Plan panel, not an error.
+
+The itinerary panel is driven by one list, `Itinerary.items` (see `features/itinerary/types.ts`). Each item has a date, a category, a cost and an optional location and website. Day summaries, per-category budget totals and map markers are all derived from that list in `features/itinerary/lib/itinerary.ts`, so the backend only sends `startDate`, `endDate`, `items` and `budget.plannedUsd`. An item needs `location.lat` and `location.lng` to get a map marker; without them it is still listed, with a Google Maps search link. `features/itinerary/api/fromPlanResponse.ts` converts the `POST /api/trips/plan` response from TEAM_PLAN.md into this shape; it is not called yet, and it proposes four extra activity fields (`category`, `lat`, `lng`, `website_url`). The map uses Leaflet with OpenStreetMap tiles, which needs internet but no API key.
 
 `POST /api/ask` ignores the trip today: it sends only the prompt to a Strands `Agent()` (Amazon Bedrock), so it needs AWS keys in `backend/.env`. Without keys it returns 500 and the chat shows "Roam couldn't reply".
 
