@@ -1,20 +1,9 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
-from strands import Agent
 
-app = FastAPI()
+from routers import ask, health
 
+app = FastAPI(title="Roam API")
 
-class Ask(BaseModel):
-    prompt: str
-
-
-@app.get("/api/health")
-def health():
-    return {"ok": True}
-
-
-@app.post("/api/ask")
-def ask(body: Ask):
-    agent = Agent()
-    return {"reply": str(agent(body.prompt))}
+# One router per feature (routers/<feature>.py) so teammates don't all edit this file.
+app.include_router(health.router)
+app.include_router(ask.router)
