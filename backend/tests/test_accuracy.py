@@ -1,4 +1,5 @@
 """Accuracy checks on the itinerary sent to the Plan/Map/Budget panels. No AWS or network needed."""
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -458,3 +459,94 @@ def test_district_next_to_the_town_center_is_still_pinned(monkeypatch):
     snapshot = ItinerarySnapshot.model_validate(plan(item("pl", title="Night out", location={"name": "Power & Light District"})))
     cleaned, _ = validate_snapshot(snapshot, evidence, pinner=pin_stops)
     assert cleaned.items[0].location.lat == 39.0987
+
+
+# ----- Revisions -------------------------------------------------------------------------------
+
+class ForgetfulAgent:
+    """Says it changed the plan but only calls update_itinerary when nudged."""
+
+    system_prompt = "Roam"
+
+    def __init__(self, kwargs, reply="Done! I've swapped the museum for the WWI Museum."):
+        self.update = kwargs["extra_tools"][0]
+        self.reply = reply
+        self.prompts = []
+
+    def _act(self, prompt):
+        self.prompts.append(prompt)
+        if prompt.startswith("You described"):
+            self.update(itinerary=plan(item("museum", title="National WWI Museum")))
+            return ""
+        return self.reply
+
+    def __call__(self, prompt):
+        return self._act(prompt)
+
+    async def invoke_async(self, prompt):
+        return self._act(prompt)
+
+    async def stream_async(self, prompt):
+        yield {"result": self._act(prompt)}
+
+
+def current():
+    return plan(item("museum", title="Nelson-Atkins"))
+
+
+def test_a_described_change_reaches_the_panels(monkeypatch):
+    agents = []
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: agents.append(ForgetfulAgent(kwargs)) or agents[-1])
+    response = TestClient(app).post("/api/ask", json={"prompt": "Swap the museum", "current_itinerary": current()}).json()
+    assert response["reply"].startswith("Done! I've swapped")
+    assert response["itinerary"]["items"][0]["title"] == "National WWI Museum"
+    assert len(agents[-1].prompts) == 2
+
+
+def test_streamed_change_reaches_the_panels(monkeypatch):
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: ForgetfulAgent(kwargs))
+    text = TestClient(app).post("/api/ask/stream", json={"prompt": "Swap the museum", "current_itinerary": current()}).text
+    events = [json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")]
+    assert events[-2]["itinerary"]["items"][0]["title"] == "National WWI Museum"
+    assert events[-3]["reply"].startswith("Done!")
+
+
+@pytest.mark.parametrize("reply", ["Would you like me to swap the museum for the WWI Museum?", "Kansas City has great BBQ.", ""])
+def test_no_extra_call_for_questions_or_chat(monkeypatch, reply):
+    agents = []
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: agents.append(ForgetfulAgent(kwargs, reply)) or agents[-1])
+    response = TestClient(app).post("/api/ask", json={"prompt": "Hmm", "current_itinerary": current()}).json()
+    assert "itinerary" not in response and len(agents[-1].prompts) == 1
+
+
+def test_a_new_plan_described_only_in_text_reaches_the_panels(monkeypatch):
+    agents = []
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: agents.append(ForgetfulAgent(kwargs, "**Day 1:** BBQ and jazz.")) or agents[-1])
+    assert "itinerary" in TestClient(app).post("/api/ask", json={"prompt": "Plan KC"}).json()
+
+
+def test_tool_status_is_sent_once_per_tool_call(monkeypatch):
+    class Chunky:
+        system_prompt = "Roam"
+
+        async def stream_async(self, prompt):
+            for _ in range(50):
+                yield {"current_tool_use": {"toolUseId": "a", "name": "update_itinerary"}}
+            yield {"current_tool_use": {"toolUseId": "b", "name": "find_places"}}
+            yield {"result": "ok"}
+
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: Chunky())
+    text = TestClient(app).post("/api/ask/stream", json={"prompt": "x"}).text
+    assert text.count('"tool"') == 2
+
+
+def test_old_notes_are_replaced_not_repeated():
+    old = ItinerarySnapshot.model_validate({**plan(item("flight", title="Flight", category="Flights", costUsd=200)), "assumptions": [
+        "Flight costs are rough estimates. Roam has no live fare or schedule data, so check airlines for real prices and times.",
+        'Not found in map data, so check these exist before relying on them: "Gone Cafe".',
+        "Hotel estimated at $90/night",
+    ]})
+    cleaned, _ = validate_snapshot(old, Evidence())
+    assert sum(a.startswith("Flight costs are rough") for a in cleaned.assumptions) == 1
+    assert not any("Gone Cafe" in a for a in cleaned.assumptions)
+    assert "Hotel estimated at $90/night" in cleaned.assumptions

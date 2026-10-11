@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import date
 from typing import Literal
 
@@ -81,11 +82,37 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evi
     return agent
 
 
+# The model sometimes describes a plan or a change in its reply ("Done! I've swapped the museum")
+# without calling update_itinerary, so the panels keep the old plan. Then it is asked once more.
+NUDGE = (
+    "You described a plan or a change to the plan but did not call update_itinerary, so the "
+    "traveler's Plan, Map and Budget panels still show the old plan. Call update_itinerary now with "
+    "the complete itinerary, including every unchanged stop. Do not write anything else."
+)
+_CHANGED = re.compile(r"\b(swapp|replac|updat|chang|added|adding|remov|moved|moving|switch|instead of|now (has|includes|starts|ends))", re.IGNORECASE)
+_NEW_PLAN = re.compile(r"\bday\s*(1|one)\b", re.IGNORECASE)
+_ASKING = re.compile(r"(would you like|do you want|should i|shall i|which (one|option)|let me know)", re.IGNORECASE)
+
+
+def needs_panel_update(body: AskRequest, updates: ItineraryUpdates, reply: str) -> bool:
+    """True when the reply says the plan changed (or lays out a new plan) but the panels were not updated."""
+    if updates.latest is not None or not reply:
+        return False
+    if reply.rstrip().endswith("?") and _ASKING.search(reply):
+        return False  # a question ("Would you like me to swap it?"): nothing has changed yet
+    pattern = _CHANGED if body.current_itinerary is not None else _NEW_PLAN
+    return bool(pattern.search(reply))
+
+
 @router.post("/ask", response_model=AskResponse, response_model_exclude_unset=True)
 def ask(body: AskRequest):
     try:
         updates, evidence = checked_updates(body)
-        reply = str(agent_for_request(body, updates, evidence)(body.prompt)).strip() or updates.confirmation()
+        agent = agent_for_request(body, updates, evidence)
+        reply = str(agent(body.prompt)).strip()
+        if needs_panel_update(body, updates, reply):
+            agent(NUDGE)
+        reply = reply or updates.confirmation()
         result = {"reply": reply}
         plan = final_itinerary(body, updates, evidence)
         if plan is not None:
@@ -104,16 +131,25 @@ async def ask_stream(body: AskRequest):
             updates, evidence = checked_updates(body)
             agent = agent_for_request(body, updates, evidence)
             result = None
+            last_tool = None
             async for ev in agent.stream_async(body.prompt):
                 if "data" in ev:
                     yield f"data: {json.dumps({'text': ev['data']})}\n\n"
                 elif "current_tool_use" in ev and ev["current_tool_use"].get("name"):
-                    yield f"data: {json.dumps({'tool': ev['current_tool_use']['name']})}\n\n"
+                    # Strands repeats this event for every chunk of the tool's input: send each call once.
+                    tool_use = ev["current_tool_use"]
+                    if tool_use.get("toolUseId", tool_use["name"]) != last_tool:
+                        last_tool = tool_use.get("toolUseId", tool_use["name"])
+                        yield f"data: {json.dumps({'tool': tool_use['name']})}\n\n"
                 elif "result" in ev:
                     result = ev["result"]
+            reply = str(result).strip() if result is not None else ""
+            if needs_panel_update(body, updates, reply):
+                yield f"data: {json.dumps({'tool': 'update_itinerary'})}\n\n"
+                await agent.invoke_async(NUDGE)
             # The final answer, exactly as POST /ask returns it. The text chunks above also include
             # what the model said between tool calls, so clients replace them with this.
-            reply = (str(result).strip() if result is not None else "") or updates.confirmation()
+            reply = reply or updates.confirmation()
             yield f"data: {json.dumps({'reply': reply})}\n\n"
             plan = final_itinerary(body, updates, evidence)
             if plan is not None:

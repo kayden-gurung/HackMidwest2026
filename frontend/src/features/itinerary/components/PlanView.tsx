@@ -77,15 +77,16 @@ export function PlanView({
 
           return (
             <div key={isoDate}>
-              <Action onClick={() => toggleDay(isoDate)} label={`${open ? "Hide" : "Show"} details for ${title}`} className="group grid grid-cols-[44px_1fr] gap-3 rounded-xl p-2 hover:bg-surface">
+              <Action onClick={() => toggleDay(isoDate)} label={`${open ? "Hide" : "Show"} details for ${title}`} className="group grid w-full grid-cols-[44px_minmax(0,1fr)] gap-3 rounded-xl p-2 text-left hover:bg-surface">
                 <div className="text-center">
                   <div className="text-[9px] font-bold tracking-widest text-muted">{date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}</div>
                   <div className="mt-0.5 font-display text-xl font-semibold">{date.getDate()}</div>
                 </div>
-                <div className={`relative rounded-xl border border-line bg-surface p-3 pl-4 shadow-sm before:absolute before:inset-y-3 before:left-0 before:w-1 before:rounded-r-full ${accentClass[headline?.accent ?? accentOrder[dayIndex % accentOrder.length]]}`}>
+                {/* min-w-0 lets a long one-line summary shorten with "…" instead of widening the card past the panel. */}
+                <div className={`relative min-w-0 rounded-xl border border-line bg-surface p-3 pl-4 shadow-sm before:absolute before:inset-y-3 before:left-0 before:w-1 before:rounded-r-full ${accentClass[headline?.accent ?? accentOrder[dayIndex % accentOrder.length]]}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="text-sm font-bold">{title}</div>
+                      <div className="text-sm font-bold [overflow-wrap:anywhere]">{title}</div>
                       {detail && <div className="mt-1 truncate text-xs text-muted">{detail}</div>}
                     </div>
                     <Icon name="chevron" className={`mt-0.5 size-4 shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`} />
