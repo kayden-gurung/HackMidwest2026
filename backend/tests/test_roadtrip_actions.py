@@ -87,6 +87,86 @@ def test_invalid_edits_are_atomic_and_clear_a_previous_draft(providers, change):
     assert current.model_dump() == before
 
 
+def test_explicit_date_extension_preserves_existing_stops_and_settings(providers):
+    current = plan()
+    original = current.model_dump()
+    _, updates, _, tools = actions(current)
+    tools["edit_stops"](end_date="2026-10-19", additions=[{
+        "source_url": "https://www.openstreetmap.org/node/cafe", "day": 3, "time": "12:30"}])
+    draft = updates.review_draft
+    assert draft.startDate == current.startDate
+    assert draft.endDate.isoformat() == "2026-10-19"
+    assert draft.budget == current.budget
+    assert next(item for item in draft.items if item.id == "stop-1") == current.items[0]
+    added = next(item for item in draft.items if item.category == "Food")
+    assert added.date.isoformat() == "2026-10-19" and added.time == "12:30"
+    assert added.costUsd is None
+    assert current.model_dump() == original and updates.latest is None
+
+
+@pytest.mark.parametrize("end_date", ["not-a-date", "2026-10-16", "2026-12-16"])
+def test_invalid_date_extensions_clear_draft_and_keep_current_plan(providers, end_date):
+    current = plan()
+    _, updates, _, tools = actions(current)
+    tools["edit_stops"]()
+    with pytest.raises(ValueError):
+        tools["edit_stops"](end_date=end_date)
+    assert updates.checked_draft is None and updates.latest is None
+    assert current.endDate.isoformat() == "2026-10-17"
+
+
+def test_failed_edit_reports_reason_in_stream_and_logs_then_can_recover(providers, monkeypatch, caplog):
+    model = ScriptedModel([
+        call("edit_stops", {"additions": [{"source_url": "https://www.openstreetmap.org/node/1", "day": 3}]}, "bad-date"),
+        {"tools": [
+            {"name": "edit_stops", "input": {"end_date": "2026-10-19", "additions": [
+                {"source_url": "https://www.openstreetmap.org/node/1", "day": 3}]}, "id": "extended"},
+            {"name": "update_itinerary", "input": {}, "id": "publish"},
+        ]},
+    ])
+    monkeypatch.setattr(agent, "build_model", lambda: model)
+    response = TestClient(main.app).post("/api/ask/stream", json={"prompt": "Add another day at the destination",
+        "road_trip": preferences().model_dump(), "current_itinerary": plan().model_dump(mode="json")})
+    trace = [item["xray"] for item in events(response) if "xray" in item]
+    failure = next(item for item in trace if item.get("call_id") == "bad-date" and item["kind"] == "tool_finished")
+    assert failure["status"] == "error"
+    assert "after the trip ends on 2026-10-17" in failure["detail"]
+    assert "Extend" in failure["detail"]
+    assert "tool=edit_stops" in caplog.text and failure["detail"] in caplog.text
+    approval = next(item["approval"] for item in events(response) if "approval" in item)
+    preview = approval["interrupts"][0]["reason"]["itinerary"]
+    assert preview["endDate"] == "2026-10-19"
+    assert not any("itinerary" in item for item in events(response))
+    assert any(item.get("call_id") == "extended" and item.get("status") == "success" for item in trace)
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_date_extension_requires_consent_and_only_publishes_exact_review(providers, monkeypatch, approved):
+    current = plan()
+    model = ScriptedModel([{"tools": [
+        {"name": "edit_stops", "input": {"end_date": "2026-10-19", "additions": [
+            {"source_url": "https://www.openstreetmap.org/node/1", "day": 3}]}, "id": "extend"},
+        {"name": "update_itinerary", "input": {}, "id": "publish"},
+    ]}])
+    monkeypatch.setattr(agent, "build_model", lambda: model)
+    client = TestClient(main.app)
+    initial = events(client.post("/api/ask/stream", json={"prompt": "Add an extra day",
+        "road_trip": preferences().model_dump(), "current_itinerary": current.model_dump(mode="json")}))
+    assert not any(item.get("xray", {}).get("status") == "error" for item in initial)
+    assert not any("itinerary" in item for item in initial)
+    approval = next(item["approval"] for item in initial if "approval" in item)
+    preview = approval["interrupts"][0]["reason"]["itinerary"]
+    calls = deepcopy(providers)
+    resumed = events(client.post(f"/api/ask/{approval['run_id']}/resume", json={"approved": approved,
+        "interrupt_ids": [item["id"] for item in approval["interrupts"]]}))
+    assert calls == providers and len(model.seen) == 1
+    if approved:
+        assert next(item["itinerary"] for item in resumed if "itinerary" in item) == preview
+    else:
+        assert not any("itinerary" in item for item in resumed)
+    assert current.endDate.isoformat() == "2026-10-17"
+
+
 @pytest.mark.parametrize("approved", [True, False])
 def test_one_model_call_replan_and_resume_keeps_native_consent(providers, monkeypatch, approved):
     current = plan()

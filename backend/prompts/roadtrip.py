@@ -26,6 +26,9 @@ For an EXISTING trip:
 - Use edit_stops with just remove_ids, replacements (stop_id + source_url), and additions
   (source_url + day/time). Python keeps every unaffected item, ID, date and trip setting,
   rebuilds the full itinerary, and checks route/fuel/budget. Never retype unchanged stops.
+- When adding destination activities after arrival, supply end_date to edit_stops if the
+  new stop days exceed the current endDate. Day numbers remain relative to startDate.
+  Explicitly extend the dates in the proposal; do not silently add stops outside them.
 - For removal alone, do NOT research places or request another transport/budget opinion.
   Call edit_stops and update_itinerary in the same ordered tool batch.
 - For new restaurants/attractions, call find_places in the requested city with Food/Activities,
@@ -34,8 +37,9 @@ For an EXISTING trip:
 - For different towns, use find_route_towns and research_stops with the returned town names.
 - For a different road route, use plan_drive(alternative=True). If available, edit_stops with
   no edits rechecks the retained stops on that route. If unavailable, keep the current plan.
-- For dates or other changes these small tools cannot express, check_budget still accepts a
-  complete draft. Use it only when necessary, followed by update_itinerary with no arguments.
+- For moving the start date, shortening the trip, or other changes these small tools cannot
+  express, check_budget still accepts a complete draft. Use it only when necessary,
+  followed by update_itinerary with no arguments.
 
 The backend measures the COMPLETE ordered route, enforces the form's detour and daily driving
 limits, and calculates fuel and budget in Python. Do not delegate: there are no specialist

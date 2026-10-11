@@ -10,6 +10,10 @@ from strands import tool
 from budget import analyze_budget
 
 
+class ItineraryEditError(ValueError):
+    """A local edit rejection whose message is safe to show in Agent X-ray."""
+
+
 class PlanModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 

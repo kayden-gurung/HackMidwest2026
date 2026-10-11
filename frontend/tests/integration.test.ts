@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { AgentXrayPanel } from "../src/features/chat/components/AgentXrayPanel";
 import { chatService } from "../src/features/chat/api/chatService";
 import { conversationStore } from "../src/features/chat/api/conversationStore";
 import { localTripsService } from "../src/features/trips/api/tripsService";
@@ -25,6 +28,19 @@ afterEach(() => mock.restoreAll());
 
 const driveDraft: DriveDraft = { start: "Kansas City, MO", destination: "St. Louis, MO", interests: ["History", "Local food"],
   detourBudget: 60, departureDate: "Flexible", maxMilesPerDay: 450 };
+
+test("Agent X-ray explains a failed edit while retaining the recovered run status", () => {
+  const markup = renderToStaticMarkup(createElement(AgentXrayPanel, {
+    events: [{ id: "date-rejected", agent: "orchestrator", kind: "tool_finished", tool: "edit_stops",
+      status: "error", timestamp: "2026-10-11T12:00:00Z",
+      detail: "An added stop falls after the trip ends on 2026-10-12. Extend the trip's end date before adding later stops." }],
+    running: false, awaiting: true, failed: false,
+  }));
+  assert.match(markup, /Check requested stop changes · error/);
+  assert.match(markup, /An added stop falls after the trip ends on 2026-10-12/);
+  assert.match(markup, /Awaiting consent/);
+  assert.doesNotMatch(markup, /Run stopped/);
+});
 
 test("road-trip planning sends structured constraints, preserves measured routes and isolates journeys", async () => {
   const tripId = "live-roadtrip";

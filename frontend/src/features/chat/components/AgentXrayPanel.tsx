@@ -48,7 +48,7 @@ export function AgentXrayPanel({ events, running, awaiting, failed }: { events: 
         </div>
         {activity.length > 0 ? <ol aria-label="Agent execution events" className="mt-3 max-h-40 space-y-2 overflow-y-auto">
           {activity.map((event) => <li key={event.id} className="flex items-start justify-between gap-3">
-            <span><span className="mr-2 font-semibold text-sea">{roles.find((role) => role.id === event.agent)?.name ?? event.agent}</span><span className="text-muted">{eventLabel(event)}</span></span>
+            <span><span className="mr-2 font-semibold text-sea">{roles.find((role) => role.id === event.agent)?.name ?? event.agent}</span><span className="text-muted">{eventLabel(event)}</span>{event.detail && <span className="mt-1 block text-amber-700">{event.detail}</span>}</span>
             {event.duration_ms != null && <span className="shrink-0 tabular-nums text-muted">{(event.duration_ms / 1000).toFixed(1)}s</span>}
           </li>)}
         </ol> : <p className="mt-3 leading-5 text-muted">{config.useMocks ? "Example conversations do not run live agents. Switch off mock mode to see execution." : "See the place lookups, route checks, and where Roam pauses for your approval."}</p>}
