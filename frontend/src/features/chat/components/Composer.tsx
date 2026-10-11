@@ -1,30 +1,28 @@
-import { useRef, useState } from "react";
+import type { RefObject } from "react";
 import { Action, Icon } from "../../../components/ui";
 
 /** Message input. Enter sends, Shift+Enter adds a new line. */
-export function Composer({ onSend, disabled = false }: { onSend: (text: string) => void; disabled?: boolean }) {
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [draft, setDraft] = useState("");
+export function Composer({ onSend, disabled = false, draft, onDraftChange, inputRef, placeholder = "Ask Roam to change anything…" }: { onSend: (text: string) => void; disabled?: boolean; draft: string; onDraftChange: (text: string) => void; inputRef: RefObject<HTMLTextAreaElement | null>; placeholder?: string }) {
 
   const submit = () => {
     const value = draft.trim();
     if (!value || disabled) return;
     onSend(value);
-    setDraft("");
+    onDraftChange("");
   };
 
   return (
-    <div className="mx-auto max-w-3xl rounded-2xl border border-line bg-surface p-2 shadow-[0_12px_40px_rgba(18,38,38,0.08)]">
+    <div className="mx-auto w-full min-w-0 max-w-3xl rounded-2xl border border-line bg-surface p-2 shadow-[0_12px_40px_rgba(18,38,38,0.08)]">
       <textarea
         ref={inputRef}
         role="textbox"
         aria-label="Message Roam"
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => onDraftChange(event.target.value)}
         disabled={disabled}
         maxLength={8000}
         rows={2}
-        placeholder="Ask Roam to change anything..."
+        placeholder={placeholder}
         className="min-h-12 max-h-40 w-full resize-y bg-transparent px-3 py-3 text-sm leading-6 outline-none placeholder:text-muted disabled:opacity-60"
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {

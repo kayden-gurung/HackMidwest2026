@@ -104,7 +104,7 @@ export function PlannerPage() {
           <main className="flex min-w-0 flex-1 flex-col lg:h-screen">
             {activeTrip ? (
               <>
-                <TripHeader tripId={activeTrip.id} title={activeTrip.title} leading={<BrandMark className="lg:hidden" />} />
+                <TripHeader tripId={activeTrip.id} title={activeTrip.title} leading={<BrandMark className="lg:hidden" />} onNewJourney={() => openNewJourney()} />
                 <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_390px]">
                   {/* Keyed by trip so each journey gets its own composer and scroll position. */}
                   <ChatPanel key={activeTrip.id} tripId={activeTrip.id} preferences={preferences} onUserMessage={(text) => nameDraftFromMessage(activeTrip.id, text)} />

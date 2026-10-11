@@ -65,6 +65,17 @@ body {
 .chat-response blockquote { border-left: 3px solid var(--color-line); padding-left: 1rem; }
 .chat-response { overflow-wrap: anywhere; }
 
+/* Scenic postcards: the cover is decorative when a trip has no supplied photo. */
+.postcard-cover { aspect-ratio: 3.15; min-height: 120px; max-height: 230px; overflow: hidden; background: var(--color-mint); }
+.postcard-art { position: relative; display: grid; width: 100%; height: 100%; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 85% 15%, color-mix(in srgb, var(--color-sun) 25%, transparent), transparent 65%), linear-gradient(130deg, var(--color-mint), var(--color-panel)); }
+.postcard-orbit { position: absolute; width: 360px; height: 360px; border: 1px solid color-mix(in srgb, var(--color-sea) 18%, transparent); border-radius: 50%; transform: rotate(-30deg) scaleY(.58); }
+.postcard-orbit-one { left: -120px; top: -185px; }
+.postcard-orbit-two { right: -70px; bottom: -215px; width: 450px; height: 450px; }
+.postcard-orbit-three { right: -45px; bottom: -190px; width: 400px; height: 400px; }
+.postcard-flight summary { list-style: none; }
+.postcard-flight summary::-webkit-details-marker { display: none; }
+@media (prefers-reduced-motion: reduce) { .postcard-flight summary svg { transition: none; } }
+
 /* Placeholder text for the contentEditable chat composer, which has no native placeholder. */
 .composer:empty::before {
   content: attr(data-placeholder);

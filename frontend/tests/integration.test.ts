@@ -8,6 +8,7 @@ import { itineraryStore, validateItinerary } from "../src/features/itinerary/api
 import { budgetTotals, hasCoordinates, itemCostLabel } from "../src/features/itinerary/lib/itinerary";
 import type { ItinerarySnapshot } from "../src/features/itinerary/types";
 import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
+import { postcardFromItinerary } from "../src/features/chat/lib/tripPostcard";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
 globalThis.window = globalThis as unknown as Window & typeof globalThis;
@@ -152,4 +153,31 @@ test("unknown budgets/costs stay distinct from free items; invalid dates, IDs an
     { items: [{ ...plan.items[0], costUsd: -1 }] },
     { items: [{ ...plan.items[0], location: { name: "Park", lat: 100, lng: 0 } }] },
   ]) assert.throws(() => validateItinerary({ ...plan, ...patch }), /invalid/);
+});
+
+test("live postcards use each journey's metadata and keep unknown estimates separate from free costs", () => {
+  const plan = planFixture();
+  plan.overview = { destination: "Kansas City, Missouri", headline: "A weekend of new corners.", pace: "Relaxed" };
+  plan.summary = "Good food and a little time outside.";
+  const postcard = postcardFromItinerary(validateItinerary(plan))!;
+  assert.equal(postcard.destination, "Kansas City, Missouri");
+  assert.equal(postcard.budgetUsd, 300);
+  assert.equal(postcard.estimatedTotalUsd, 30);
+  assert.equal(postcard.unknownCosts, 1);
+  assert.equal(postcard.durationDays, 2);
+  assert.equal(postcard.imageUrl, undefined);
+  assert.equal(postcard.flightPricePerPersonUsd, undefined);
+  assert.equal(postcard.matchPercent, undefined);
+  itineraryStore.set("postcard-trip", plan);
+  assert.deepEqual(itineraryStore.snapshot("postcard-trip")!.overview, plan.overview);
+  const other = { ...planFixture(), overview: { destination: "Kyoto, Japan", imageUrl: "https://example.com/kyoto.jpg" } };
+  assert.equal(postcardFromItinerary(other)!.destination, "Kyoto, Japan");
+  assert.equal(postcardFromItinerary(other)!.imageUrl, "https://example.com/kyoto.jpg");
+  const unknown = { ...plan, items: plan.items.map((item) => ({ ...item, costUsd: null })) };
+  assert.equal(postcardFromItinerary(unknown)!.estimatedTotalUsd, null);
+  const free = { ...plan, items: plan.items.map((item) => ({ ...item, costUsd: 0 })) };
+  assert.equal(postcardFromItinerary(free)!.estimatedTotalUsd, 0);
+  assert.equal(postcardFromItinerary(free)!.unknownCosts, 0);
+  assert.equal(postcardFromItinerary({ ...plan, items: [] }), undefined);
+  assert.throws(() => validateItinerary({ ...plan, overview: { destination: "" } }), /invalid plan/);
 });

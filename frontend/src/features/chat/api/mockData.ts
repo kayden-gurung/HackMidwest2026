@@ -15,6 +15,9 @@ export const mockConversations: Record<string, ChatMessage[]> = {
       text: "Puglia feels just right. You’ll get Adriatic coves, incredible cucina povera, and coastal trails—without the Amalfi crowds or prices.",
       recommendation: {
         destination: "Puglia, Italy",
+        headline: "A little coast. A lot of calm.",
+        description: "Adriatic coves, incredible food, and room to slow down.",
+        budgetUsd: 3200,
         stops: ["Bari", "Polignano a Mare", "Alberobello"],
         imageUrl:
           "https://images.unsplash.com/photo-1770493967117-6ae3927c0d05?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=85&w=1400",

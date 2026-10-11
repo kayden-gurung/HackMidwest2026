@@ -43,6 +43,15 @@ class PlanBudget(PlanModel):
                                     description="Traveler's total trip budget in USD, or null if not set.")
 
 
+class TripOverview(PlanModel):
+    destination: str = Field(min_length=1, max_length=200, description="Destination name, e.g. Kyoto, Japan.")
+    headline: str | None = Field(default=None, max_length=120, description="A short, inviting headline specific to this trip.")
+    pace: str | None = Field(default=None, max_length=40)
+    imageUrl: str | None = Field(default=None, max_length=2000,
+                               description="Optional photo URL from a tool result or the traveler. Never invent URLs; omit when unavailable.")
+    imageAlt: str | None = Field(default=None, max_length=300)
+
+
 class ItinerarySnapshot(PlanModel):
     startDate: date
     endDate: date
@@ -50,6 +59,7 @@ class ItinerarySnapshot(PlanModel):
     budget: PlanBudget
     summary: str = Field(default="", max_length=1000)
     assumptions: list[str] = Field(default_factory=list, max_length=12)
+    overview: TripOverview | None = None
 
     @model_validator(mode="after")
     def coherent_plan(self):
@@ -92,6 +102,9 @@ class ItineraryUpdates:
         costs, 0 only for free stops. Include transport, lodging and meals when relevant;
         explain omitted costs in assumptions. State assumed dates explicitly if flexible.
         Do not call for greetings or unrelated questions. An empty items list clears stops.
+        Include overview with the destination, a short inviting headline and the trip's
+        pace when known. Preserve this metadata on revisions. Only include imageUrl
+        when a tool or the traveler supplied a photo URL; otherwise omit it.
 
         Args:
             itinerary: Complete revised plan matching the schema, not just changed stops.

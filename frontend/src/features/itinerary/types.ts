@@ -51,6 +51,15 @@ export type Place =
   | { id: string; kind: "stay"; name: string; pricePerNightUsd: number; rating: number }
   | { id: string; kind: "restaurant"; name: string; cuisine: string; rating: number };
 
+/** Optional cover metadata for the trip's chat postcard. */
+export interface TripOverview {
+  destination: string;
+  headline?: string | null;
+  pace?: string | null;
+  imageUrl?: string | null;
+  imageAlt?: string | null;
+}
+
 export interface Itinerary {
   tripId: string;
   startDate: string;
@@ -59,9 +68,10 @@ export interface Itinerary {
   budget: { plannedUsd: number | null };
   summary?: string;
   assumptions?: string[];
+  overview?: TripOverview | null;
   days?: ItineraryDay[];
   places?: Place[];
 }
 
 /** Structured plan sent with chat, without the browser's journey ID or demo extras. */
-export type ItinerarySnapshot = Pick<Itinerary, "startDate" | "endDate" | "items" | "budget" | "summary" | "assumptions">;
+export type ItinerarySnapshot = Pick<Itinerary, "startDate" | "endDate" | "items" | "budget" | "summary" | "assumptions" | "overview">;
