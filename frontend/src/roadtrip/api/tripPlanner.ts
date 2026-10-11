@@ -60,7 +60,8 @@ export function planRequest(draft: DriveDraft, includePlaces = true) {
     start: draft.start.trim(),
     destination: draft.destination.trim(),
     interests: draft.interests,
-    detour_budget_minutes: draft.detourBudget,
+    // Whole minutes, within what the backend accepts (0-600, like the Trip setup field).
+    detour_budget_minutes: Math.min(600, Math.max(0, Math.round(draft.detourBudget || 0))),
     // The form allows "Flexible"; only a real date is sent.
     departure_date: ISO_DATE.test(draft.departureDate.trim()) ? draft.departureDate.trim() : null,
     max_miles_per_day: draft.maxMilesPerDay,

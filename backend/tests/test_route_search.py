@@ -291,6 +291,9 @@ def test_plan_endpoint(client, world):
     assert body["itinerary"]["items"] and body["route"]["miles"] == 600
     assert client.post("/api/trips/plan", json={"start": "Kansas City, MO", "destination": "Atlantis"}).status_code == 404
     assert client.post("/api/trips/plan", json={"start": "K", "destination": "Denver, CO"}).status_code == 422
+    # The Trip setup field allows typed detour budgets up to 600 minutes.
+    assert client.post("/api/trips/plan", json={"start": "Kansas City, MO", "destination": "Denver, CO",
+                                                "detour_budget_minutes": 600}).status_code == 200
 
 
 def test_search_endpoints(client, world):

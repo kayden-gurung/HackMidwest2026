@@ -550,6 +550,8 @@ test("route planner request sends the setup form and only a real departure date"
   assert.equal(planRequest(plannerDraft, false).include_places, false);
   assert.equal(body.mpg, 28);
   assert.equal("mpg" in planRequest({ ...plannerDraft, mpg: 0 }), false);
+  assert.equal(planRequest({ ...plannerDraft, detourBudget: 500 }).detour_budget_minutes, 500);
+  assert.equal(planRequest({ ...plannerDraft, detourBudget: 900 }).detour_budget_minutes, 600);
 });
 
 test("route planner answer becomes the drive tab's plan, chosen stops first in route order", () => {

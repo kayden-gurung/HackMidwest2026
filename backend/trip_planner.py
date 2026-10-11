@@ -53,7 +53,8 @@ class TripRequest(BaseModel):
     destination: str = Field(min_length=2, max_length=120)
     interests: list[str] = Field(default_factory=list, max_length=len(INTEREST_TAGS))
     # Total extra driving the traveler accepts for detours, for the whole way there.
-    detour_budget_minutes: int = Field(default=60, ge=0, le=480)
+    # The Trip setup slider goes to 120; typed amounts up to 600 (frontend/src/roadtrip/types.ts).
+    detour_budget_minutes: int = Field(default=60, ge=0, le=600)
     departure_date: date | None = None
     max_miles_per_day: int = Field(default=400, ge=50, le=1500)
     mpg: float = Field(default=28, gt=5, le=150)
