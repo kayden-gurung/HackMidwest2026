@@ -1,6 +1,11 @@
-import { useState } from "react"
+import { useId, useState } from "react"
+import type { KeyboardEvent } from "react"
+import { suggestCities, isKnownCity } from "../data/cities"
 import type { DriveDraft } from "../types"
 import { Action, Icon } from "./ui"
+
+const fieldClass =
+  "min-h-11 w-full rounded-md border border-line bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-school"
 
 function TextField({
   label,
@@ -14,20 +19,114 @@ function TextField({
   hint?: string
 }) {
   return (
-    <div>
+    <label className="block">
       <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">
         {label}
       </div>
-      <div
-        role="textbox"
-        contentEditable
-        suppressContentEditableWarning
-        onInput={(event) => onChange(event.currentTarget.textContent ?? "")}
-        className="min-h-11 rounded-md border border-line bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-school"
-      >
-        {value}
-      </div>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={fieldClass}
+      />
       {hint && <div className="mt-1.5 text-[10px] text-muted">{hint}</div>}
+    </label>
+  )
+}
+
+function CityField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  const id = useId()
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const suggestions = open ? suggestCities(value) : []
+  const invalid = value.trim() !== "" && !isKnownCity(value)
+
+  const choose = (city: string) => {
+    onChange(city)
+    setOpen(false)
+  }
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") return setOpen(false)
+    if (!suggestions.length) return
+    if (event.key === "ArrowDown") {
+      event.preventDefault()
+      setActive((active + 1) % suggestions.length)
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault()
+      setActive((active - 1 + suggestions.length) % suggestions.length)
+    } else if (event.key === "Enter") {
+      event.preventDefault()
+      choose(suggestions[active] ?? suggestions[0])
+    }
+  }
+
+  return (
+    <div className="relative">
+      <label htmlFor={id}>
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">
+          {label}
+        </div>
+      </label>
+      <input
+        id={id}
+        type="text"
+        role="combobox"
+        aria-expanded={suggestions.length > 0}
+        aria-controls={`${id}-list`}
+        aria-autocomplete="list"
+        autoComplete="off"
+        placeholder="Start typing a city"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value)
+          setActive(0)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={onKeyDown}
+        className={fieldClass}
+      />
+      {suggestions.length > 0 && (
+        <ul
+          id={`${id}-list`}
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-line bg-white py-1 shadow-lg"
+        >
+          {suggestions.map((city, index) => (
+            <li
+              key={city}
+              role="option"
+              aria-selected={index === active}
+              // mousedown fires before the input's blur closes the list
+              onMouseDown={(event) => {
+                event.preventDefault()
+                choose(city)
+              }}
+              onMouseEnter={() => setActive(index)}
+              className={`cursor-pointer px-3 py-2 text-sm font-semibold ${
+                index === active ? "bg-mint text-school" : ""
+              }`}
+            >
+              {city}
+            </li>
+          ))}
+        </ul>
+      )}
+      {invalid && !open && (
+        <div className="mt-1.5 text-[10px] text-muted">
+          Pick a city from the suggestions for the best results.
+        </div>
+      )}
     </div>
   )
 }
@@ -97,12 +196,12 @@ export default function TripSetup({
         <div className="mt-8 border border-line bg-canvas p-5 md:p-7">
           <div className="space-y-5">
               <div className="grid gap-4 sm:grid-cols-2">
-                <TextField
+                <CityField
                   label="Starting city"
                   value={drive.start}
                   onChange={(start) => setDrive({ ...drive, start })}
                 />
-                <TextField
+                <CityField
                   label="Destination"
                   value={drive.destination}
                   onChange={(destination) =>
