@@ -270,6 +270,27 @@ def test_first_plan_is_a_complete_valid_itinerary(world):
     assert result.itinerary.roadTrip.detourMinutes <= 120 and result.detour_minutes_used <= 120
 
 
+def test_every_stop_meal_and_stay_has_a_cost_estimate_that_says_it_is_one(world):
+    result = plan()
+    visits = [i for i in result.itinerary.items if i.category != "Driving"]
+    assert visits and all(i.costUsd is not None for i in visits)
+    by_title = {i.title: i for i in visits}
+    fort = next(i for title, i in by_title.items() if "Fort Hays" in title)
+    assert fort.costUsd == 8 and "not its listed price" in fort.description
+    lunch = next(i for title, i in by_title.items() if title.startswith("Lunch"))
+    assert lunch.costUsd == 12 and "not this place's menu price" in lunch.description  # a cafe
+    motel = next(i for title, i in by_title.items() if title.startswith("Overnight"))
+    assert motel.costUsd == 80 and "not this place's price" in motel.description
+    assert any("not looked-up prices" in a for a in result.itinerary.assumptions)
+
+
+def test_admission_estimates_follow_the_map_data():
+    assert route_search.admission_estimate({"tourism": "museum"})[0] == 10
+    assert route_search.admission_estimate({"tourism": "museum", "fee": "no"}) == (0.0, "OpenStreetMap lists it as free to visit.")
+    assert route_search.admission_estimate({"tourism": "viewpoint"})[0] == 0
+    assert route_search.admission_estimate({"tourism": "viewpoint", "fee": "yes"})[0] == 10
+
+
 def test_detour_budget_is_respected(world):
     tight = plan(detour_budget_minutes=0)
     assert tight.detour_minutes_used == 0

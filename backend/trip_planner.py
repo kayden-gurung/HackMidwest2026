@@ -46,6 +46,11 @@ FOOD_TAGS = "restaurant|cafe"
 # A road trip wants a clean, ordinary bed: luxury hotels go last when anything else is near.
 LUXURY = re.compile(r"ritz|four seasons|st\.? regis|waldorf|mandarin oriental|peninsula|fairmont|jw marriott|luxury|"
                     r"resort (&|and) spa|\bspa\b", re.IGNORECASE)
+# Typical US costs, because OpenStreetMap has no prices: lunch for one person, and one room for one
+# night. Always shown as estimates, never as the place's own price.
+MEAL_USD = {"restaurant": 18, "cafe": 12}
+STAY_USD = {"motel": 80, "guest_house": 110, "hotel": 130}
+LUXURY_STAY_USD = 250
 # Extra candidates shown for swapping, beyond the chosen stops.
 MORE_STOPS = 8
 
@@ -156,11 +161,24 @@ def _found(element: dict, lat: float, lng: float) -> dict:
 
 def _rank(tags: dict, is_bed: bool, distance: float) -> tuple:
     if is_bed:
-        stars = str(tags.get("stars", ""))[:1]
-        luxury = (stars.isdigit() and int(stars) >= 4) or bool(LUXURY.search(tags.get("name", "")))
-        return (not luxury, notability(tags), -distance)
+        return (not _is_luxury(tags), notability(tags), -distance)
     # Local places before chains for meals.
     return (not tags.get("brand"), notability(tags), -distance)
+
+
+def _is_luxury(tags: dict) -> bool:
+    stars = str(tags.get("stars", ""))[:1]
+    return (stars.isdigit() and int(stars) >= 4) or bool(LUXURY.search(tags.get("name", "")))
+
+
+def meal_estimate(tags: dict) -> tuple[float, str]:
+    usd = MEAL_USD.get(tags.get("amenity"), MEAL_USD["restaurant"])
+    return float(usd), f"About ${usd} a person: a typical lunch, not this place's menu price."
+
+
+def stay_estimate(tags: dict) -> tuple[float, str]:
+    usd = LUXURY_STAY_USD if _is_luxury(tags) else STAY_USD.get(tags.get("tourism"), STAY_USD["hotel"])
+    return float(usd), f"About ${usd} for one room: a typical rate for this kind of stay, not this place's price."
 
 
 class _SearchFailed(Exception):
@@ -238,9 +256,10 @@ def _meals_and_beds(estimate: DriveEstimate, destination: places.GeoPoint | None
 
 def _place_item(item_id: str, day: date, time: str | None, title: str, category: str, found: dict, description: str) -> PlanItem:
     tags = found["tags"]
+    cost_usd, cost_note = stay_estimate(tags) if category == "Stays" else meal_estimate(tags)
     return PlanItem(
         id=item_id, date=day, time=time, title=title[:200], category=category,  # type: ignore[arg-type]
-        description=description[:1200],
+        description=f"{description} {cost_note}"[:1200], costUsd=cost_usd,
         location=Location(name=tags["name"][:200], address=(places._address(tags) or None), lat=found["lat"], lng=found["lng"]),
         websiteUrl=places._web_url(tags.get("website") or tags.get("contact:website")),
         sourceUrls=[found["source"]],
@@ -368,7 +387,7 @@ def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteS
         stay_key = f"stay-{day}" if day < days - 1 else "stay-destination"
         if stay_key in picks:
             items.append(_place_item(f"stay-{day + 1}", when, _clock(clock), f"Overnight: {picks[stay_key]['tags']['name']}",
-                                     "Stays", picks[stay_key], f"Near {_short(leg.end)}. Book ahead: Roam has no prices or availability."))
+                                     "Stays", picks[stay_key], f"Near {_short(leg.end)}. Book ahead: Roam has no availability."))
 
     if request.round_trip:
         for home_day, leg in enumerate(estimate.drive_days_home):
@@ -380,7 +399,7 @@ def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteS
             if outbound >= 0 and f"stay-{outbound}" in picks:
                 arrive = DAY_START_MINUTES + minutes_per_day
                 items.append(_place_item(f"stay-home-{home_day + 1}", when, _clock(arrive), f"Overnight: {picks[f'stay-{outbound}']['tags']['name']}",
-                                         "Stays", picks[f"stay-{outbound}"], f"Near {_short(leg.end)}. Book ahead: Roam has no prices or availability."))
+                                         "Stays", picks[f"stay-{outbound}"], f"Near {_short(leg.end)}. Book ahead: Roam has no availability."))
 
     total_days = days * (2 if request.round_trip else 1)
     interests = ", ".join(i for i in request.interests if i in INTEREST_TAGS) or "history, nature and quirky stops"
@@ -389,6 +408,7 @@ def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteS
         "Each day starts at 8:00 am. Times and visit lengths are rough planning estimates.",
         "Detour times are from OSRM routing, without traffic.",
         "Stops, meals and stays come from OpenStreetMap, which has no prices, ratings or live opening hours.",
+        "Meal, admission and room costs are typical U.S. amounts for one traveler and one room, not looked-up prices.",
     ]
     if request.departure_date is None:
         assumptions.append("No departure date was given, so the plan starts today.")
@@ -470,7 +490,8 @@ def _stop_item(stop: RouteStop, when: date, time: str) -> PlanItem:
     return PlanItem(
         id=f"stop-{stop.id}", date=when, time=time, category=category,  # type: ignore[arg-type]
         title=(f"Stop: {stop.name}" + (f" ({stop.town})" if stop.town and stop.town not in stop.name else ""))[:200],
-        description=f"{stop.reason} {detour} Plan about {stop.visit_minutes} min here (estimate)."[:1200],
+        description=f"{stop.reason} {detour} Plan about {stop.visit_minutes} min here (estimate). {stop.cost_note}".strip()[:1200],
+        costUsd=stop.cost_usd,
         location=Location(name=stop.name[:200], address=stop.address, lat=stop.lat, lng=stop.lng),
         websiteUrl=stop.website_url,
         sourceUrls=stop.source_urls,

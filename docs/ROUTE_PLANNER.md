@@ -33,6 +33,11 @@ come from OSRM. Times and visit lengths are planning estimates and are labeled a
 - **Meals and beds.** Lunch at a local (non-chain) place near the stop closest to midday, or halfway
   through the day's drive; a bed near each night's town and at the destination (ordinary hotels and
   motels before luxury ones).
+- **Costs.** OpenStreetMap has no prices, so every stop, meal and bed gets a typical U.S. amount,
+  for one traveler and one room, and its description says it is an estimate: lunch $18 (restaurant)
+  or $12 (cafe); a room $80 (motel), $110 (guest house), $130 (hotel) or $250 (luxury); admission by
+  kind of place ($10 museum, $8 fort...), and $0 for kinds that are usually free or that the map
+  tags `fee=no`. The amounts are constants at the top of `trip_planner.py` and `tools/route_search.py`.
 - **The whole-route check.** The finished plan goes through the same check every Strands change gets
   (`roadtrip.RoadTripPlanner.validate`): the route through every stop, meal and bed must fit the
   detour budget. If it doesn't, extras are left out first (the destination's bed, then the halfway

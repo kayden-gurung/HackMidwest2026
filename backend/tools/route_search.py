@@ -104,6 +104,14 @@ VISIT_MINUTES = {
     "brewery": 45, "winery": 45, "distillery": 45, "marketplace": 40, "town": 45,
 }
 DEFAULT_VISIT_MINUTES = 30
+# Typical admission per person in US dollars, by kind of place. OpenStreetMap has no prices, so these
+# are planning estimates and are always shown as such. Kinds not listed are usually free to visit
+# (viewpoints, monuments, public art, parks, historic districts).
+ADMISSION_USD = {
+    "museum": 10, "attraction": 10, "fort": 8, "castle": 12, "manor": 10, "mine": 12, "ship": 10, "aircraft": 10,
+    "locomotive": 8, "railway_car": 8, "archaeological_site": 8, "cave_entrance": 15, "hot_spring": 15,
+}
+PAID_DEFAULT_USD = 10
 FOOD_TAGS = ("amenity", "restaurant|cafe|ice_cream|marketplace")
 
 
@@ -145,6 +153,9 @@ class RouteStop(BaseModel):
     # True when the routing service could not measure the detour and it was estimated from distance.
     detour_estimated: bool = False
     visit_minutes: int
+    # Typical admission for one person (0 = usually free), and the sentence saying it is an estimate.
+    cost_usd: float = 0.0
+    cost_note: str = ""
     # A village or small town, or a place with no Wikipedia/Wikidata entry: likely off the usual lists.
     less_explored: bool
     score: float
@@ -332,6 +343,19 @@ def _visit_minutes(tags: dict) -> int:
     return DEFAULT_VISIT_MINUTES
 
 
+def admission_estimate(tags: dict) -> tuple[float, str]:
+    """(typical admission per person in dollars, the sentence that says where the figure comes from)."""
+    fee = str(tags.get("fee", "")).lower()
+    if fee == "no":
+        return 0.0, "OpenStreetMap lists it as free to visit."
+    typical = next((ADMISSION_USD[tags[key]] for key in ("tourism", "historic", "natural", "leisure") if tags.get(key) in ADMISSION_USD), None)
+    if typical is None and fee not in ("", "no", "donation"):
+        typical = PAID_DEFAULT_USD  # the map says it charges, but not how much
+    if typical is None:
+        return 0.0, "Places like this are usually free to visit; check before you go."
+    return float(typical), f"Admission is about ${typical} a person: a typical amount for this kind of place, not its listed price."
+
+
 def _counts_phrase(kinds: list[str]) -> str:
     counts: dict[str, int] = {}
     for kind in kinds:
@@ -463,6 +487,7 @@ def _candidates(found: RoutePlaces, interests: list[str], to_miles: float, exclu
         kind = kind_label(tags)
         nearby = _counts_phrase([kind_label(o.get("tags") or {}) for o in others])
         where = f" in {town_name}" if town_name else ""
+        cost_usd, cost_note = admission_estimate(tags)
         candidates.append(_Candidate(RouteStop(
             id=f"{poi.get('type', 'node')}-{poi.get('id')}",
             name=_name(tags) or "Unnamed place",
@@ -478,6 +503,7 @@ def _candidates(found: RoutePlaces, interests: list[str], to_miles: float, exclu
             miles_from_start=round(along * to_miles),
             detour_minutes=0, detour_miles=0.0, gas_cost_usd=0.0,
             visit_minutes=_visit_minutes(tags),
+            cost_usd=cost_usd, cost_note=cost_note,
             less_explored=small if town_name else "wikipedia" not in tags,
             score=round(score, 2),
         ), along))
