@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from strands import tool
 
 from budget import analyze_budget
+from price_estimates import with_estimates
 
 
 class PlanModel(BaseModel):
@@ -102,6 +103,8 @@ class ItineraryUpdates:
         self.check = check
         self.check_on_budget = check_on_budget
         self.failed_checks = 0
+        # Party size for price estimates (price_estimates.py); the request sets it from saved preferences.
+        self.travelers = 1
         self._budget_draft: ItinerarySnapshot | None = None
         self._prepared: dict[str, tuple[ItinerarySnapshot, list[str]]] = {}
 
@@ -138,7 +141,8 @@ class ItineraryUpdates:
         Args:
             itinerary: Complete draft itinerary, including costs for all travelers and budget.
         """
-        draft = ItinerarySnapshot.model_validate(itinerary)
+        # Any stop, meal or stay left without a price gets a rough estimate, so nothing shows "Cost TBD".
+        draft = with_estimates(ItinerarySnapshot.model_validate(itinerary), self.travelers)
         if self.check_on_budget:
             # Measure the route before reporting costs or requesting approval. Freeze the
             # result so approval publishes exactly the preview, without another lookup.
@@ -175,7 +179,7 @@ class ItineraryUpdates:
 
     def _draft(self, itinerary=None) -> ItinerarySnapshot | None:
         """The draft a tool call refers to: the one it sent, or the last budget-checked one."""
-        return self.checked_draft if itinerary is None else ItinerarySnapshot.model_validate(itinerary)
+        return self.checked_draft if itinerary is None else with_estimates(ItinerarySnapshot.model_validate(itinerary), self.travelers)
 
     def budget_checked(self, itinerary=None) -> bool:
         """Consent and publication both require the exact draft's budget check."""

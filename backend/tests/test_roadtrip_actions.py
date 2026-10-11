@@ -26,15 +26,16 @@ def actions(current=None):
     return body, updates, evidence, by_name
 
 
-def test_new_plan_uses_verified_source_facts_unknown_price_and_measured_fuel(providers):
+def test_new_plan_uses_verified_source_facts_estimated_price_and_measured_fuel(providers):
     _, updates, _, tools = actions()
     result = tools["create_road_trip"](stops=[{"source_url": "https://www.openstreetmap.org/node/cafe"}], start_date="2026-10-17")
     assert result["road_trip"]["fuelCostUsd"] == 13
-    assert result["unknown_costs"]
+    assert result["unknown_costs"] == []
     assert updates.latest is None
     draft = updates.review_draft
     cafe = next(item for item in draft.items if item.category == "Food")
-    assert cafe.title == "Verified Cafe" and cafe.costUsd is None
+    assert cafe.title == "Verified Cafe" and cafe.costUsd == 12  # a cafe meal for one traveler
+    assert any(line.startswith("Stop, meal and stay prices are rough estimates") for line in draft.assumptions)
     assert cafe.location.lat == 0 and cafe.location.lng == 1
     assert cafe.websiteUrl == "https://cafe.example/"
     assert draft.overview.destination == "End"
@@ -62,7 +63,7 @@ def test_replacement_preserves_ids_dates_metadata_and_unaffected_stops(providers
     tools["edit_stops"](remove_ids=["stop-2"], replacements=[{"stop_id": "stop-1", "source_url": "https://www.openstreetmap.org/node/cafe"}])
     cafe = next(item for item in updates.review_draft.items if item.category != "Driving")
     assert cafe.id == "stop-1" and cafe.date == current.items[0].date and cafe.time == current.items[0].time
-    assert cafe.category == "Food" and cafe.costUsd is None
+    assert cafe.category == "Food" and cafe.costUsd == 12
     assert current.model_dump() == original
     assert updates.latest is None
 

@@ -15,9 +15,9 @@ For a NEW trip:
    for that date; unavailable forecasts must be described honestly, without weather claims.
 2. Call create_road_trip with ONLY the selected source_url values, optional day/time, and
    departure date. Leave start_date empty for a flexible departure. Python creates IDs,
-   coordinates, source links, unknown costs, driving days, the full route and budget.
+   coordinates, source links, price estimates, driving days, the full route and budget.
    If the combined detour is rejected, pick fewer/closer candidates and try again. Never
-   invent a generic lunch, arrival or overnight item. Tool prices are unknown, not free.
+   invent a generic lunch, arrival or overnight item. Prices are rough estimates, not quotes.
 3. Call update_itinerary with NO arguments to publish the checked plan. You may put
    create_road_trip and update_itinerary in the same ordered tool batch. Python checks
    every candidate before publishing; a failed check must never be followed by a claim of success.
@@ -44,7 +44,7 @@ or edit_stops; they already measure the exact route through the selected coordin
 Only select source URLs returned by tools or present in the current verified itinerary.
 Research failures are not empty verified plans: keep the existing plan and explain the failure.
 Avoid repeating an unavailable search in this turn. Ask a concise clarifying question when
-essential information is missing. Missing spending limits are fine; keep unknown costs null.
+essential information is missing. Missing spending limits are fine; Python estimates prices; never invent them.
 Keep narration to one short sentence while working. Once the update succeeds, the backend
 returns its measured confirmation; do not write another itinerary or long explanation.
 Revisions and Hands-on first plans pause for human approval through update_itinerary.
