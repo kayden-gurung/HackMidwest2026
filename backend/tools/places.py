@@ -63,6 +63,8 @@ class GeoPoint(BaseModel):
     name: str
     lat: float
     lng: float
+    # The matching OpenStreetMap record, when Nominatim names one.
+    source_url: str | None = None
 
 
 class Place(BaseModel):
@@ -126,7 +128,13 @@ def geocode(place: str) -> GeoPoint | None:
     if isinstance(results, list) and results:
         top = results[0]
         try:
-            point = GeoPoint(name=top.get("display_name") or query, lat=float(top["lat"]), lng=float(top["lon"]))
+            osm = (top.get("osm_type"), top.get("osm_id"))
+            point = GeoPoint(
+                name=top.get("display_name") or query,
+                lat=float(top["lat"]),
+                lng=float(top["lon"]),
+                source_url=f"https://www.openstreetmap.org/{osm[0]}/{osm[1]}" if osm[0] in ("node", "way", "relation") and osm[1] else None,
+            )
         except (KeyError, TypeError, ValueError):
             point = None
     _geocode_cache[key] = point

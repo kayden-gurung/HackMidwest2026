@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from agent import build_agent
 from aws_errors import aws_error_response
 from evidence import Evidence, evidence_from_snapshot, recording_tools
+from pins import pin_stops
 from itinerary import ItinerarySnapshot, ItineraryUpdates
 from prompts.travel import car_mode_instruction
 from schemas import Preferences, describe_preferences
@@ -43,7 +44,8 @@ class AskResponse(BaseModel):
 def checked_updates(body: AskRequest) -> tuple[ItineraryUpdates, Evidence]:
     """Itinerary updates for one request, checked against what the place tools returned in it."""
     evidence = evidence_from_snapshot(body.current_itinerary)
-    return ItineraryUpdates(check=lambda snapshot: validate_snapshot(snapshot, evidence, car_mode=body.car_mode)), evidence
+    check = lambda snapshot: validate_snapshot(snapshot, evidence, car_mode=body.car_mode, pinner=pin_stops)  # noqa: E731
+    return ItineraryUpdates(check=check), evidence
 
 
 def max_miles(body: AskRequest) -> int | None:

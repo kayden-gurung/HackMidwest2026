@@ -30,6 +30,7 @@ class KnownPlace:
     lng: float
     website_url: str | None = None
     source_urls: list[str] = field(default_factory=list)
+    address: str | None = None
 
 
 @dataclass
@@ -48,6 +49,7 @@ class Evidence:
                 lng=float(place["lng"]),
                 website_url=place.get("website_url"),
                 source_urls=[str(url) for url in place.get("source_urls", [])],
+                address=place.get("address"),
             )
         except (KeyError, TypeError, ValueError):
             return
@@ -60,9 +62,12 @@ class Evidence:
         except (KeyError, TypeError, ValueError):
             return
 
+    def places(self) -> list[KnownPlace]:
+        """Specific places from find_places (each has a source link)."""
+        return list({id(place): place for place in self.places_by_source.values()}.values())
+
     def all_places(self) -> list[KnownPlace]:
-        unique = {id(place): place for place in self.places_by_source.values()}
-        return [*unique.values(), *self.points]
+        return [*self.places(), *self.points]
 
 
 def evidence_from_snapshot(snapshot: ItinerarySnapshot | None) -> Evidence:
@@ -76,6 +81,7 @@ def evidence_from_snapshot(snapshot: ItinerarySnapshot | None) -> Evidence:
                 "lng": item.location.lng,
                 "website_url": item.websiteUrl,
                 "source_urls": item.sourceUrls,
+                "address": item.location.address,
             })
     return evidence
 

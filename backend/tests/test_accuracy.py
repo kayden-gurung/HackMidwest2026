@@ -38,6 +38,14 @@ def model_plan():
     )
 
 
+@pytest.fixture(autouse=True)
+def no_network_geocoding(monkeypatch):
+    """pins.py looks stops up by name; tests must never reach the real service."""
+    import tools.places as places_module
+
+    monkeypatch.setattr(places_module, "geocode", lambda query: None)
+
+
 @pytest.fixture
 def fake_map(monkeypatch):
     monkeypatch.setattr(travel_tools, "find_places", lambda *a, **k: {"status": "ok", "places": [REAL_PLACE]})
@@ -267,3 +275,85 @@ def test_switching_car_mode_on_clears_flights_from_the_current_plan(fake_map, mo
     assert {"fly", "flight"}.isdisjoint(i["id"] for i in with_car["itinerary"]["items"])
     without_car = client.post("/api/ask", json={"prompt": "hi", "current_itinerary": current}).json()
     assert "itinerary" not in without_car
+
+
+# ----- Map pins --------------------------------------------------------------------------------
+
+TOWN = {"status": "ok", "name": "Kansas City, Missouri, United States", "lat": 39.0997, "lng": -94.5786}
+
+
+def town_evidence():
+    evidence = Evidence()
+    evidence.add_point(TOWN)
+    evidence.add_place({**REAL_PLACE, "address": "Main Street 1, 64105, Kansas City"})
+    return evidence
+
+
+def test_stops_sharing_the_town_center_lose_that_pin():
+    """The bug: the model reused the city's coordinates for every stop, so every pin and link hit downtown."""
+    city = {"lat": 39.0997, "lng": -94.5786}
+    snapshot = ItinerarySnapshot.model_validate(plan(
+        item("bbq", title="BBQ dinner", category="Food", location={"name": "Joe's Kansas City Bar-B-Que", **city}),
+        item("museum", title="Art museum", location={"name": "Nelson-Atkins Museum of Art", **city}),
+        item("jazz", title="Jazz night", location={"name": "Kansas City", **city}),
+        item("walk", title="Walk", location={"name": "Kansas City", **city}),
+        item("real", title="Real dinner", category="Food", sourceUrls=[OSM_URL], location={"name": "Trattoria Real"}),
+    ))
+    cleaned, notes = validate_snapshot(snapshot, town_evidence())
+    by_id = {i.id: i for i in cleaned.items}
+    assert all(by_id[k].location.lat is None for k in ("bbq", "museum"))
+    # Name-only stops get the town added, so Google Maps searches in the right place.
+    assert by_id["museum"].location.address == "Kansas City, Missouri, United States"
+    # Stops whose only "location" was the town name have nothing specific to show.
+    assert by_id["jazz"].location is None
+    # A real looked-up place keeps its own pin and gets the tool's address.
+    assert (by_id["real"].location.lat, by_id["real"].location.address) == (41.0, "Main Street 1, 64105, Kansas City")
+    assert any("shared one generic map pin" in n for n in notes)
+
+
+def test_one_stop_at_a_looked_up_landmark_keeps_its_pin():
+    snapshot = ItinerarySnapshot.model_validate(plan(item("downtown", title="Explore downtown", location={"name": "Downtown", "lat": 39.0997, "lng": -94.5786})))
+    cleaned, notes = validate_snapshot(snapshot, town_evidence())
+    assert cleaned.items[0].location.lat == 39.0997
+    assert not any("shared one generic map pin" in n for n in notes)
+
+
+def test_two_meals_at_the_same_real_place_keep_their_pins():
+    same = {"name": "Trattoria Real", "lat": 41.0, "lng": 17.2}
+    snapshot = ItinerarySnapshot.model_validate(plan(
+        item("lunch", title="Lunch", category="Food", sourceUrls=[OSM_URL], location=same),
+        item("dinner", title="Dinner", category="Food", sourceUrls=[OSM_URL], location=same),
+    ))
+    cleaned, _ = validate_snapshot(snapshot, town_evidence())
+    assert all(i.location.lat == 41.0 for i in cleaned.items)
+
+
+def test_unpinned_stops_are_looked_up_in_the_trip_town(monkeypatch):
+    import tools.places as places_module
+    from pins import pin_stops
+    from tools.places import GeoPoint
+
+    found = {
+        "Nelson-Atkins Museum of Art, Kansas City": GeoPoint(name="Nelson-Atkins", lat=39.0450, lng=-94.5809, source_url="https://www.openstreetmap.org/way/5"),
+        "Union Station, Kansas City": GeoPoint(name="Union Station, Chicago", lat=41.8786, lng=-87.6403),  # wrong city
+        "City Market, Kansas City": GeoPoint(name="Kansas City", lat=39.0998, lng=-94.5787),  # only matched the town
+    }
+    queries = []
+    monkeypatch.setattr(places_module, "geocode", lambda q: queries.append(q) or found.get(q))
+    city = {"lat": 39.0997, "lng": -94.5786}
+    snapshot = ItinerarySnapshot.model_validate(plan(
+        item("museum", title="Art museum", location={"name": "Nelson-Atkins Museum of Art", **city}),
+        item("union", title="Union Station", location={"name": "Union Station", **city}),
+        item("market", title="Brunch", category="Food", location={"name": "City Market", **city}),
+        item("drive", title="Drive home", category="Driving", location={"name": "Lawrence"}),
+    ))
+    cleaned, notes = validate_snapshot(snapshot, town_evidence(), pinner=pin_stops)
+    by_id = {i.id: i for i in cleaned.items}
+
+    museum = by_id["museum"]
+    assert (museum.location.lat, museum.sourceUrls) == (39.0450, ["https://www.openstreetmap.org/way/5"])
+    assert by_id["union"].location.lat is None   # a match in another city is ignored
+    assert by_id["market"].location.lat is None  # a match on the town center is ignored
+    assert "Lawrence, Kansas City" not in queries  # driving legs are not looked up
+    note = next(n for n in notes if "shared one generic map pin" in n)
+    assert "Nelson-Atkins" not in note and '"Union Station"' in note
