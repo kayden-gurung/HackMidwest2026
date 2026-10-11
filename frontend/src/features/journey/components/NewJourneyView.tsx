@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Action, Icon, ScreenHeader } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
 import { useProfile } from "../../profile";
+import { MILES_PER_DAY_OPTIONS, type TravelBy } from "../../trips";
 import { budgetSliderUsd, journeyDefaults, travelerLimits, vibes } from "../api/mockData";
 import { describeParty } from "../describeJourney";
 import type { DateRange, JourneyRequest } from "../types";
@@ -30,6 +31,27 @@ function Stepper({ label, hint, value, min, max, onChange }: { label: string; hi
   );
 }
 
+/** One of the two big "How are you getting there?" options. */
+function TravelOption({ selected, icon, title, detail, onSelect }: { selected: boolean; icon: "plane" | "car"; title: string; detail: string; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 text-left transition-colors ${selected ? "border-sea bg-mint/60 ring-1 ring-sea" : "border-line hover:border-sea"}`}
+    >
+      <div className={`grid size-9 shrink-0 place-items-center rounded-xl ${selected ? "bg-sea text-white" : "bg-panel text-muted"}`}>
+        <Icon name={icon} className="size-4" />
+      </div>
+      <div>
+        <div className="text-sm font-bold">{title}</div>
+        <div className="mt-0.5 text-xs leading-5 text-muted">{detail}</div>
+      </div>
+    </button>
+  );
+}
+
 /**
  * "New journey" screen: the traveler describes a place or a vibe, picks a budget, dates, a starting point
  * and who is coming, and "Find my trip" hands the request to the planner.
@@ -47,13 +69,16 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
   const [origin, setOrigin] = useState(homeAirport || journeyDefaults.origin);
   const [adults, setAdults] = useState(journeyDefaults.adults);
   const [children, setChildren] = useState(journeyDefaults.children);
+  // Plane: airports and flight ticket links. Road: miles, routes and overnight stops, within a daily limit.
+  const [travelBy, setTravelBy] = useState<TravelBy>("plane");
+  const [maxMilesPerDay, setMaxMilesPerDay] = useState(400);
 
   const toggleVibe = (item: string) =>
     setSelectedVibes((current) => (current.includes(item) ? current.filter((picked) => picked !== item) : [...current, item]));
   const vibeChip = (selected: boolean) =>
     `rounded-full border px-3.5 py-2 text-xs font-semibold ${selected ? "border-sea bg-mint text-sea" : "border-line text-muted hover:border-sea"}`;
 
-  const findTrip = () => onStart({ prompt: prompt.trim(), vibes: vibes.filter((item) => selectedVibes.includes(item)), budgetUsd, dates, origin: origin.trim(), adults, children });
+  const findTrip = () => onStart({ prompt: prompt.trim(), vibes: vibes.filter((item) => selectedVibes.includes(item)), budgetUsd, dates, origin: origin.trim(), adults, children, travelBy, maxMilesPerDay });
 
   return (
     <main className="flex min-w-0 flex-1 flex-col lg:h-screen">
@@ -97,6 +122,31 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
                 </Action>
               ))}
             </div>
+
+            <div className="mt-7">
+              <FieldLabel>How are you getting there?</FieldLabel>
+            </div>
+            <div role="radiogroup" aria-label="How are you getting there?" className="mt-3 grid gap-3 sm:grid-cols-2">
+              <TravelOption selected={travelBy === "plane"} icon="plane" title="By plane" detail="Nearby airports and links to real flight tickets." onSelect={() => setTravelBy("plane")} />
+              <TravelOption selected={travelBy === "road"} icon="car" title="By road" detail="Miles, routes and overnight stops. No flights." onSelect={() => setTravelBy("road")} />
+            </div>
+            {travelBy === "road" && (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-panel px-4 py-3">
+                <div className="text-xs font-semibold text-muted">Most driving in one day</div>
+                <select
+                  aria-label="Most miles to drive per day"
+                  value={maxMilesPerDay}
+                  onChange={(event) => setMaxMilesPerDay(Number(event.target.value))}
+                  className="cursor-pointer rounded-lg bg-surface px-2.5 py-1.5 text-xs font-bold text-sea outline-none ring-sea focus-visible:ring-2"
+                >
+                  {MILES_PER_DAY_OPTIONS.map((miles) => (
+                    <option key={miles} value={miles}>
+                      {miles} miles
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="mt-7 grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-line p-4">
@@ -144,7 +194,7 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
                 <DateRangePicker value={dates} onChange={setDates} />
               </div>
               <div className="rounded-2xl border border-line p-4">
-                <FieldLabel><Icon name="plane" className="size-3.5" /> Leaving from</FieldLabel>
+                <FieldLabel><Icon name={travelBy === "road" ? "car" : "plane"} className="size-3.5" /> Leaving from</FieldLabel>
                 <input
                   type="text"
                   value={origin}
@@ -164,7 +214,7 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
             </div>
 
             <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-line pt-5 sm:flex-row">
-              <div className="text-xs text-muted">For {describeParty(adults, children)} · Flights included</div>
+              <div className="text-xs text-muted">For {describeParty(adults, children)} · {travelBy === "road" ? `Road trip, up to ${maxMilesPerDay} mi/day` : "Flights included"}</div>
               <Action onClick={findTrip} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sea px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-deep sm:w-auto">
                 Let’s roam <Icon name="chevron" className="size-4" />
               </Action>

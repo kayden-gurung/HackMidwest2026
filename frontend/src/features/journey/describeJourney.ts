@@ -17,7 +17,7 @@ function listWithAnd(items: string[]): string {
 /**
  * Turns the New journey choices into the first chat message for Roam, e.g.
  * "A warm beach week with great food. Vibe: Beach & coast, Food first. Travelers: 2 adults and 1 child, leaving from Omaha, NE.
- *  Budget: $3,000 total. Dates: Jun 18–25 (2029-06-18 to 2029-06-25, 7 nights)."
+ *  Budget: $3,000 total. Dates: Jun 18–25 (2029-06-18 to 2029-06-25, 7 nights). Getting there: by plane."
  */
 export function describeJourney(request: JourneyRequest): string {
   const { vibes } = request;
@@ -31,5 +31,8 @@ export function describeJourney(request: JourneyRequest): string {
     `Travelers: ${describeParty(request.adults, request.children)}${origin ? `, leaving from ${origin}` : ""}.`,
     `Budget: ${request.budgetUsd === null ? "flexible, no set limit" : `${formatUsd(request.budgetUsd)} total`}.`,
     `Dates: ${dates ? `${formatTripDates(dates)} (${dates.start} to ${dates.end}, ${describeLength(dates).toLowerCase()})` : "flexible"}.`,
+    request.travelBy === "road"
+      ? `Getting there: by road in our own car${request.maxMilesPerDay ? `, at most ${request.maxMilesPerDay} miles of driving per day` : ""}.`
+      : "Getting there: by plane.",
   ].join(" ");
 }

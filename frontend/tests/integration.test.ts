@@ -294,3 +294,10 @@ test("trip types chosen for a journey go with every message of that journey only
   assert.deepEqual(requests[1].trip_types, ["Food first", "Rest & reset"]);
   assert.deepEqual(requests[2].trip_types, []);
 });
+
+test("New journey says how the traveler gets there in Roam's first message", () => {
+  const base = { prompt: "Denver", vibes: [], budgetUsd: 1500, dates: null, origin: "Kansas City, MO", adults: 2, children: 0 };
+  assert.match(describeJourney(base), /Getting there: by plane\.$/);
+  assert.match(describeJourney({ ...base, travelBy: "plane" }), /Getting there: by plane\.$/);
+  assert.match(describeJourney({ ...base, travelBy: "road", maxMilesPerDay: 300 }), /Getting there: by road in our own car, at most 300 miles of driving per day\.$/);
+});
