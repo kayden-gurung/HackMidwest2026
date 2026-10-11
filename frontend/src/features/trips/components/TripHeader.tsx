@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
-import { Icon, Toggle } from "../../../components/ui";
+import { Icon } from "../../../components/ui";
 import { formatDateRange } from "../../../lib/format";
 import { useTrip } from "../hooks/useTrips";
 import { useItinerary } from "../../itinerary/hooks/useItinerary";
 import { MILES_PER_DAY_OPTIONS, useTravelMode } from "../api/travelModeStore";
 import { useTripTypes } from "../../journey/api/tripTypesStore";
 
-/** Top bar: current trip title and summary, a "New trip" button on small screens, and the car mode switch. */
+/** Top bar: current trip title and summary, a "New trip" button on small screens, and the Plane / Road toggle. */
 export function TripHeader({ tripId, title, leading, onNewJourney }: { tripId: string; title: string; leading?: ReactNode; onNewJourney?: () => void }) {
   // The title comes from the sidebar's list so it updates the moment a journey is named.
   const trip = useTrip(tripId, title);
@@ -32,28 +32,44 @@ export function TripHeader({ tripId, title, leading, onNewJourney }: { tripId: s
       </div>
       <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
         {onNewJourney && <button type="button" onClick={onNewJourney} aria-label="New journey" className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-2 text-xs font-semibold hover:border-sea hover:text-sea lg:hidden"><Icon name="plus" className="size-3.5" />New trip</button>}
-        <CarModeSwitch tripId={tripId} />
+        <TravelModeToggle tripId={tripId} />
       </div>
     </header>
   );
 }
 
-/** Car mode for this journey: Roam plans the whole trip by car, never flights, within a daily driving limit. */
-function CarModeSwitch({ tripId }: { tripId: string }) {
-  const { carMode, maxMilesPerDay, setCarMode, setMaxMilesPerDay } = useTravelMode(tripId);
+/** How this journey travels: by plane (airports, flight ticket links) or by road (miles, routes, a daily driving limit). */
+function TravelModeToggle({ tripId }: { tripId: string }) {
+  const { travelBy, maxMilesPerDay, setTravelBy, setMaxMilesPerDay } = useTravelMode(tripId);
+  const options = [
+    { value: "plane", label: "Plane", icon: "plane", hint: "Fly: Roam finds airports and links to flight tickets." },
+    { value: "road", label: "Road", icon: "car", hint: "Drive: Roam plans miles, routes and overnight stops. No flights." },
+  ] as const;
   return (
-    <div
-      className={`flex items-center gap-2 rounded-full border py-1 pl-3 pr-1.5 transition-colors ${carMode ? "border-sea bg-mint/50" : "border-line bg-surface"}`}
-      title={carMode ? "Car mode: Roam plans the whole trip by car, with no flights." : "Turn on to plan this trip by car, with no flights."}
-    >
-      <Icon name="car" className={`size-4 ${carMode ? "text-sea" : "text-muted"}`} />
-      <span className="text-xs font-semibold">Car</span>
-      {carMode && (
+    <div role="radiogroup" aria-label="Travel by" className="flex items-center gap-1 rounded-full border border-line bg-surface p-1">
+      {options.map((option) => {
+        const selected = travelBy === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            title={option.hint}
+            onClick={() => setTravelBy(option.value)}
+            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${selected ? "bg-deep text-white" : "text-muted hover:text-ink"}`}
+          >
+            <Icon name={option.icon} className="size-3.5" />
+            {option.label}
+          </button>
+        );
+      })}
+      {travelBy === "road" && (
         <select
           aria-label="Most miles to drive per day"
           value={maxMilesPerDay}
           onChange={(event) => setMaxMilesPerDay(Number(event.target.value))}
-          className="cursor-pointer rounded-md border-l border-line bg-transparent py-0.5 pl-2 text-xs font-semibold text-sea outline-none focus-visible:ring-2 focus-visible:ring-sea"
+          className="cursor-pointer rounded-full bg-mint/60 py-1.5 pl-2.5 pr-1 text-xs font-semibold text-sea outline-none focus-visible:ring-2 focus-visible:ring-sea"
         >
           {MILES_PER_DAY_OPTIONS.map((miles) => (
             <option key={miles} value={miles}>
@@ -62,7 +78,6 @@ function CarModeSwitch({ tripId }: { tripId: string }) {
           ))}
         </select>
       )}
-      <Toggle label="Car mode: drive the whole trip, no flights" checked={carMode} onChange={() => setCarMode(!carMode)} />
     </div>
   );
 }

@@ -61,6 +61,7 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
     preferences: preferences && toRequestPreferences(preferences),
     current_itinerary: itineraryStore.snapshot(tripId),
     car_mode: carMode,
+    travel_mode: carMode ? "road" : "plane",
     max_drive_miles_per_day: carMode ? maxMilesPerDay : undefined,
     trip_types: tripTypesStore.get(tripId),
   };

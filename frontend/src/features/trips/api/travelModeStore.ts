@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { itineraryStore } from "../../itinerary/api/itineraryStore";
 
-/** Car mode per journey: drive the whole trip, never fly. Set from the switch in the trip header. */
+/** How a journey travels, set from the Plane / Road toggle in the trip header. Road is car mode: drive the whole trip, never fly. */
 export interface TravelMode {
   carMode: boolean;
   /** Most miles the traveler wants to drive in one day. Only used in car mode. */
@@ -47,10 +47,14 @@ function removeFlightsFromPlan(tripId: string) {
   }
 }
 
+export type TravelBy = "plane" | "road";
+
 export function useTravelMode(tripId: string) {
   const mode = useSyncExternalStore(travelModeStore.subscribe, () => travelModeStore.get(tripId));
   return {
     ...mode,
+    travelBy: (mode.carMode ? "road" : "plane") as TravelBy,
+    setTravelBy: (travelBy: TravelBy) => travelModeStore.set(tripId, { carMode: travelBy === "road" }),
     setCarMode: (carMode: boolean) => travelModeStore.set(tripId, { carMode }),
     setMaxMilesPerDay: (maxMilesPerDay: number) => travelModeStore.set(tripId, { maxMilesPerDay }),
   };

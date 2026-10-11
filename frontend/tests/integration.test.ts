@@ -5,7 +5,7 @@ import { conversationStore } from "../src/features/chat/api/conversationStore";
 import { localTripsService } from "../src/features/trips/api/tripsService";
 import { describeJourney } from "../src/features/journey/describeJourney";
 import { itineraryStore, validateItinerary } from "../src/features/itinerary/api/itineraryStore";
-import { budgetTotals, googleMapsUrl, hasCoordinates, itemCostLabel } from "../src/features/itinerary/lib/itinerary";
+import { budgetTotals, googleMapsUrl, hasCoordinates, itemCostLabel, websiteLabel } from "../src/features/itinerary/lib/itinerary";
 import type { ItinerarySnapshot } from "../src/features/itinerary/types";
 import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
 import { postcardFromItinerary } from "../src/features/chat/lib/tripPostcard";
@@ -258,6 +258,26 @@ test("an error event in the stream is shown like any other backend error", async
   mock.method(globalThis, "fetch", async () => new Response(`data: ${JSON.stringify({ error: "Bedrock throttled the request.", status: 429 })}\n\ndata: {"done": true}\n\n`, { headers: { "Content-Type": "text/event-stream" } }));
   await assert.rejects(chatService.sendMessage("stream-error-trip", "Hi"), /Bedrock throttled/);
   assert.equal(conversationStore.getError("stream-error-trip"), "Bedrock throttled the request.");
+});
+
+test("the Plane / Road toggle is sent with each message, and links say what they open", async () => {
+  const sent: any[] = [];
+  mock.method(globalThis, "fetch", async (_url: string, init: any) => {
+    sent.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ reply: "ok" }));
+  });
+  await chatService.sendMessage("toggle-trip", "Plan it");
+  assert.equal(sent[0].travel_mode, "plane");
+  assert.equal(sent[0].car_mode, false);
+  travelModeStore.set("toggle-trip", { carMode: true, maxMilesPerDay: 300 });
+  await chatService.sendMessage("toggle-trip", "Now by road");
+  assert.equal(sent[1].travel_mode, "road");
+  assert.equal(sent[1].max_drive_miles_per_day, 300);
+
+  const base = { id: "x", date: "2026-10-17", title: "x", costUsd: null } as const;
+  assert.equal(websiteLabel({ ...base, category: "Flights", websiteUrl: "https://www.google.com/travel/flights?q=Flights" }), "Find tickets");
+  assert.equal(websiteLabel({ ...base, category: "Driving", websiteUrl: "https://www.google.com/maps/dir/?api=1&origin=A" }), "Directions");
+  assert.equal(websiteLabel({ ...base, category: "Food", websiteUrl: "https://example.com" }), "Website");
 });
 
 test("trip types chosen for a journey go with every message of that journey only", async () => {
