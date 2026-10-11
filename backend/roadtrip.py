@@ -83,7 +83,7 @@ class RoadTripPlanner:
         return [f"Fuel estimated at {self.preferences.mpg:g} MPG and ${self.preferences.gas_price:.2f}/gallon for one car, one way.",
                 "Driving times exclude traffic and time spent visiting stops. Tolls, parking and rental costs are excluded."]
 
-    def find_route_towns(self, exclude: list[str] | None = None) -> dict:
+    def find_route_towns(self, exclude: list[str] | None = None, limit: int = 5) -> dict:
         """Discover verified towns at five points along the route; no exhaustive-search claim."""
         try:
             route = self.route([])
@@ -110,8 +110,10 @@ class RoadTripPlanner:
                     continue
                 towns.append({**point.model_dump(), "detour_minutes": round(extra, 1),
                               "source_urls": [point.source_url]})
+                if len(towns) >= max(1, min(limit, 5)):
+                    break
             return {"status": "ok" if towns else "no_results", "towns": towns,
-                    "message": "Sampled five positions along the route. Detours are for each town alone; combined stops must be checked together. Town/village labels are map classifications, not verified population counts."}
+                    "message": "Sampled up to five positions along the route. Detours are for each town alone; combined stops must be checked together. Town/village labels are map classifications, not verified population counts."}
         except (places.PlacesUnavailable, ValueError) as error:
             return {"status": "unavailable", "towns": [], "message": str(error)}
 

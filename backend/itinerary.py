@@ -105,6 +105,11 @@ class ItineraryUpdates:
         self._budget_draft: ItinerarySnapshot | None = None
         self._prepared: dict[str, tuple[ItinerarySnapshot, list[str]]] = {}
 
+    def discard_draft(self):
+        """A failed source-based edit must not leave an older partial draft publishable."""
+        self._budget_draft = None
+        self._prepared.clear()
+
     @tool
     def check_budget(self, itinerary: ItinerarySnapshot) -> dict:
         """Check a complete draft's estimated total against its total USD budget before publishing it.

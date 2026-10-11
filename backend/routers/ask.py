@@ -19,6 +19,7 @@ from itinerary import ItinerarySnapshot, ItineraryUpdates
 from prompts.travel import TRIP_TYPES, car_mode_instruction, trip_types_instruction
 from schemas import Preferences, RoadTripPreferences, describe_preferences
 from roadtrip import RoadTripPlanner
+from roadtrip_actions import roadtrip_actions
 from validation import validate_snapshot
 
 # Errors reach the traveler as a short message; the full reason goes to the backend log.
@@ -87,8 +88,19 @@ def final_itinerary(body: AskRequest, updates: ItineraryUpdates, evidence: Evide
 
 def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence):
     messages = [{"role": message.role, "content": [{"text": message.content}]} for message in body.history]
-    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget], travel_tools=recording_tools(evidence, max_miles(body), getattr(updates, "roadtrip_planner", None)),
-                        checked_draft=lambda: updates.review_draft)
+    travel_tools = recording_tools(evidence, max_miles(body), getattr(updates, "roadtrip_planner", None))
+    extra_tools = [updates.update_itinerary, updates.check_budget]
+    options = {}
+    if body.road_trip:
+        actions = roadtrip_actions(body, updates, evidence, travel_tools)
+        extra_tools.extend(actions if body.current_itinerary else [item for item in actions if item.tool_name != "edit_stops"])
+        # A new trip has one bounded research pass. Low-level lookup tools remain available
+        # for revisions, while research_stops holds them internally for initial planning.
+        if body.current_itinerary is None:
+            travel_tools = [item for item in travel_tools if item.tool_name == "get_forecast"]
+        options["direct_roadtrip"] = True
+    agent = build_agent(messages=messages, extra_tools=extra_tools, travel_tools=travel_tools,
+                        checked_draft=lambda: updates.review_draft, **options)
     mode = body.mode or (body.preferences.planning_style if body.preferences else None) or "Co-pilot"
     mode_instruction = {
         "Hands-on": "Present options and ask the traveler to choose before making a detailed plan.",
@@ -107,28 +119,6 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evi
         agent.system_prompt += "\n" + trip_types_instruction(body.trip_types)
     if body.road_trip:
         agent.system_prompt += "\nRoad-trip form constraints (traveler data):\n" + body.road_trip.model_dump_json()
-        agent.system_prompt += """\nThis is a one-way drive. Always delegate plan_transport before a concrete road-trip plan.
-        The backend measures the complete route through the proposed stops, enforces the total extra
-        driving-time budget, and replaces Driving costs and routes with measured data at check_budget.
-        In road-trip mode plan_drive returns distance_miles, drive_minutes, detour_minutes and fuel_cost_usd,
-        rather than individual daily legs. Report these returned figures; never invent drive_days.
-        You may omit Driving items from the draft because the backend adds them from the measured route.
-        Every other item must be a specifically verified place with its exact tool coordinates and
-        source URL. Never add generic breakfast, lunch, overnight, arrival or departure placeholders.
-        Describe those suggestions in assumptions instead. Choose a compact set of nearby stops;
-        do not force every interest into the plan. Before writing the draft, ask plan_transport to
-        preview the complete ordered set of stop names using plan_drive(via=[...]). If that preview
-        exceeds the detour budget, remove the farthest detour and preview again. Only then write
-        check_budget. After a rejected check, fix the stated error rather than repeating the draft.
-        Keep roadTrip out of your draft; it is filled by the backend. Include enough dates for the daily
-        driving limit. Do not invent detour times or claim a route change when none was returned.
-        For different small towns, delegate research_places to use find_route_towns, then research
-        activities/food in the returned towns if useful. For different attractions or restaurants in
-        the same city, use find_places with Activities or Food and exclude_current=True. Radius searches
-        may cross city boundaries: state the returned locality honestly. Keep unaffected stops and IDs.
-        For a different road route with the same endpoints, delegate plan_transport with alternative=True;
-        if unavailable, explain that and keep the current plan. Use via for explicitly requested waypoints.
-        Use check_budget's measured totals. Costs unknown from tools must remain null.\n"""
     if body.current_itinerary is not None:
         # Route lines are for the map only: thousands of numbers would slow every reply, and the
         # model might copy them back out. The backend keeps them (see evidence_from_snapshot).
@@ -166,6 +156,19 @@ def needs_panel_update(body: AskRequest, updates: ItineraryUpdates, reply: str) 
     return bool(pattern.search(reply))
 
 
+def panel_update_prompt(body: AskRequest, updates: ItineraryUpdates) -> str:
+    if not body.road_trip:
+        return NUDGE
+    if updates.budget_checked(None):
+        return ("Your road-trip draft is already checked and stored in Python. Call update_itinerary "
+                "with NO arguments now to publish it or produce the native approval card. Do not "
+                "retype the itinerary, repeat research, or run another budget check. Do not write anything else.")
+    return ("You described a road-trip plan change without updating the panels. Use create_road_trip "
+            "for a new trip or edit_stops with only the requested changes for an existing trip, then "
+            "call update_itinerary with NO arguments. Use check_budget with a full draft only for "
+            "changes these tools cannot express. Do not claim success before the tools succeed.")
+
+
 @router.post("/ask", response_model=AskResponse, response_model_exclude_unset=True)
 def ask(body: AskRequest):
     try:
@@ -178,7 +181,7 @@ def ask(body: AskRequest):
             return {"reply": "Review the proposed plan before applying it.", "approval": run.pause(result)}
         reply = str(result).strip()
         if needs_panel_update(body, updates, reply):
-            result = agent(NUDGE)
+            result = agent(panel_update_prompt(body, updates))
             if getattr(result, "stop_reason", None) == "interrupt":
                 return {"reply": "Review the proposed plan before applying it.", "approval": run.pause(result)}
         reply = reply or updates.confirmation()
@@ -225,7 +228,7 @@ async def drive_run(run: AgentRun, prompt):
             return
         reply = str(result).strip() if result is not None else ""
         if not run.denied and needs_panel_update(run.body, run.updates, reply):
-            result = await stream_invocation(run, NUDGE, emit_text=False)
+            result = await stream_invocation(run, panel_update_prompt(run.body, run.updates), emit_text=False)
             if getattr(result, "stop_reason", None) == "interrupt":
                 run.emit({"approval": run.pause(result)})
                 return

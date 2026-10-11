@@ -11,6 +11,9 @@ import { JourneyStarters } from "../../journey/components/JourneyStarters";
 
 /** What the status line says while Roam uses each backend tool. */
 const toolStatus: Record<string, string> = {
+  research_stops: "Finding stops along your drive…",
+  create_road_trip: "Checking your complete drive…",
+  edit_stops: "Checking the requested changes…",
   find_places: "Searching real places…",
   locate: "Looking up locations…",
   plan_drive: "Checking driving routes…",

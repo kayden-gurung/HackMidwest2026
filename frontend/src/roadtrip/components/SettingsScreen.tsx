@@ -185,7 +185,7 @@ export default function SettingsScreen({
         <div className="mt-8 border border-line bg-panel p-5">
           <div className="text-xs font-bold">Agent X-ray</div>
           <div className="mt-2 text-xs leading-5 text-muted">
-            Open a drive to see live Places, Transport, and Budget activity in chat.
+            Open a drive to see live place lookups, route checks, and budget calculations in chat.
             Proposed revisions wait for your approval before replacing your plan.
           </div>
         </div>

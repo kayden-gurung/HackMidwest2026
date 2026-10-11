@@ -1,6 +1,8 @@
 # Strands implementation in Roam
 
-Roam runs an orchestrator plus three specialist Strands agents on Amazon Bedrock. The specialists are typed tools the orchestrator can call. SDK hooks drive the live Agent X-ray panel, and a native Strands interrupt pauses itinerary revisions before they are applied.
+Road-trip requests (`road_trip` present) run one Strands agent on Amazon Bedrock with direct Python tools for bounded research, source-based stop edits, routing and budget checks. See [the road-trip guide](ROADTRIP_STRANDS.md) and [latency report](ROADTRIP_LATENCY.md). SDK hooks still drive Agent X-ray, and a native Strands interrupt pauses revisions before they are applied.
+
+The specialist workflow below is retained for older API requests without `road_trip`.
 
 ## Agent team
 
@@ -11,7 +13,7 @@ Roam runs an orchestrator plus three specialist Strands agents on Amazon Bedrock
 | Transport | `plan_drive`, `locate` | Check driving feasibility, routes, day-by-day legs, times and fuel assumptions (Roam plans drives only) |
 | Budget | `calculate_budget` | Review estimates for all travelers, unknown costs and budget overruns |
 
-`backend/orchestration.py` wraps each specialist with an async `@tool` that invokes that agent. All agents receive the same current itinerary, dates, preferences, car constraints, and trip types. Their conversation state and lookup evidence belong to one request; they are never shared between travelers. A sequential tool executor prevents concurrent invocations of the same specialist. Each run allows at most 24 model calls across the team.
+`backend/orchestration.py` wraps each specialist with an async `@tool` that invokes that agent. All agents receive the same current itinerary, dates, preferences, car constraints, and trip types. Their conversation state and lookup evidence belong to one request; they are never shared between travelers. A sequential tool executor prevents concurrent invocations of the same specialist. Each run allows at most 40 model calls across the team. The direct road-trip workflow usually uses only a few calls and stops inference after publication or denial.
 
 The model chooses which specialist tools to call. The orchestrator instructions require place research for concrete plans, relevant transport checks, and a budget review before an itinerary update. The Places specialist handles the existing live forecast tool. Both budget tools use the shared deterministic arithmetic; the orchestrator's `check_budget` verifies the exact draft before it can request consent or publish. Greetings and clarifying questions do not need specialist calls. The Transport specialist also holds the Plane mode tools (`find_airports`, `flight_links`); every lookup tool must belong to a specialist, and a test fails if one is left out. Lookup evidence collected by specialists reaches the existing Python itinerary validator. Only the orchestrator can update the panels.
 
