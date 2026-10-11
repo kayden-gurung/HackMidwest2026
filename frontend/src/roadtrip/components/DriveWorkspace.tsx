@@ -4,9 +4,8 @@ import type {
   CommunityDiscovery,
   DriveDraft,
   DriveStop,
-  TravelMode,
 } from "../types"
-import { Action, Icon, ModeSwitch, StatusTag } from "./ui"
+import { Action, Icon, StatusTag } from "./ui"
 
 function StopCard({
   stop,
@@ -499,11 +498,9 @@ function StopDetail({
 
 export default function DriveWorkspace({
   draft,
-  onMode,
   onEdit,
 }: {
   draft: DriveDraft
-  onMode: (mode: TravelMode) => void
   onEdit: () => void
 }) {
   const [added, setAdded] = useState<string[]>(["rocheport"])
@@ -569,7 +566,6 @@ export default function DriveWorkspace({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <ModeSwitch mode="drive" onChange={onMode} compact />
             <Action
               onClick={onEdit}
               className="rounded-md border border-line bg-white px-3 py-2 text-[10px] font-bold"

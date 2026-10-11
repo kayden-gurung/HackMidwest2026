@@ -1,5 +1,4 @@
 import { trips } from "../data/mockData"
-import type { TravelMode } from "../types"
 import { Action, Icon, StatusTag } from "./ui"
 
 export default function Dashboard({
@@ -7,7 +6,7 @@ export default function Dashboard({
   onOpen,
 }: {
   onNew: () => void
-  onOpen: (mode: TravelMode) => void
+  onOpen: () => void
 }) {
   return (
     <div className="h-full overflow-y-auto px-5 py-7 md:px-9 lg:px-12">
@@ -21,7 +20,7 @@ export default function Dashboard({
               Dashboard
             </div>
             <div className="mt-2 text-sm text-muted">
-              Your destination trips and drives, together.
+              Your drives, and the places worth pulling over for.
             </div>
           </div>
           <Action
@@ -53,7 +52,7 @@ export default function Dashboard({
               {trips.map((trip) => (
                 <Action
                   key={trip.id}
-                  onClick={() => onOpen(trip.mode)}
+                  onClick={onOpen}
                   className="group overflow-hidden border border-line bg-white hover:border-school/50"
                 >
                   <div className="relative h-40 overflow-hidden">
@@ -63,11 +62,7 @@ export default function Dashboard({
                       className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                     />
                     <div className="absolute left-3 top-3">
-                      <StatusTag
-                        tone={trip.mode === "drive" ? "accent" : "neutral"}
-                      >
-                        {trip.mode}
-                      </StatusTag>
+                      <StatusTag tone="accent">drive</StatusTag>
                     </div>
                   </div>
                   <div className="p-4">
@@ -135,13 +130,13 @@ export default function Dashboard({
             <div className="text-sm font-bold">To do</div>
             <div className="mt-3 divide-y divide-line border-y border-line">
               {[
-                ["Review Bari fare", "Today", "plane"],
                 ["Choose a Rocheport stop", "Drive · Flexible", "car"],
-                ["Confirm Puglia stay", "Friday", "calendar"],
+                ["Add a lunch stop in Hermann", "Drive · Flexible", "utensils"],
+                ["Pick a departure date", "Kansas City → St. Louis", "calendar"],
               ].map(([title, meta, icon]) => (
                 <div key={title} className="flex gap-3 py-4">
                   <Icon
-                    name={icon as "plane"}
+                    name={icon as "car"}
                     className="mt-0.5 size-4 shrink-0 text-school"
                   />
                   <div>
