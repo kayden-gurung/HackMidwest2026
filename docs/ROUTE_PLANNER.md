@@ -51,13 +51,17 @@ It returns:
 - `more_stops`: other good stops, for "swap this one".
 - `notes`: anything the traveler should know, such as live place data being unavailable.
 
-How it picks: one Overpass request per ~400 km of route finds small towns and villages within
-15 km of the road, the places in them that match the interests, and well-documented landmarks
-within 8 km. Towns score higher for more and better-documented matching places (OpenStreetMap
-has no ratings). Places next to the start or end city are skipped. One OSRM table request measures
-the real detour for the top 25. Then stops are chosen, best value for detour first, until the
-detour budget is used, at least 25 miles apart and at most 3 per driving day. One more Overpass
-request finds a local (non-chain) lunch spot and a hotel for each day.
+How it picks: one Overpass request searches along the route line itself for small towns and
+villages within 10 km of the road and places matching the interests within 5 km (drives over
+~1,600 km are split, and the pieces run at the same time). Each place belongs to a town within
+3 km, or stands alone if it is well documented (Wikipedia/Wikidata, a website or heritage status).
+Towns score higher for more and better-documented matching places (OpenStreetMap has no ratings).
+Places next to the start or end city are skipped. One OSRM table request measures the real detour
+for the top 25. Then stops are chosen, best value for detour first, until the detour budget is
+used, at least 25 miles apart and at most 3 per driving day. One more Overpass request finds a
+local (non-chain) lunch spot and a hotel for each day.
+
+`docker compose logs backend` shows how long each step took (`roam.planner`, `roam.route_search`).
 
 If the place search is down, the plan still comes back with the driving and a note.
 
