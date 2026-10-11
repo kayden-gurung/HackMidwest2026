@@ -193,7 +193,9 @@ def _overpass_query(category: str, lat: float, lng: float, radius_m: int, keywor
     for key, values in CATEGORY_FILTERS[category]:
         tag_filter = f'["{key}"~"^({values})$"]' if values else f'["{key}"]'
         statements += [f"nwr{tag_filter}{extra}{around};" for extra in extra_filters]
-    return f"[out:json][timeout:9];({''.join(statements)});out tags center {fetch};"
+    # "out center", not "out tags center": the tags-only mode leaves out node coordinates, and most
+    # restaurants and attractions are single nodes, so they would all be dropped.
+    return f"[out:json][timeout:9];({''.join(statements)});out center {fetch};"
 
 
 def _distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
@@ -346,18 +348,46 @@ def _nominatim_elements(category: str, origin: GeoPoint, radius_m: int, keyword:
     return elements
 
 
+def overpass(query: str, timeout_s: float = SEARCH_TIMEOUT_S) -> list[dict]:
+    """Runs an Overpass query on the first server that answers. Raises PlacesUnavailable when none does."""
+    for url in OVERPASS_URLS:
+        try:
+            response = _http().post(url, data={"data": query}, timeout=timeout_s)
+            response.raise_for_status()
+            elements = response.json().get("elements", [])
+            return elements if isinstance(elements, list) else []
+        except (httpx.HTTPError, ValueError, AttributeError):
+            continue
+    raise PlacesUnavailable("The place search service is not responding. Try again in a moment.")
+
+
+def is_excluded(place: Place, exclude: list[str] | None) -> bool:
+    """True when the place is one of `exclude`: names (any case) or OpenStreetMap source links."""
+    if not exclude:
+        return False
+    wanted = {" ".join(item.split()).lower() for item in exclude if item}
+    return place.name.lower() in wanted or any(url.lower() in wanted for url in place.source_urls)
+
+
 def search_places(
     near: str,
     category: PlaceCategory,
     keyword: str | None = None,
     radius_m: int = 3000,
     limit: int = 8,
+    exclude: list[str] | None = None,
 ) -> list[Place]:
     """Named places of one category around a location, best-documented and nearest first.
 
+    `exclude` skips places already in the plan (names or source links), so asking for "another
+    restaurant" never returns the current one.
     Returns an empty list when the location is unknown or nothing matches.
     Raises PlacesUnavailable when the map services cannot be reached.
     """
+    if exclude:
+        # Search for extra places so `limit` are left after skipping the excluded ones.
+        found = search_places(near, category, keyword, radius_m, min(MAX_LIMIT, limit + len(exclude)))
+        return [place for place in found if not is_excluded(place, exclude)][:limit]
     if category not in CATEGORY_FILTERS:
         raise ValueError(f"category must be one of {', '.join(CATEGORY_FILTERS)}")
     radius_m = max(100, min(int(radius_m), MAX_RADIUS_M))
