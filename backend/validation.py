@@ -15,6 +15,15 @@ from itinerary import ItinerarySnapshot, Location
 
 # A pin within this distance of a looked-up place counts as that place.
 MATCH_RADIUS_M = 150
+# The start of every note this file writes (see the end of validate_snapshot).
+OWN_NOTE_PREFIXES = (
+    "Car mode is on, so flights were removed",
+    "Not found in map data",
+    "Removed map pins",
+    "Several stops shared one generic map pin",
+    "Flight costs are rough estimates. Roam has no live fare",
+    "This plan is estimated at",
+)
 # ItinerarySnapshot allows at most 12 assumptions.
 MAX_ASSUMPTIONS = 12
 # In car mode, a stop whose title looks like air travel is a flight even if the model filed it under another category.
@@ -184,7 +193,10 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
     if planned is not None and total > planned:
         notes.append(f"This plan is estimated at ${total:,.0f}, which is over the ${planned:,.0f} budget.")
 
-    assumptions = list(dict.fromkeys([*notes, *snapshot.assumptions]))[:MAX_ASSUMPTIONS]
+    # Our notes from an earlier version of the plan come back with every revision; drop them and
+    # add this version's, so a fixed problem stops being mentioned and nothing is listed twice.
+    model_notes = [a for a in snapshot.assumptions if not a.startswith(OWN_NOTE_PREFIXES)]
+    assumptions = list(dict.fromkeys([*notes, *model_notes]))[:MAX_ASSUMPTIONS]
     cleaned = snapshot.model_copy(update={"items": items, "assumptions": assumptions})
     # Re-validate so the response always matches the schema the frontend expects.
     return ItinerarySnapshot.model_validate(cleaned.model_dump()), notes
