@@ -122,6 +122,8 @@ def evidence_from_snapshot(snapshot: ItinerarySnapshot | None) -> Evidence:
     for item in snapshot.items if snapshot else []:
         if item.route and item.websiteUrl and item.location and item.location.lat is not None and item.location.lng is not None:
             evidence.drive_links.add(item.websiteUrl)
+            # Its route sources (OpenStreetMap, OSRM) were checked with it, so a revision may keep them.
+            evidence.drive_links.update(item.sourceUrls)
             evidence.drive_routes[item.websiteUrl] = DriveRoute(
                 path=item.route, end_name=item.location.name, end_lat=item.location.lat, end_lng=item.location.lng)
             continue
