@@ -9,8 +9,6 @@ export type DriveDraft = {
   detourBudget: number
   departureDate: string
   maxMilesPerDay: number
-  mpg: number
-  gasPrice: number
 }
 
 export type DriveStop = {

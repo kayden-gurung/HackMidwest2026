@@ -186,56 +186,6 @@ function DepartureChoice({ value, onChange }: { value: string; onChange: (value:
   )
 }
 
-/** Number input with a unit, for the car settings. Empty or invalid input becomes 0. */
-function NumberField({
-  label,
-  unit,
-  value,
-  onChange,
-  placeholder,
-  step = 1,
-  error,
-}: {
-  label: string
-  unit: string
-  value: number
-  onChange: (value: number) => void
-  placeholder: string
-  step?: number
-  error?: string
-}) {
-  const id = useId()
-  return (
-    <div>
-      <label htmlFor={id} className="mb-2 block text-[9px] font-bold uppercase tracking-wider text-muted">
-        {label}
-      </label>
-      <div
-        className={`flex items-center gap-2 rounded-md border bg-white px-3 py-2.5 transition-colors focus-within:border-school hover:border-school/60 ${
-          error ? "border-coral" : "border-line"
-        }`}
-      >
-        <input
-          id={id}
-          type="number"
-          inputMode="decimal"
-          min={0}
-          step={step}
-          value={value > 0 ? value : ""}
-          placeholder={placeholder}
-          onChange={(event) => {
-            const next = Number(event.target.value)
-            onChange(Number.isFinite(next) && next > 0 ? next : 0)
-          }}
-          className="w-full bg-transparent text-sm font-bold outline-none placeholder:font-semibold placeholder:text-muted"
-        />
-        <span className="shrink-0 text-xs font-semibold text-muted">{unit}</span>
-      </div>
-      {error && <div className="mt-1.5 text-[10px] font-semibold text-coral">{error}</div>}
-    </div>
-  )
-}
-
 type DriveEstimate = { miles: number; hours: number }
 
 /** Real road miles and hours from the backend (OpenStreetMap + OSRM), refetched when the cities change. */
@@ -272,34 +222,30 @@ function formatHours(hours: number): string {
   return whole ? `${whole} h ${minutes} min` : `${minutes} min`
 }
 
-/** The direct drive between the two cities, right under them: real road miles and time, and fuel for the traveler's car. */
+/** The direct drive between the two cities, right under them: real road miles and time. */
 function DriveEstimatePanel({ drive }: { drive: DriveDraft }) {
   const route = useDriveEstimate(drive.start, drive.destination)
   const miles = route.estimate?.miles ?? 0
-  const gallons = drive.mpg > 0 ? miles / drive.mpg : 0
-  const fuelCost = gallons * drive.gasPrice
   const days = drive.maxMilesPerDay > 0 ? Math.max(1, Math.ceil(miles / drive.maxMilesPerDay)) : 1
 
   return (
     <div aria-live="polite">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[10px] text-muted">
         <span className="font-bold uppercase tracking-widest">Direct drive</span>
-        <span>One way, before any detours. Fuel uses your car's mpg and gas price below.</span>
+        <span>One way, before any detours.</span>
       </div>
       {route.status === "idle" && (
-        <div className="text-xs text-muted">Pick a starting city and a destination to see the distance and fuel.</div>
+        <div className="text-xs text-muted">Pick a starting city and a destination to see the distance and driving time.</div>
       )}
       {route.status === "loading" && <div className="animate-pulse text-xs text-muted">Measuring the drive…</div>}
       {route.status === "error" && (
         <div className="text-xs text-muted">Couldn't measure this drive right now. You can still find stops.</div>
       )}
       {route.status === "ok" && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2">
           {[
             ["Distance", `${miles.toLocaleString()} mi`],
             ["Driving time", formatHours(route.estimate!.hours)],
-            ["Fuel needed", drive.mpg > 0 ? `~${gallons.toFixed(1)} gal` : "Add mpg below"],
-            ["Fuel cost", drive.mpg > 0 && drive.gasPrice > 0 ? `~$${fuelCost.toFixed(2)}` : "Add mpg below"],
           ].map(([label, value]) => (
             <div key={label} className="border border-line bg-white px-3 py-2.5">
               <div className="text-[9px] font-bold uppercase tracking-wider text-muted">{label}</div>
@@ -389,50 +335,6 @@ function DetourBudget({ value, onChange }: { value: number; onChange: (minutes: 
   )
 }
 
-/** "Your car & driving preferences": fuel economy (required), gas price and the daily driving limit. */
-function CarSettings({ drive, setDrive, showErrors }: { drive: DriveDraft; setDrive: (draft: DriveDraft) => void; showErrors: boolean }) {
-  return (
-    <div className="mt-6 border border-line bg-canvas p-5 md:p-7">
-      <div className="flex items-start gap-3">
-        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-mint text-school">
-          <Icon name="car" className="size-4" />
-        </div>
-        <div>
-          <div className="font-display text-xl font-semibold">Your car &amp; driving preferences</div>
-          <div className="mt-1 text-xs text-muted">Tell us about your car so detours and fuel costs are worked out for you.</div>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <NumberField
-          label="Your car's fuel economy"
-          unit="mpg"
-          value={drive.mpg}
-          placeholder="e.g. 28"
-          onChange={(mpg) => setDrive({ ...drive, mpg })}
-          error={showErrors && drive.mpg <= 0 ? "Enter your car's fuel economy." : undefined}
-        />
-        <NumberField
-          label="Gas price"
-          unit="$ / gal"
-          value={drive.gasPrice}
-          step={0.05}
-          placeholder="e.g. 3.25"
-          onChange={(gasPrice) => setDrive({ ...drive, gasPrice })}
-        />
-        <NumberField
-          label="Max driving per day"
-          unit="mi"
-          value={drive.maxMilesPerDay}
-          step={25}
-          placeholder="e.g. 450"
-          onChange={(maxMilesPerDay) => setDrive({ ...drive, maxMilesPerDay })}
-        />
-      </div>
-    </div>
-  )
-}
-
 export default function TripSetup({
   drive,
   setDrive,
@@ -444,7 +346,6 @@ export default function TripSetup({
   onSubmit: () => void
   error?: string
 }) {
-  const [showErrors, setShowErrors] = useState(false)
   const toggleDrive = (value: string) =>
     setDrive({
       ...drive,
@@ -452,15 +353,6 @@ export default function TripSetup({
         ? drive.interests.filter((item) => item !== value)
         : [...drive.interests, value],
     })
-
-  const submit = () => {
-    // Fuel economy drives every detour cost, so ask for it before finding stops.
-    if (drive.mpg <= 0) {
-      setShowErrors(true)
-      return
-    }
-    onSubmit()
-  }
 
   return (
     <div className="h-full overflow-y-auto px-5 py-7 md:px-9">
@@ -492,7 +384,7 @@ export default function TripSetup({
                   onChange={(destination) => setDrive({ ...drive, destination })}
                 />
               </div>
-              {/* Right under the two cities: how far the direct drive is and what it costs in fuel. */}
+              {/* Right under the two cities: how far the direct drive is and how long it takes. */}
               <DriveEstimatePanel drive={drive} />
             </div>
             <div>
@@ -514,8 +406,6 @@ export default function TripSetup({
           </div>
         </div>
 
-        <CarSettings drive={drive} setDrive={setDrive} showErrors={showErrors} />
-
         <div className="mt-6 pb-4">
           {error && (
             <div
@@ -526,14 +416,11 @@ export default function TripSetup({
             </div>
           )}
           <Action
-            onClick={submit}
+            onClick={onSubmit}
             className="group flex w-full items-center justify-center gap-2 rounded-md bg-school px-5 py-3.5 text-sm font-bold text-white shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-ink hover:shadow-lg active:translate-y-0 active:shadow-sm"
           >
             <Icon name="car" className="size-4 transition-transform duration-300 group-hover:translate-x-1" /> Find stops along my drive
           </Action>
-          {showErrors && drive.mpg <= 0 && (
-            <div className="mt-3 text-center text-xs font-semibold text-coral">Add your car's fuel economy above to continue.</div>
-          )}
           <div className="mt-3 text-center text-[10px] text-muted">
             Find places worth pulling over for. Results use cached demo data.
           </div>
