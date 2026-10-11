@@ -88,6 +88,14 @@ export function googleMapsUrl(item: ItineraryItem): string | undefined {
 }
 
 /** Links come from the agent and its tools, so only plain web links are ever rendered. */
+/** What a stop's link opens: flight ticket searches, driving directions, or the place's website. */
+export function websiteLabel(item: ItineraryItem): string {
+  const url = item.websiteUrl ?? "";
+  if (item.category === "Flights" && /google\.com\/travel\/flights|kayak\./.test(url)) return "Find tickets";
+  if (/google\.com\/maps\/dir/.test(url)) return "Directions";
+  return "Website";
+}
+
 export function safeWebUrl(url: string | undefined): string | undefined {
   if (!url) return undefined;
   try {

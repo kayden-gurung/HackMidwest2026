@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import tools as travel_tools
 from evidence import Evidence, recording_tools
-from itinerary import ItinerarySnapshot
+from itinerary import ItinerarySnapshot, ItineraryUpdates
 from main import app
 from routers import ask as ask_router
 from validation import validate_snapshot
@@ -80,6 +80,23 @@ def test_keeps_only_what_the_tools_confirmed():
     assert cleaned.assumptions[: len(notes)] == notes
 
 
+def test_frozen_preview_is_reused_but_later_lookups_can_repair_the_same_draft():
+    evidence = Evidence()
+    updates = ItineraryUpdates(check=lambda snapshot: validate_snapshot(snapshot, evidence))
+    draft = model_plan()
+    preview, _ = updates.prepare(draft, freeze=True)
+    assert preview.items[0].sourceUrls == []
+    evidence.add_place(REAL_PLACE)
+    updates.check_budget(itinerary=draft)
+    updates.update_itinerary(itinerary=draft)
+    assert updates.latest == preview  # evidence changing while paused cannot change the approved preview
+    updates.prepare(draft, freeze=True)
+    updates.check_budget(itinerary=draft)
+    updates.update_itinerary(itinerary=draft)
+    assert updates.latest.items[0].sourceUrls == [OSM_URL]
+    assert updates.latest.items[0].location.lat == REAL_PLACE["lat"]
+
+
 def test_pin_near_a_looked_up_place_is_snapped_to_it():
     snapshot = ItinerarySnapshot.model_validate(plan(item("coffee", location={"name": "Coffee", "lat": 41.0005, "lng": 17.2005})))
     cleaned, _ = validate_snapshot(snapshot, looked_up_evidence())
@@ -95,7 +112,7 @@ def test_assumptions_never_exceed_the_schema_limit():
 def test_recording_tools_keep_their_names_and_record_results(fake_map):
     evidence = Evidence()
     tools = {t.tool_name: t for t in recording_tools(evidence)}
-    assert set(tools) == {"find_places", "locate", "plan_drive"}
+    assert set(tools) == {"find_places", "locate", "plan_drive", "get_forecast", "find_airports", "flight_links"}
     assert "OpenStreetMap" in tools["find_places"].tool_spec["description"]
     tools["find_places"]("Polignano a Mare", "Food")
     tools["locate"]("Polignano a Mare")
@@ -110,11 +127,13 @@ class FakeAgent:
     def __init__(self, kwargs, look_up=True):
         self.tools = {t.tool_name: t for t in kwargs["travel_tools"]}
         self.update = kwargs["extra_tools"][0]
+        self.budget = kwargs["extra_tools"][1]
         self.look_up = look_up
 
     def __call__(self, prompt):
         if self.look_up:
             self.tools["find_places"]("Polignano a Mare", "Food")
+        self.budget(itinerary=model_plan())
         self.tool_result = self.update(itinerary=model_plan())
         return "Here is your plan."
 
@@ -213,9 +232,11 @@ def test_chat_in_car_mode_never_returns_flights(fake_map, monkeypatch):
         def __init__(self, kwargs):
             seen["tools"] = {t.tool_name for t in kwargs["travel_tools"]}
             self.update = kwargs["extra_tools"][0]
+            self.budget = kwargs["extra_tools"][1]
 
         def __call__(self, prompt):
             seen["prompt"] = self.system_prompt
+            self.budget(itinerary=car_plan())
             self.update(itinerary=car_plan())
             return "Road trip ready."
 
@@ -259,7 +280,7 @@ def test_car_mode_prompt_and_limit_reach_the_agent(fake_map, monkeypatch):
     assert client.post("/api/ask", json={"prompt": "x", "car_mode": True, "max_drive_miles_per_day": 5}).status_code == 422
 
 
-def test_switching_car_mode_on_clears_flights_from_the_current_plan(fake_map, monkeypatch):
+def test_car_mode_does_not_publish_an_unproposed_revision(fake_map, monkeypatch):
     class Quiet:
         system_prompt = "Roam"
 
@@ -273,7 +294,7 @@ def test_switching_car_mode_on_clears_flights_from_the_current_plan(fake_map, mo
     client = TestClient(app)
     current = car_plan()
     with_car = client.post("/api/ask", json={"prompt": "drive instead", "car_mode": True, "current_itinerary": current}).json()
-    assert {"fly", "flight"}.isdisjoint(i["id"] for i in with_car["itinerary"]["items"])
+    assert "itinerary" not in with_car  # revisions must pass through the update tool and consent hook
     without_car = client.post("/api/ask", json={"prompt": "hi", "current_itinerary": current}).json()
     assert "itinerary" not in without_car
 
@@ -470,13 +491,16 @@ class ForgetfulAgent:
 
     def __init__(self, kwargs, reply="Done! I've swapped the museum for the WWI Museum."):
         self.update = kwargs["extra_tools"][0]
+        self.budget = kwargs["extra_tools"][1]
         self.reply = reply
         self.prompts = []
 
     def _act(self, prompt):
         self.prompts.append(prompt)
         if prompt.startswith("You described"):
-            self.update(itinerary=plan(item("museum", title="National WWI Museum")))
+            draft = plan(item("museum", title="National WWI Museum"))
+            self.budget(itinerary=draft)
+            self.update(itinerary=draft)
             return ""
         return self.reply
 

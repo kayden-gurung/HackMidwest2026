@@ -5,13 +5,23 @@ import type { AskRequest, TravelPreferences } from "../types";
 import { AssistantReply } from "./AssistantReply";
 import { Composer } from "./Composer";
 import { UserBubble } from "./UserBubble";
+import { AgentXrayPanel } from "./AgentXrayPanel";
+import { ReplanApproval } from "./ReplanApproval";
 import { JourneyStarters } from "../../journey/components/JourneyStarters";
 
 /** What the status line says while Roam uses each backend tool. */
 const toolStatus: Record<string, string> = {
   find_places: "Searching real places…",
   locate: "Looking up locations…",
+  plan_drive: "Checking driving routes…",
+  find_airports: "Finding airports…",
+  flight_links: "Getting flight search links…",
+  get_forecast: "Checking the live forecast…",
+  check_budget: "Checking your budget…",
   update_itinerary: "Updating your plan…",
+  research_places: "Places specialist is researching…",
+  plan_transport: "Transport specialist is checking routes…",
+  review_trip_budget: "Budget specialist is reviewing estimates…",
 };
 
 /**
@@ -30,7 +40,8 @@ export function ChatPanel({
   mode?: AskRequest["mode"];
   onUserMessage?: (text: string) => void;
 }) {
-  const { messages, sendStatus, error, draft: streamedReply, send, retry } = useChat(tripId, preferences, mode);
+  const { messages, sendStatus, error, draft: streamedReply, send, retry, agentState, resolveApproval } = useChat(tripId, preferences, mode);
+  const busy = sendStatus === "sending" || sendStatus === "awaiting_approval";
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState("");
@@ -41,7 +52,7 @@ export function ChatPanel({
   }, [messages.length, sendStatus, streamedReply?.text.length]);
 
   const handleSend = (text: string) => {
-    if (!text.trim() || sendStatus === "sending") return;
+    if (!text.trim() || busy) return;
     onUserMessage?.(text);
     send(text);
   };
@@ -67,17 +78,19 @@ export function ChatPanel({
             ),
           )}
           {/* While streaming: the reply so far, then a status line that names the tool Roam is using. */}
-          {sendStatus === "sending" && streamedReply?.text && <AssistantReply message={{ id: "draft", role: "assistant", text: streamedReply.text }} onSuggestion={handleSend} />}
+          {sendStatus === "sending" && streamedReply?.text && <AssistantReply message={{ id: "draft", role: "assistant", text: streamedReply.text, toolSteps: streamedReply.toolSteps }} onSuggestion={handleSend} />}
           {sendStatus === "sending" && (
             <LoadingState label={(streamedReply?.tool && toolStatus[streamedReply.tool]) || (streamedReply?.tool ? "Working…" : streamedReply?.text ? "Writing…" : "Roam is thinking…")} className="pl-11" />
           )}
+          {agentState.approval && <ReplanApproval approval={agentState.approval} busy={sendStatus === "sending"} onResolve={resolveApproval} />}
           {sendStatus === "error" && <ErrorState message={error ?? "Roam couldn’t reply. Please try again."} onRetry={retry} className="pl-11" />}
+          <AgentXrayPanel events={agentState.events} running={sendStatus === "sending"} awaiting={sendStatus === "awaiting_approval"} failed={sendStatus === "error"} />
           <div ref={endRef} />
         </div>
       </div>
 
       <div className="shrink-0 px-5 pb-5 pt-2 md:px-10 lg:px-12">
-        <Composer onSend={handleSend} disabled={sendStatus === "sending"} draft={draft} onDraftChange={setDraft} inputRef={inputRef} placeholder={messages.length === 0 ? "Describe your next trip…" : undefined} />
+        <Composer onSend={handleSend} disabled={busy} draft={draft} onDraftChange={setDraft} inputRef={inputRef} placeholder={sendStatus === "awaiting_approval" ? "Review the proposed re-plan above…" : messages.length === 0 ? "Describe your next trip…" : undefined} />
       </div>
     </section>
   );

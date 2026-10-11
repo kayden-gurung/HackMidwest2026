@@ -24,6 +24,7 @@ def test_strands_tool_accepts_nested_input_and_isolates_request_state():
         return [event async for event in updates.update_itinerary.stream(
             {"toolUseId": "plan-1", "name": "update_itinerary", "input": {"itinerary": draft()}}, {})]
 
+    updates.check_budget(itinerary=draft())
     events = asyncio.run(run())
     assert events[-1]["tool_result"]["status"] == "success"
     assert updates.latest.items[0].title == "Park picnic"
@@ -45,6 +46,7 @@ def test_strands_tool_accepts_nested_input_and_isolates_request_state():
 ])
 def test_bad_updates_cannot_replace_previous_plan(mutation):
     updates = ItineraryUpdates()
+    updates.check_budget(itinerary=draft())
     updates.update_itinerary(itinerary=draft())
     before = updates.latest.model_dump()
     invalid = draft()
@@ -62,11 +64,13 @@ def test_chat_revisions_use_current_plan_and_return_complete_snapshots(monkeypat
 
         def __init__(self, tools):
             self.update = tools[0]
+            self.budget = tools[1]
 
         def __call__(self, prompt):
             plan = draft()
             if prompt == "Change picnic":
                 plan["items"][0].update(title="Restaurant lunch", costUsd=60)
+            self.budget(itinerary=plan)
             self.update(itinerary=plan)
             return "Your plan is ready."
 
@@ -100,17 +104,19 @@ def test_trip_overview_reaches_chat_and_revision_context(monkeypatch):
     class FakeAgent:
         system_prompt = "Roam"
 
-        def __init__(self, tool):
-            self.update = tool
+        def __init__(self, tools):
+            self.update = tools[0]
+            self.budget = tools[1]
 
         def __call__(self, prompt):
             plan = draft()
             plan["overview"] = {"destination": "Kansas City, Missouri", "headline": "A weekend of new corners.", "pace": "Relaxed"}
+            self.budget(itinerary=plan)
             self.update(itinerary=plan)
             return "Your trip is taking shape."
 
     def factory(**kwargs):
-        agent = FakeAgent(kwargs["extra_tools"][0])
+        agent = FakeAgent(kwargs["extra_tools"])
         agents.append(agent)
         return agent
 
@@ -128,14 +134,16 @@ def test_completed_tool_update_without_chat_text_still_returns_a_confirmation(mo
     class FakeAgent:
         system_prompt = "Roam"
 
-        def __init__(self, tool):
-            self.update = tool
+        def __init__(self, tools):
+            self.update = tools[0]
+            self.budget = tools[1]
 
         def __call__(self, prompt):
+            self.budget(itinerary=draft())
             self.update(itinerary=draft())
             return " \n"
 
-    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: FakeAgent(kwargs["extra_tools"][0]))
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: FakeAgent(kwargs["extra_tools"]))
     response = TestClient(app).post("/api/ask", json={"prompt": "Revise plan"})
     assert response.status_code == 200
     assert "$30.00" in response.json()["reply"]
@@ -150,16 +158,18 @@ def test_stream_plan_commits_only_after_success(monkeypatch):
     class FakeAgent:
         system_prompt = "Roam"
 
-        def __init__(self, tool):
-            self.update = tool
+        def __init__(self, tools):
+            self.update = tools[0]
+            self.budget = tools[1]
 
         async def stream_async(self, prompt):
+            self.budget(itinerary=draft())
             self.update(itinerary=draft())
             yield {"data": "Plan reply"}
             if fail:
                 raise RuntimeError("private upstream detail")
 
-    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: FakeAgent(kwargs["extra_tools"][0]))
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: FakeAgent(kwargs["extra_tools"]))
     client = TestClient(app)
     def events():
         response = client.post("/api/ask/stream", json={"prompt": "Plan trip"})

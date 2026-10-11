@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-strands-agents
+strands-agents>=1.59.0,<2
 strands-agents-tools
 httpx
 pytest

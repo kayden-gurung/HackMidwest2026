@@ -1,5 +1,5 @@
 import { Action, Icon } from "../../../components/ui";
-import { formatDay, formatTime, googleMapsUrl, hasCoordinates, itemCostLabel, safeWebUrl } from "../lib/itinerary";
+import { formatDay, formatTime, googleMapsUrl, hasCoordinates, itemCostLabel, safeWebUrl, websiteLabel } from "../lib/itinerary";
 import type { ItineraryItem } from "../types";
 import { categoryStyle } from "./categoryStyle";
 
@@ -63,7 +63,7 @@ export function ItemRow({
             )}
             {websiteUrl && (
               <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>
-                Website ↗
+                {websiteLabel(item)} ↗
               </a>
             )}
             {sourceUrls.map((url, index) => (

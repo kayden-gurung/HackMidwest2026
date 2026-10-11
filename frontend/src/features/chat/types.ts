@@ -47,6 +47,8 @@ export interface AssistantMessage {
   /** Follow-up prompts shown as chips; clicking one sends it as a message. */
   suggestions?: string[];
   itinerary?: ItinerarySnapshot;
+  /** Actual streamed tool calls, retained so planning checks stay visible after the reply. */
+  toolSteps?: string[];
 }
 
 export type ChatMessage = UserMessage | AssistantMessage;
@@ -70,6 +72,8 @@ export interface AskRequest {
   current_itinerary?: ItinerarySnapshot;
   /** Car mode from the trip header: the backend plans by car and removes every flight. */
   car_mode?: boolean;
+  /** The trip header's Plane / Road toggle: plane plans flights with airports and ticket links, road plans a road trip. */
+  travel_mode?: "plane" | "road";
   /** Car mode only: most miles to drive in one day (50–1500). */
   max_drive_miles_per_day?: number;
   /** Trip types chosen on the New journey screen; the backend keeps the AI to them on every message. */
@@ -89,4 +93,34 @@ export interface AskRequest {
 export interface AskResponse {
   reply: string;
   itinerary?: ItinerarySnapshot;
+  approval?: PlanApproval;
+}
+
+export interface XrayEvent {
+  id: string;
+  agent: "orchestrator" | "places" | "transport" | "budget";
+  kind: "agent_started" | "agent_finished" | "model_started" | "model_finished" | "tool_started" | "tool_finished" | "consent_resolved";
+  timestamp: string;
+  tool?: string;
+  call_id?: string;
+  status?: string;
+  duration_ms?: number | null;
+}
+
+export interface PlanProposal {
+  kind: "itinerary_replan";
+  summary: string;
+  changes: { type: "added" | "removed" | "changed"; before?: ItinerarySnapshot["items"][number]; after?: ItinerarySnapshot["items"][number] }[];
+  unchanged_stops: number;
+  before_total_usd: number;
+  after_total_usd: number;
+  unknown_costs: number;
+  accuracy_notes?: string[];
+  itinerary: ItinerarySnapshot;
+}
+
+export interface PlanApproval {
+  run_id: string;
+  interrupts: { id: string; name: string; reason: PlanProposal }[];
+  expires_in_seconds: number;
 }

@@ -76,6 +76,32 @@ The itinerary panel is driven by one list, `Itinerary.items` (see `features/itin
 - **Limits:** Nominatim allows one request per second, so lookups are spaced out and cached in memory until the backend restarts. Both services are public and can be slow or busy; failures come back as 503 with a readable message.
 - **Tests:** `docker compose exec backend python -m pytest` (offline, the map services are stubbed).
 
+## Forecast and budget tools
+
+`get_forecast(near, start_date, end_date)` is available in both the default and request-local
+Strands tool sets. `backend/tools/weather.py` geocodes the destination with the existing
+OpenStreetMap lookup, then requests daily weather from [Open-Meteo](https://open-meteo.com/en/docs)
+with a 10-second timeout. It returns destination-local dates, explicit units (Celsius, mm,
+km/h), source URLs, a UTC retrieval timestamp and the actual coverage window. Without dates it
+returns seven days; dated requests use up to sixteen days and reject ranges outside the
+provider's coverage. Outages, unknown places, malformed responses and missing forecast dates
+are explicit statuses, never sample weather. Forecast data is fetched on each call.
+
+`check_budget(itinerary)` is bound to the request's `ItineraryUpdates`, alongside
+`update_itinerary`. `backend/budget.py` uses decimal arithmetic to return the known estimated
+total, remaining/over-budget amount, unknown-cost items and ranked cut candidates. Candidates
+prioritize optional activities, then cheaper meals/stays/transport; the model chooses changes.
+Unknown costs never establish affordability. Every changed draft must be checked again:
+`update_itinerary` rejects an unchecked or different snapshot without changing the plan.
+Over-budget drafts may still be published with the existing warning so infeasible requests can
+be explained honestly; the check itself never silently deletes costs or changes the budget.
+
+The agent prompt requires forecasts for dated outdoor plans/weather revisions and a budget
+check before every itinerary update. SSE emits actual tool calls during both initial planning
+and the one-shot recovery pass. Chat displays their progress labels and retains “Forecast
+lookup” / “Budget check” labels with the reply; these indicate tool calls, not a promise that
+the weather service succeeded or that the trip is affordable.
+
 ## Traveler preferences
 
 The Settings screen keeps its choices in `features/settings/api/settingsStore.ts`. `PlannerPage` reads them with `useTravelPreferences()` and passes them to the chat, which sends them as `preferences` on every `POST /api/ask` (shape: `Preferences` in `backend/schemas.py`). `routers/ask.py` adds them to the travel system prompt. The header shows the planning style chosen in Settings. Chat sends that style with traveler preferences on every request.

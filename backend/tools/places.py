@@ -146,6 +146,45 @@ def geocode(place: str) -> GeoPoint | None:
     return point
 
 
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
+_town_cache: dict[tuple[float, float], str | None] = {}
+
+
+def nominatim_request(url: str, params: dict) -> object:
+    """A Nominatim request, spaced out like geocode()'s: its usage policy allows about one per second.
+
+    httpx and JSON errors reach the caller.
+    """
+    global _last_nominatim_call
+    with _nominatim_lock:
+        wait = NOMINATIM_MIN_INTERVAL_S - (time.monotonic() - _last_nominatim_call)
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            response = _http().get(url, params=params, timeout=GEOCODE_TIMEOUT_S)
+            response.raise_for_status()
+            return response.json()
+        finally:
+            _last_nominatim_call = time.monotonic()
+
+
+def town_at(lat: float, lng: float) -> str | None:
+    """The town (or county) at a point, e.g. "Salina, Kansas", or None when unknown or the lookup fails."""
+    key = (round(lat, 2), round(lng, 2))
+    if key in _town_cache:
+        return _town_cache[key]
+    try:
+        result = nominatim_request(NOMINATIM_REVERSE_URL, {"lat": f"{lat:.5f}", "lon": f"{lng:.5f}", "format": "jsonv2", "zoom": 10, "addressdetails": 1})
+    except (httpx.HTTPError, ValueError):
+        return None  # Not cached: a later call may succeed.
+    address = result.get("address", {}) if isinstance(result, dict) else {}
+    town = address.get("city") or address.get("town") or address.get("village") or address.get("county")
+    region = address.get("state") or address.get("country")
+    name = ", ".join(part for part in (town, region) if part) or None
+    _town_cache[key] = name
+    return name
+
+
 def _keyword_regex(keyword: str | None) -> str | None:
     """A safe case-insensitive pattern for Overpass. Anything but letters, digits and spaces becomes a wildcard."""
     if not keyword:
@@ -296,3 +335,4 @@ def search_places(
 def clear_caches() -> None:
     _geocode_cache.clear()
     _search_cache.clear()
+    _town_cache.clear()
