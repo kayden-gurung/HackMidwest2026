@@ -511,7 +511,7 @@ test("road trips send the daily miles limit, and New journey can set it", async 
 // ---------------------------------------------------------------------------------------------
 // Route planner (frontend/src/roadtrip/api/tripPlanner.ts)
 
-import { planRequest, planTrip, toLiveDrive, type PlannedStop, type TripPlanResponse } from "../src/roadtrip/api/tripPlanner";
+import { planRequest, planTrip, toDrivePlan, type PlannedStop, type TripPlanResponse } from "../src/roadtrip/api/tripPlanner";
 import type { DriveDraft } from "../src/roadtrip/types";
 
 const plannerDraft: DriveDraft = {
@@ -550,22 +550,26 @@ test("route planner request sends the setup form and only a real departure date"
   assert.equal(planRequest(plannerDraft, false).include_places, false);
 });
 
-test("route planner plan is placed on the map, north up, chosen stops first in route order", () => {
-  const live = toLiveDrive(tripPlanFixture(), plannerDraft);
-  assert.deepEqual(live.chosenIds, ["2", "1"]);
-  assert.deepEqual(live.stops.map((s) => s.id), ["1", "2", "3"]);
-  // Kansas City is east (right) and a little south (lower) of Denver.
-  assert.ok(live.start.x > live.end.x && live.start.y > live.end.y);
-  assert.equal(live.start.label, "Kansas City");
-  for (const point of [live.start, live.end, ...live.stops]) {
-    assert.ok(point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100);
-  }
-  assert.match(live.routePath, /^M[\d.]+ [\d.]+ L/);
-  assert.equal(live.stops[0].lookup, "live");
-  assert.equal(live.stops[0].sourceUrl, "https://www.openstreetmap.org/node/1");
-  assert.equal(live.stops[2].detourEstimated, true);
-  assert.equal(live.pending, false);
-  assert.equal(toLiveDrive({ ...tripPlanFixture(), stops: [], more_stops: [], complete: false }, plannerDraft).pending, true);
+test("route planner answer becomes the drive tab's plan, chosen stops first in route order", () => {
+  const plan = toDrivePlan(tripPlanFixture(), plannerDraft);
+  assert.ok(plan.live);
+  assert.deepEqual(plan.live.chosenIds, ["2", "1"]);
+  assert.deepEqual(plan.stops.map((s) => s.id), ["1", "2", "3"]);
+  // Real coordinates for the street map: the route's ends and every stop.
+  assert.deepEqual([plan.route.origin.name, plan.route.origin.lat, plan.route.origin.lng], ["Kansas City", 39.1, -94.58]);
+  assert.deepEqual([plan.route.destination.name, plan.route.destination.lat], ["Denver", 39.74]);
+  assert.equal(plan.route.path.length, 3);
+  assert.equal(plan.route.baseMinutes, 510);
+  assert.equal(plan.route.distanceMiles, 600);
+  assert.deepEqual([plan.stops[0].lat, plan.stops[0].lng], [39.45, -100.3]);
+  assert.equal(plan.stops[0].lookup, "live");
+  assert.equal(plan.stops[0].sourceUrl, "https://www.openstreetmap.org/node/1");
+  assert.equal(plan.stops[0].address, "Hays"); // no street address: the town, for the Google Maps link
+  assert.equal(plan.stops[2].detourEstimated, true);
+  // The demo's sample photos belong to its own route.
+  assert.deepEqual(plan.discoveries, []);
+  assert.equal(plan.live.pending, false);
+  assert.equal(toDrivePlan({ ...tripPlanFixture(), stops: [], more_stops: [], complete: false }, plannerDraft).live?.pending, true);
 });
 
 test("route planner explains failures in plain words", async () => {
@@ -576,5 +580,5 @@ test("route planner explains failures in plain words", async () => {
   const proxyDown = (async () => new Response("Proxy error", { status: 500 })) as unknown as typeof fetch;
   await assert.rejects(planTrip(plannerDraft, proxyDown), /backend didn't answer \(error 500\)/);
   const ok = await planTrip(plannerDraft, answer(200, tripPlanFixture()));
-  assert.equal(ok.route.miles, 600);
+  assert.equal(ok.route.distanceMiles, 600);
 });

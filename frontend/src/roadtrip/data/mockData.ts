@@ -1,4 +1,10 @@
-import type { CommunityDiscovery, DriveStop, TripSummary } from "../types"
+import type {
+  CommunityDiscovery,
+  DrivePlan,
+  DriveStop,
+  TripSummary,
+} from "../types"
+import { kcToStLouisRoute } from "./routes"
 
 export const driveStops: DriveStop[] = [
   {
@@ -13,8 +19,9 @@ export const driveStops: DriveStop[] = [
     image:
       "https://images.unsplash.com/photo-1722101503175-942f45bc1c95?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=82&w=800",
     interests: ["Small towns", "Local food"],
-    x: 42,
-    y: 48,
+    lat: 38.98,
+    lng: -92.5641,
+    address: "Rocheport, MO",
     lookup: "pending",
     sourceLabel: "Source lookup pending",
     lessExplored: true,
@@ -33,8 +40,9 @@ export const driveStops: DriveStop[] = [
     image:
       "https://images.unsplash.com/photo-1563317596-9f46b0d0d5cf?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=82&w=800",
     interests: ["Nature"],
-    x: 52,
-    y: 38,
+    lat: 38.9733,
+    lng: -92.7431,
+    address: "Boonville, MO",
     lookup: "demo",
     sourceLabel: "Cached demo data",
     sourceUrl: "https://mostateparks.com/park/katy-trail-state-park",
@@ -53,8 +61,9 @@ export const driveStops: DriveStop[] = [
     image:
       "https://images.unsplash.com/photo-1629551383145-cf05865104f5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=82&w=800",
     interests: ["History", "Architecture", "Small towns"],
-    x: 34,
-    y: 34,
+    lat: 39.0697,
+    lng: -92.9466,
+    address: "Arrow Rock, MO",
     lookup: "pending",
     sourceLabel: "Verification pending",
     sourceUrl: "https://mostateparks.com/park/arrow-rock-state-historic-site",
@@ -72,8 +81,9 @@ export const driveStops: DriveStop[] = [
     gasCost: 3.9,
     visitMinutes: 60,
     interests: ["History", "Architecture", "Quirky stops"],
-    x: 61,
-    y: 45,
+    lat: 38.8467,
+    lng: -91.948,
+    address: "Fulton, MO",
     lookup: "failed",
     sourceLabel: "Lookup failed",
     learned:
@@ -91,8 +101,9 @@ export const driveStops: DriveStop[] = [
     image:
       "https://images.unsplash.com/photo-1702391794650-261670c76e92?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=82&w=800",
     interests: ["Architecture", "Local food", "Small towns"],
-    x: 70,
-    y: 58,
+    lat: 38.7042,
+    lng: -91.4374,
+    address: "Hermann, MO",
     lookup: "demo",
     sourceLabel: "Cached demo data",
     learned:
@@ -108,8 +119,8 @@ export const sampleDiscoveries: CommunityDiscovery[] = [
       "We pulled over at dusk and watched the light move across the floodplain.",
     image:
       "https://images.unsplash.com/photo-1722101503175-942f45bc1c95?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=82&w=600",
-    x: 47,
-    y: 62,
+    lat: 38.917,
+    lng: -92.383,
     count: 4,
     sample: true,
   },
@@ -120,8 +131,8 @@ export const sampleDiscoveries: CommunityDiscovery[] = [
       "A quiet trailhead with cottonwoods, birds, and almost no highway noise.",
     image:
       "https://images.unsplash.com/photo-1563317596-9f46b0d0d5cf?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=82&w=600",
-    x: 57,
-    y: 27,
+    lat: 38.7508,
+    lng: -91.6571,
     count: 2,
     sample: true,
   },
@@ -131,12 +142,19 @@ export const sampleDiscoveries: CommunityDiscovery[] = [
     caption: "The best unplanned ten minutes of our drive.",
     image:
       "https://images.unsplash.com/photo-1629551383145-cf05865104f5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=82&w=600",
-    x: 78,
-    y: 39,
+    lat: 38.9719,
+    lng: -92.7364,
     count: 1,
     sample: true,
   },
 ]
+
+// The cached Kansas City → St. Louis drive. The real plan comes from fetchDrivePlan (../api/drivePlan).
+export const demoPlan: DrivePlan = {
+  route: kcToStLouisRoute,
+  stops: driveStops,
+  discoveries: sampleDiscoveries,
+}
 
 export const trips: TripSummary[] = [
   {

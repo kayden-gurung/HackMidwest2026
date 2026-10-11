@@ -1,15 +1,26 @@
 import { useMemo, useState } from "react"
-import type { LiveDrive, MapPoint } from "../api/tripPlanner"
-import { driveStops as demoStops, sampleDiscoveries } from "../data/mockData"
+import { googleMapsPlaceUrl } from "../lib/mapLinks"
 import type {
   CommunityDiscovery,
   DriveDraft,
+  DrivePlan,
   DriveStop,
+  LatLng,
+  LivePlanDetails,
 } from "../types"
+import { DriveMap } from "./DriveMap"
 import { Action, Icon, StatusTag } from "./ui"
+
+function formatDuration(minutes: number) {
+  const hours = Math.floor(minutes / 60)
+  const rest = Math.round(minutes % 60)
+  if (hours === 0) return `${rest} min`
+  return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`
+}
 
 function StopCard({
   stop,
+  number,
   selected,
   added,
   onSelect,
@@ -17,6 +28,8 @@ function StopCard({
   onRetry,
 }: {
   stop: DriveStop
+  /** The number on this stop's map marker. */
+  number: number
   selected: boolean
   added: boolean
   onSelect: () => void
@@ -45,7 +58,12 @@ function StopCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <div className="text-sm font-bold">{stop.name}</div>
+              <div className="flex items-center gap-2 text-sm font-bold">
+                <span className="grid size-5 shrink-0 place-items-center rounded-full bg-school text-[10px] text-white">
+                  {number}
+                </span>
+                {stop.name}
+              </div>
               <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-school">
                 {stop.category}
               </div>
@@ -99,9 +117,12 @@ function StopCard({
 }
 
 function DiscoveryUpload({
+  location,
   onClose,
   onAdd,
 }: {
+  /** Where the visitor dropped the pin on the map. */
+  location: LatLng
   onClose: () => void
   onAdd: (discovery: CommunityDiscovery) => void
 }) {
@@ -196,6 +217,9 @@ function DiscoveryUpload({
                 <div className="mt-2 text-xs leading-5 text-muted">
                   {caption}
                 </div>
+                <div className="mt-2 text-[10px] text-muted">
+                  Pinned at {location[0].toFixed(3)}, {location[1].toFixed(3)}
+                </div>
                 <StatusTag>Local session preview</StatusTag>
               </div>
             </div>
@@ -217,8 +241,8 @@ function DiscoveryUpload({
                     place,
                     caption,
                     image,
-                    x: 66,
-                    y: 24,
+                    lat: location[0],
+                    lng: location[1],
                     count: 1,
                   })
             }
@@ -227,167 +251,6 @@ function DiscoveryUpload({
             {step < 3 ? "Continue" : "Save discovery"}
           </Action>
         </div>
-      </div>
-    </div>
-  )
-}
-
-const DEMO_PATH = "M5 76 C24 70, 30 58, 43 56 S64 44, 95 22"
-const DEMO_START: MapPoint = { x: 4, y: 72, label: "Kansas City" }
-const DEMO_END: MapPoint = { x: 91, y: 17, label: "St. Louis" }
-
-function RouteMap({
-  routePath = DEMO_PATH,
-  start = DEMO_START,
-  end = DEMO_END,
-  live = false,
-  stops,
-  selectedId,
-  onSelect,
-  discoveries,
-  showSuggestions,
-  showCommunity,
-  onDiscovery,
-  onAddDiscovery,
-}: {
-  routePath?: string
-  start?: MapPoint
-  end?: MapPoint
-  live?: boolean
-  stops: DriveStop[]
-  selectedId: string | null
-  onSelect: (id: string) => void
-  discoveries: CommunityDiscovery[]
-  showSuggestions: boolean
-  showCommunity: boolean
-  onDiscovery: (discovery: CommunityDiscovery) => void
-  onAddDiscovery: () => void
-}) {
-  return (
-    <div className="relative h-full min-h-[520px] overflow-hidden bg-[#dde1d6]">
-      <div className="absolute inset-0 opacity-60 map-grid" />
-      <svg
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        className="absolute inset-0 size-full"
-        aria-hidden="true"
-      >
-        {!live && (
-          <path
-            d="M18 0 C21 28, 16 48, 28 100M72 0 C67 35, 82 61, 78 100"
-            fill="none"
-            stroke="#c4cbbb"
-            strokeWidth=".7"
-          />
-        )}
-        <path
-          d={routePath}
-          fill="none"
-          stroke="#fff"
-          strokeWidth="3.5"
-          strokeLinejoin="round"
-          vectorEffect={live ? "non-scaling-stroke" : undefined}
-          style={live ? { strokeWidth: 9 } : undefined}
-        />
-        <path
-          d={routePath}
-          fill="none"
-          stroke="#31594c"
-          strokeWidth="1.2"
-          strokeLinejoin="round"
-          strokeDasharray={live ? undefined : "2 0.5"}
-          vectorEffect={live ? "non-scaling-stroke" : undefined}
-          style={live ? { strokeWidth: 3 } : undefined}
-        />
-      </svg>
-      {[
-        { point: start, letter: "A", tone: "bg-ink" },
-        { point: end, letter: "B", tone: "bg-school" },
-      ].map(({ point, letter, tone }) => (
-        <div
-          key={letter}
-          className="absolute -translate-x-1/2 -translate-y-1/2"
-          style={{ left: `${point.x}%`, top: `${point.y}%` }}
-        >
-          <div
-            className={`mx-auto grid size-8 place-items-center rounded-full border-2 border-white ${tone} text-[10px] font-bold text-white shadow`}
-          >
-            {letter}
-          </div>
-          <div className="absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap bg-white/90 px-2 py-1 text-[9px] font-bold">
-            {point.label}
-          </div>
-        </div>
-      ))}
-      {showSuggestions &&
-        stops.map((stop, index) => (
-          <div
-            key={stop.id}
-            className="absolute"
-            style={{ left: `${stop.x}%`, top: `${stop.y}%` }}
-          >
-            <Action
-              onClick={() => onSelect(stop.id)}
-              className="-translate-x-1/2 -translate-y-1/2"
-              label={`Select ${stop.name}`}
-            >
-              <div
-                className={`grid size-9 place-items-center rounded-full border-2 border-white text-xs font-bold shadow-md ${
-                  selectedId === stop.id
-                    ? "scale-125 bg-school text-white"
-                    : "bg-white text-school"
-                }`}
-              >
-                {index + 1}
-              </div>
-            </Action>
-          </div>
-        ))}
-      {showCommunity &&
-        discoveries.map((discovery) => (
-          <div
-            key={discovery.id}
-            className="absolute"
-            style={{ left: `${discovery.x}%`, top: `${discovery.y}%` }}
-          >
-            <Action
-              onClick={() => onDiscovery(discovery)}
-              className="-translate-x-1/2 -translate-y-full"
-              label={`Open photo from ${discovery.place}`}
-            >
-              <div className="relative">
-                <img
-                  src={discovery.image}
-                  alt=""
-                  className="size-12 rounded-lg border-2 border-white object-cover shadow-md"
-                />
-                <div className="mx-auto h-0 w-0 border-x-[6px] border-t-[7px] border-x-transparent border-t-white" />
-                {discovery.count > 1 && (
-                  <div className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full bg-ink text-[9px] font-bold text-white">
-                    {discovery.count}
-                  </div>
-                )}
-              </div>
-            </Action>
-          </div>
-        ))}
-      <div className="absolute left-4 top-4 flex flex-col gap-2">
-        <div className="border border-line bg-white/95 p-2 shadow-sm">
-          <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider text-muted">
-            <Icon name="layers" className="size-3.5" /> Map layers
-          </div>
-        </div>
-        <Action
-          onClick={onAddDiscovery}
-          className="flex items-center gap-2 rounded-md bg-school px-3 py-2 text-[10px] font-bold text-white"
-        >
-          <Icon name="camera" className="size-3.5" /> Add a discovery
-        </Action>
-      </div>
-      <div className="absolute bottom-4 right-4 bg-white/95 px-3 py-2 text-[9px] text-muted shadow-sm">
-        {live
-          ? "Route shape from OSRM · © OpenStreetMap contributors · not for navigation"
-          : "Stylized prototype map · not for navigation"}
       </div>
     </div>
   )
@@ -466,14 +329,24 @@ function StopDetail({
             </Action>
           )}
           {stop.websiteUrl && (
-            <Action
-              onClick={() =>
-                window.open(stop.websiteUrl, "_blank", "noopener,noreferrer")
-              }
+            <a
+              href={stop.websiteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className="mt-2 block text-[10px] font-bold text-school underline"
             >
               Website ↗
-            </Action>
+            </a>
+          )}
+          {googleMapsPlaceUrl(stop) && (
+            <a
+              href={googleMapsPlaceUrl(stop)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 block text-[10px] font-bold text-school underline"
+            >
+              Open in Google Maps ↗
+            </a>
           )}
           <div className="mt-1 text-[10px] leading-4 text-muted">
             {stop.lookup === "live"
@@ -544,7 +417,7 @@ function StopDetail({
 }
 
 /** The plan's days: drives, stops, lunch and overnight stays. Stops the traveler removed are struck through. */
-function DayByDay({ live, added }: { live: LiveDrive; added: string[] }) {
+function DayByDay({ live, added }: { live: LivePlanDetails; added: string[] }) {
   const days = [...new Set(live.itinerary.items.map((item) => item.date))]
   return (
     <div className="mt-3 border border-line bg-white p-3">
@@ -602,55 +475,64 @@ function DayByDay({ live, added }: { live: LiveDrive; added: string[] }) {
   )
 }
 
-function hoursText(hours: number) {
-  const whole = Math.floor(hours)
-  const minutes = Math.round((hours - whole) * 60)
-  return whole ? `${whole} hr ${minutes} min` : `${minutes} min`
-}
-
 export default function DriveWorkspace({
   draft,
-  live = null,
+  plan,
   onEdit,
 }: {
   draft: DriveDraft
-  /** A plan from the route planner; without one, the cached demo drive is shown. */
-  live?: LiveDrive | null
+  plan: DrivePlan
   onEdit: () => void
 }) {
-  const driveStops = live ? live.stops : demoStops
-  const [added, setAdded] = useState<string[]>(live ? live.chosenIds : ["rocheport"])
-  const [selectedId, setSelectedId] = useState<string | null>(
-    live ? (live.chosenIds[0] ?? null) : "rocheport",
+  const { route, stops, live } = plan
+  // A live plan starts with the stops the planner chose; the demo with its first suggestion.
+  // Mount this with a new `key` for a new plan.
+  const [added, setAdded] = useState<string[]>(
+    live ? live.chosenIds : stops.slice(0, 1).map((stop) => stop.id),
   )
+  const [selectedId, setSelectedId] = useState<string | null>(
+    live ? (live.chosenIds[0] ?? null) : (stops[0]?.id ?? null),
+  )
+  const [focusTick, setFocusTick] = useState(0)
   const [detailOpen, setDetailOpen] = useState(false)
   const [budget, setBudget] = useState(draft.detourBudget)
   const [notice, setNotice] = useState(live?.notes.join(" ") ?? "")
   const [lookupRetried, setLookupRetried] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [showCommunity, setShowCommunity] = useState(true)
-  // The sample photos are placed for the demo route only; on a live route they would sit in random places.
-  const [discoveries, setDiscoveries] = useState(live ? [] : sampleDiscoveries)
+  const [discoveries, setDiscoveries] = useState(plan.discoveries)
   const [activeDiscovery, setActiveDiscovery] =
     useState<CommunityDiscovery | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
+  // Choosing where on the map a new photo pin goes.
+  const [placing, setPlacing] = useState(false)
+  const [pinLocation, setPinLocation] = useState<LatLng | null>(null)
   const [mobileView, setMobileView] = useState<"map" | "list">("map")
   const [askOpen, setAskOpen] = useState(false)
   const usedMinutes = useMemo(
     () =>
-      driveStops
+      stops
         .filter((stop) => added.includes(stop.id))
         .reduce((sum, stop) => sum + stop.detourMinutes, 0),
-    [added, driveStops],
+    [added, stops],
   )
   const gas = useMemo(
     () =>
-      driveStops
+      stops
         .filter((stop) => added.includes(stop.id))
         .reduce((sum, stop) => sum + stop.gasCost, 0),
-    [added, driveStops],
+    [added, stops],
   )
-  const selected = driveStops.find((stop) => stop.id === selectedId) ?? null
+  const selected = stops.find((stop) => stop.id === selectedId) ?? null
+
+  // Picking a stop (from the list or the map) moves the map to it.
+  const selectStop = (id: string, openDetail: boolean) => {
+    setSelectedId(id)
+    setFocusTick((tick) => tick + 1)
+    if (openDetail) setDetailOpen(true)
+    // On a phone the list covers the map, so show the map.
+    setMobileView("map")
+  }
 
   const toggleStop = (stop: DriveStop) => {
     if (added.includes(stop.id)) {
@@ -681,9 +563,8 @@ export default function DriveWorkspace({
               {live ? "Live map data" : "Cached demo"}
             </div>
             <div className="mt-1 font-display text-xl font-semibold md:text-2xl">
-              {live ? live.start.label : "Kansas City"}{" "}
-              <span className="text-muted">→</span>{" "}
-              {live ? live.end.label : "St. Louis"}
+              {route.origin.name} <span className="text-muted">→</span>{" "}
+              {route.destination.name}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -699,9 +580,7 @@ export default function DriveWorkspace({
           {[
             [
               "Base drive",
-              live
-                ? `${hoursText(live.route.hours)} · ${live.route.miles} mi`
-                : "3 hr 48 min",
+              `${formatDuration(route.baseMinutes)} · ${route.distanceMiles} mi`,
             ],
             ["Added drive", `${usedMinutes} min`],
             ["Extra gas", `~$${gas.toFixed(2)}`],
@@ -780,7 +659,7 @@ export default function DriveWorkspace({
               </div>
             </div>
             <StatusTag>
-              {live?.pending ? "searching" : `${driveStops.length} ${live ? "found" : "demo"}`}
+              {live?.pending ? "searching" : `${stops.length} ${live ? "found" : "demo"}`}
             </StatusTag>
           </div>
           {live?.pending && (
@@ -792,7 +671,7 @@ export default function DriveWorkspace({
               </span>
             </div>
           )}
-          {live && !live.pending && driveStops.length === 0 && (
+          {live && !live.pending && stops.length === 0 && (
             <div className="mb-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
               No stops matched these interests within the detour budget. Try
               more interests or a bigger budget.
@@ -805,9 +684,10 @@ export default function DriveWorkspace({
             </div>
           )}
           <div className="space-y-3">
-            {driveStops.map((stop) => (
+            {stops.map((stop, index) => (
               <StopCard
                 key={stop.id}
+                number={index + 1}
                 stop={{
                   ...stop,
                   lookup: lookupRetried.includes(stop.id)
@@ -819,10 +699,7 @@ export default function DriveWorkspace({
                 }}
                 selected={selectedId === stop.id}
                 added={added.includes(stop.id)}
-                onSelect={() => {
-                  setSelectedId(stop.id)
-                  setDetailOpen(true)
-                }}
+                onSelect={() => selectStop(stop.id, true)}
                 onToggle={() => toggleStop(stop)}
                 onRetry={() => setLookupRetried([...lookupRetried, stop.id])}
               />
@@ -862,25 +739,42 @@ export default function DriveWorkspace({
           </div>
         </div>
 
-        <div className="relative h-full">
-          <RouteMap
-            routePath={live?.routePath}
-            start={live?.start}
-            end={live?.end}
-            live={Boolean(live)}
-            stops={driveStops}
+        <div className="relative h-full min-h-[520px]">
+          <DriveMap
+            route={route}
+            stops={stops}
+            addedIds={added}
             selectedId={selectedId}
-            onSelect={(id) => {
-              setSelectedId(id)
-              setDetailOpen(true)
-            }}
+            focusTick={focusTick}
+            detailOpen={detailOpen}
             discoveries={discoveries}
             showSuggestions={showSuggestions}
             showCommunity={showCommunity}
-            onDiscovery={setActiveDiscovery}
-            onAddDiscovery={() => setUploadOpen(true)}
+            placing={placing}
+            onSelectStop={(id) => selectStop(id, false)}
+            onToggleStop={(id) => {
+              const stop = stops.find((candidate) => candidate.id === id)
+              if (stop) toggleStop(stop)
+            }}
+            onOpenDetail={(id) => selectStop(id, true)}
+            onSelectDiscovery={setActiveDiscovery}
+            onPlace={(lat, lng) => {
+              setPlacing(false)
+              setPinLocation([lat, lng])
+              setUploadOpen(true)
+            }}
           />
+          <Action
+            onClick={() => setPlacing(!placing)}
+            className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-md bg-school px-3 py-2 text-[10px] font-bold text-white shadow-sm"
+          >
+            <Icon name={placing ? "close" : "camera"} className="size-3.5" />{" "}
+            {placing ? "Cancel" : "Add a discovery"}
+          </Action>
           <div className="absolute right-4 top-4 z-20 space-y-1 border border-line bg-white p-2 shadow-sm">
+            <div className="flex items-center gap-2 px-2 pb-1 text-[9px] font-bold uppercase tracking-wider text-muted">
+              <Icon name="layers" className="size-3.5" /> Map layers
+            </div>
             <Action
               onClick={() => setShowSuggestions(!showSuggestions)}
               className="flex items-center gap-2 px-2 py-1.5 text-[10px] font-semibold"
@@ -942,8 +836,9 @@ export default function DriveWorkspace({
               onClose={() => setDetailOpen(false)}
             />
           )}
-          {uploadOpen && (
+          {uploadOpen && pinLocation && (
             <DiscoveryUpload
+              location={pinLocation}
               onClose={() => setUploadOpen(false)}
               onAdd={(discovery) => {
                 setDiscoveries([...discoveries, discovery])

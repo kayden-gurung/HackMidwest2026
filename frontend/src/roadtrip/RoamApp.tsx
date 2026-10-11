@@ -1,11 +1,12 @@
 import { useRef, useState } from "react"
-import { planTrip, type LiveDrive } from "./api/tripPlanner"
+import { fetchDrivePlan } from "./api/drivePlan"
+import { demoPlan } from "./data/mockData"
 import AppShell from "./components/AppShell"
 import Dashboard from "./components/Dashboard"
 import DriveWorkspace from "./components/DriveWorkspace"
 import TripSetup from "./components/TripSetup"
 import { Action, Icon } from "./components/ui"
-import type { AppScreen, DriveDraft } from "./types"
+import type { AppScreen, DriveDraft, DrivePlan } from "./types"
 
 const initialDrive: DriveDraft = {
   start: "Kansas City, MO",
@@ -30,59 +31,12 @@ function LoadingState() {
           Looking along the route
         </div>
         <div className="mt-3 text-sm leading-6 text-muted">
-          Searching OpenStreetMap for small towns and stops that fit your
-          interests and detour budget. The first search of a route can take
-          up to 30 seconds.
+          Getting the road route. Stops that fit your interests and detour
+          budget fill in as soon as they are found.
         </div>
         <div className="mx-auto mt-6 h-1.5 max-w-xs overflow-hidden bg-panel">
           <div className="h-full w-2/3 animate-pulse bg-school" />
         </div>
-      </div>
-    </div>
-  )
-}
-
-function PlanErrorState({
-  message,
-  onRetry,
-  onEdit,
-  onDemo,
-}: {
-  message: string
-  onRetry: () => void
-  onEdit: () => void
-  onDemo: () => void
-}) {
-  return (
-    <div className="grid h-full min-h-[560px] place-items-center p-6">
-      <div className="max-w-md text-center">
-        <div className="mx-auto grid size-20 place-items-center rounded-full border border-line bg-white">
-          <Icon name="car" className="size-7 text-school" />
-        </div>
-        <div className="mt-6 font-display text-3xl font-semibold">
-          Couldn’t plan this drive
-        </div>
-        <div className="mt-3 text-sm leading-6 text-muted">{message}</div>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <Action
-            onClick={onRetry}
-            className="rounded-md bg-school px-4 py-2 text-xs font-bold text-white"
-          >
-            Try again
-          </Action>
-          <Action
-            onClick={onEdit}
-            className="rounded-md border border-line bg-white px-4 py-2 text-xs font-bold"
-          >
-            Edit trip
-          </Action>
-        </div>
-        <Action
-          onClick={onDemo}
-          className="mt-4 text-[10px] font-bold text-muted underline"
-        >
-          Show the cached demo drive instead (sample data)
-        </Action>
       </div>
     </div>
   )
@@ -205,82 +159,74 @@ function SettingsScreen() {
 export default function App() {
   const [screen, setScreen] = useState<AppScreen>("dashboard")
   const [driveDraft, setDriveDraft] = useState(initialDrive)
+  // Opening a saved drive shows the cached demo; planning a new one replaces it.
+  const [plan, setPlan] = useState<DrivePlan>(demoPlan)
   const [loading, setLoading] = useState(false)
-  // The live plan from the route planner; null shows the cached demo drive.
-  const [live, setLive] = useState<LiveDrive | null>(null)
-  const [planError, setPlanError] = useState<string | null>(null)
+  const [error, setError] = useState("")
+
+  // Each plan shown gets a new key, so the drive tab starts fresh (selected and added stops).
+  const [planKey, setPlanKey] = useState(0)
   // Only the latest request may update the screen, if the traveler submits twice.
   const request = useRef(0)
+
+  const show = (next: DrivePlan) => {
+    setPlan(next)
+    setPlanKey((key) => key + 1)
+    setScreen("drive")
+  }
 
   const submit = async () => {
     const id = ++request.current
     const current = () => id === request.current
     setLoading(true)
-    setPlanError(null)
+    setError("")
     let fullDone = false
     let routeShown = false
     // The route alone comes back in seconds: show it while the stops are still being searched.
-    planTrip(driveDraft, fetch, false)
+    fetchDrivePlan(driveDraft, false)
       .then((routeOnly) => {
         if (!current() || fullDone) return
         routeShown = true
-        setLive(routeOnly)
-        setScreen("drive")
+        show(routeOnly)
         setLoading(false)
       })
       .catch(() => {
         // The full request reports any problem.
       })
     try {
-      const plan = await planTrip(driveDraft)
+      const next = await fetchDrivePlan(driveDraft)
+      fullDone = true
+      if (current()) show(next)
+    } catch (problem) {
       fullDone = true
       if (!current()) return
-      setLive(plan)
-      setScreen("drive")
-    } catch (error) {
-      fullDone = true
-      if (!current()) return
-      const message = (error as Error).message
+      const message = problem instanceof Error ? problem.message : "Roam couldn't plan that drive. Check the cities and try again."
       if (routeShown) {
         // Keep the route on screen and say why the stops did not arrive.
-        setLive((shown) =>
-          shown ? { ...shown, pending: false, notes: [...shown.notes, `Couldn’t find stops: ${message}`] } : shown,
+        setPlan((shown) =>
+          shown.live
+            ? { ...shown, live: { ...shown.live, pending: false, notes: [...shown.live.notes, `Couldn’t find stops: ${message}`] } }
+            : shown,
         )
+        setPlanKey((key) => key + 1)
       } else {
-        setPlanError(message)
+        setError(message)
+        setScreen("setup")
       }
     } finally {
       if (current()) setLoading(false)
     }
   }
 
-  const openDemo = () => {
-    setPlanError(null)
-    setLive(null)
-    setScreen("drive")
-  }
-
-  const navigate = (next: AppScreen) => {
-    setPlanError(null)
-    setScreen(next)
-  }
+  const navigate = (next: AppScreen) => setScreen(next)
 
   let content: React.ReactNode
   if (loading) content = <LoadingState />
-  else if (planError)
-    content = (
-      <PlanErrorState
-        message={planError}
-        onRetry={submit}
-        onEdit={() => navigate("setup")}
-        onDemo={openDemo}
-      />
-    )
   else if (screen === "dashboard")
     content = (
       <Dashboard
         onNew={() => setScreen("setup")}
-        onOpen={openDemo}
+        onOpen={() => show(demoPlan)}
       />
     )
   else if (screen === "setup")
@@ -289,15 +235,15 @@ export default function App() {
         drive={driveDraft}
         setDrive={setDriveDraft}
         onSubmit={submit}
+        error={error}
       />
     )
   else if (screen === "drive")
     content = (
       <DriveWorkspace
-        // A new plan starts the workspace fresh (selected and added stops).
-        key={live ? `${live.id}${live.pending ? "-pending" : ""}` : "demo"}
+        key={planKey}
         draft={driveDraft}
-        live={live}
+        plan={plan}
         onEdit={() => setScreen("setup")}
       />
     )

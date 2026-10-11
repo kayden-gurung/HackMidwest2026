@@ -1,4 +1,4 @@
-import type { DriveDraft, DriveStop } from "../types"
+import type { DriveDraft, DrivePlan, DriveStop, LatLng, PlanItem } from "../types"
 
 /*
  * The first plan for a drive, from the backend's route planner (POST /api/trips/plan).
@@ -28,17 +28,6 @@ export type PlannedStop = {
   less_explored: boolean
 }
 
-export type PlanItem = {
-  id: string
-  date: string
-  time: string | null
-  title: string
-  description: string | null
-  category: "Driving" | "Stays" | "Food" | "Activities"
-  sourceUrls: string[]
-  websiteUrl: string | null
-}
-
 export type TripPlanResponse = {
   itinerary: { startDate: string; endDate: string; items: PlanItem[]; summary: string; assumptions: string[] }
   route: {
@@ -61,32 +50,9 @@ export type TripPlanResponse = {
   complete?: boolean
 }
 
-export type MapPoint = { x: number; y: number; label: string }
-
-/** What the Drive screen needs, with every position already placed on its 0-100 map. */
-export type LiveDrive = {
-  id: string
-  stops: DriveStop[]
-  /** The stops the planner put in the plan; the rest are alternatives to add. */
-  chosenIds: string[]
-  start: MapPoint
-  end: MapPoint
-  /** SVG path for the route, in the map's 0-100 coordinates. */
-  routePath: string
-  route: TripPlanResponse["route"]
-  itinerary: TripPlanResponse["itinerary"]
-  notes: string[]
-  /** True while only the route is known and the stops are still being searched. */
-  pending: boolean
-  /** The full response, kept to hand to the chat as current_itinerary later. */
-  response: TripPlanResponse
-}
-
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 // The public map servers can take a while on a first search; give up well after they would.
 const TIMEOUT_MS = 90_000
-const MAP_PADDING = 8
-const MAX_PATH_POINTS = 200
 
 export function planRequest(draft: DriveDraft, includePlaces = true) {
   return {
@@ -107,24 +73,7 @@ function shortName(name: string) {
   return name.split(",")[0].trim()
 }
 
-/** Places [lat, lng] points on the 0-100 map: north up, the route filling the map with a margin. */
-function projector(points: number[][]) {
-  const lats = points.map(([lat]) => lat)
-  const lngs = points.map(([, lng]) => lng)
-  const [minLat, maxLat, minLng, maxLng] = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)]
-  const usable = 100 - 2 * MAP_PADDING
-  // Keep a little height for a mostly east-west drive, so it is not a flat line.
-  const latSpan = Math.max(maxLat - minLat, (maxLng - minLng) * 0.25, 0.01)
-  const lngSpan = Math.max(maxLng - minLng, (maxLat - minLat) * 0.25, 0.01)
-  const midLat = (minLat + maxLat) / 2
-  const midLng = (minLng + maxLng) / 2
-  return (lat: number, lng: number) => ({
-    x: Math.round((50 + ((lng - midLng) / lngSpan) * usable) * 10) / 10,
-    y: Math.round((50 - ((lat - midLat) / latSpan) * usable) * 10) / 10,
-  })
-}
-
-function toStop(stop: PlannedStop, place: (lat: number, lng: number) => { x: number; y: number }): DriveStop {
+function toStop(stop: PlannedStop): DriveStop {
   return {
     id: stop.id,
     name: stop.name,
@@ -134,7 +83,10 @@ function toStop(stop: PlannedStop, place: (lat: number, lng: number) => { x: num
     gasCost: stop.gas_cost_usd,
     visitMinutes: stop.visit_minutes,
     interests: stop.interests,
-    ...place(stop.lat, stop.lng),
+    lat: stop.lat,
+    lng: stop.lng,
+    // The map's Google Maps link uses the address when there is one, else the town.
+    address: stop.address ?? (stop.town ?? undefined),
     lookup: "live",
     sourceLabel: "OpenStreetMap",
     sourceUrl: stop.source_urls[0],
@@ -147,30 +99,31 @@ function toStop(stop: PlannedStop, place: (lat: number, lng: number) => { x: num
   }
 }
 
-export function toLiveDrive(response: TripPlanResponse, draft: DriveDraft): LiveDrive {
-  const path = response.route.path
-  const everything = [...path, ...[...response.stops, ...response.more_stops].map((s) => [s.lat, s.lng])]
-  const place = projector(everything.length ? everything : [[0, 0]])
-  const stride = Math.max(1, Math.ceil(path.length / MAX_PATH_POINTS))
-  const thinned = path.filter((_, i) => i % stride === 0 || i === path.length - 1).map(([lat, lng]) => place(lat, lng))
-  const routePath = thinned.map((p, i) => `${i ? "L" : "M"}${p.x} ${p.y}`).join(" ")
-  const first = path[0] ? place(path[0][0], path[0][1]) : { x: MAP_PADDING, y: 50 }
-  const last = path.length ? place(path[path.length - 1][0], path[path.length - 1][1]) : { x: 100 - MAP_PADDING, y: 50 }
+/** The backend's answer in the shape the drive tab draws (DrivePlan in ../types). */
+export function toDrivePlan(response: TripPlanResponse, draft: DriveDraft): DrivePlan {
+  const path = response.route.path.map(([lat, lng]) => [lat, lng] as LatLng)
+  const first = path[0] ?? ([0, 0] as LatLng)
+  const last = path[path.length - 1] ?? first
   // Chosen stops first in route order, then the alternatives, also in route order.
   const byMiles = (a: PlannedStop, b: PlannedStop) => a.miles_from_start - b.miles_from_start
-  const stops = [...[...response.stops].sort(byMiles), ...[...response.more_stops].sort(byMiles)].map((s) => toStop(s, place))
   return {
-    id: `${draft.start}→${draft.destination}@${Date.now()}`,
-    stops,
-    chosenIds: response.stops.map((s) => s.id),
-    start: { ...first, label: shortName(draft.start) },
-    end: { ...last, label: shortName(draft.destination) },
-    routePath,
-    route: response.route,
-    itinerary: response.itinerary,
-    notes: response.notes,
-    pending: response.complete === false,
-    response,
+    route: {
+      origin: { name: shortName(draft.start), lat: first[0], lng: first[1] },
+      destination: { name: shortName(draft.destination), lat: last[0], lng: last[1] },
+      path,
+      distanceMiles: response.route.miles,
+      baseMinutes: Math.round(response.route.hours * 60),
+    },
+    stops: [...[...response.stops].sort(byMiles), ...[...response.more_stops].sort(byMiles)].map(toStop),
+    // Community photos are not part of the planner yet; the demo's samples belong to its own route.
+    discoveries: [],
+    live: {
+      chosenIds: response.stops.map((s) => s.id),
+      itinerary: response.itinerary,
+      notes: response.notes,
+      pending: response.complete === false,
+      response,
+    },
   }
 }
 
@@ -196,7 +149,7 @@ async function errorMessage(response: Response) {
  * `includePlaces: false` asks for the route and driving days only, which comes back in a few
  * seconds, to show while the full plan (stops, meals, stays) is still being searched.
  */
-export async function planTrip(draft: DriveDraft, fetcher: typeof fetch = fetch, includePlaces = true): Promise<LiveDrive> {
+export async function planTrip(draft: DriveDraft, fetcher: typeof fetch = fetch, includePlaces = true): Promise<DrivePlan> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   let response: Response
@@ -217,5 +170,5 @@ export async function planTrip(draft: DriveDraft, fetcher: typeof fetch = fetch,
     clearTimeout(timer)
   }
   if (!response.ok) throw new Error(await errorMessage(response))
-  return toLiveDrive((await response.json()) as TripPlanResponse, draft)
+  return toDrivePlan((await response.json()) as TripPlanResponse, draft)
 }
