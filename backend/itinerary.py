@@ -91,8 +91,23 @@ class ItineraryUpdates:
         Python calculates the subtotal, remaining/over-budget amount and unknown costs. Returns
         ranked cut candidates when over budget; you decide which alternatives preserve the
         traveler's priorities. Never treat unknown costs as free or remove essential costs to
-        pretend a trip is affordable. After any draft change, call check_budget again, then
-        update_itinerary with that exact draft. This check does not publish or edit the plan.
+        pretend a trip is affordable. This check does not publish or edit the plan, but it
+        keeps the draft: afterwards call update_itinerary with NO arguments to publish exactly
+        this draft, so the plan is written out only once. After any draft change, call
+        check_budget again with the changed draft.
+
+        This is where the plan is written, so make it complete: the FULL replacement snapshot,
+        retaining unaffected stops and stable IDs. Give every specific stop a location so it
+        shows on the map: coordinates and source URL from the find_places result for that exact
+        place, or from locate for a named landmark, district or airport. A flight's location is
+        its airport. Never reuse a town's coordinates as a stand-in for stops you did not look
+        up: omit coordinates instead and the backend will try to place the stop. Copy source
+        URLs exactly. Costs are estimates for ALL travelers, never booking quotes. Use null for
+        unknown costs, 0 only for free stops. Include transport, lodging and meals when
+        relevant; explain omitted costs in assumptions. State assumed dates explicitly if
+        flexible. An empty items list clears stops. Include overview with the destination, a
+        short inviting headline and the trip's pace when known. Preserve this metadata on
+        revisions. Only include imageUrl when a tool or the traveler supplied a photo URL.
 
         Args:
             itinerary: Complete draft itinerary, including costs for all travelers and budget.
@@ -102,13 +117,25 @@ class ItineraryUpdates:
         self._budget_draft = draft.model_copy(deep=True)
         return result
 
-    def budget_checked(self, itinerary) -> bool:
-        """Consent and publication both require the exact draft's budget check."""
-        return self._budget_draft == ItinerarySnapshot.model_validate(itinerary)
+    @property
+    def checked_draft(self) -> ItinerarySnapshot | None:
+        """The draft check_budget last accepted and update_itinerary has not yet published."""
+        return self._budget_draft.model_copy(deep=True) if self._budget_draft is not None else None
 
-    def prepare(self, itinerary, *, freeze=False) -> tuple[ItinerarySnapshot, list[str]]:
+    def _draft(self, itinerary=None) -> ItinerarySnapshot | None:
+        """The draft a tool call refers to: the one it sent, or the last budget-checked one."""
+        return self.checked_draft if itinerary is None else ItinerarySnapshot.model_validate(itinerary)
+
+    def budget_checked(self, itinerary=None) -> bool:
+        """Consent and publication both require the exact draft's budget check."""
+        draft = self._draft(itinerary)
+        return draft is not None and self._budget_draft == draft
+
+    def prepare(self, itinerary=None, *, freeze=False) -> tuple[ItinerarySnapshot, list[str]]:
         """Freeze a consent preview until commit; later calls may use newly gathered evidence."""
-        draft = ItinerarySnapshot.model_validate(itinerary)
+        draft = self._draft(itinerary)
+        if draft is None:
+            raise ValueError("No budget-checked draft to prepare.")
         key = draft.model_dump_json()
         prepared = self._prepared.get(key)
         if prepared is None:
@@ -131,35 +158,29 @@ class ItineraryUpdates:
         return f"Updated your plan for {dates}: {len(plan.items)} stops, with an estimated total of ${total:,.2f}{budget}.{missing}"
 
     @tool
-    def update_itinerary(self, itinerary: ItinerarySnapshot) -> dict:
-        """Update the traveler's Plan, Map and Budget panels with a complete itinerary.
+    def update_itinerary(self, itinerary: ItinerarySnapshot | None = None) -> dict:
+        """Publish the budget-checked draft to the traveler's Plan, Map and Budget panels.
 
-        Call whenever you propose or revise a concrete trip plan, even a short draft.
-        You MUST call check_budget with this exact draft first. If you change the draft,
-        check it again before calling update_itinerary. An unchecked draft will be rejected.
-        Send the FULL replacement snapshot, retaining unaffected stops and stable IDs.
-        Give every specific stop a location so it shows on the map: coordinates and source
-        URL from the find_places result for that exact place, or from locate for a named
-        landmark, district or airport. A flight's location is its airport. Never reuse a
-        town's coordinates as a stand-in for stops you did not look up: omit coordinates
-        instead and the backend will try to place the stop. Copy source URLs exactly.
-        Costs are estimates for ALL travelers, never booking quotes. Use null for unknown
-        costs, 0 only for free stops. Include transport, lodging and meals when relevant;
-        explain omitted costs in assumptions. State assumed dates explicitly if flexible.
-        Do not call for greetings or unrelated questions. An empty items list clears stops.
-        Include overview with the destination, a short inviting headline and the trip's
-        pace when known. Preserve this metadata on revisions. Only include imageUrl
-        when a tool or the traveler supplied a photo URL; otherwise omit it.
+        Call with NO arguments right after check_budget: it publishes exactly the draft that
+        check_budget just accepted. Do NOT send the itinerary again; rewriting it only makes
+        the traveler wait. Call whenever you propose or revise a concrete trip plan, even a
+        short draft. If you change anything, call check_budget with the changed draft first.
+        Without a checked draft nothing is published. Do not call for greetings or unrelated
+        questions.
 
         Args:
-            itinerary: Complete revised plan matching the schema, not just changed stops.
+            itinerary: Leave this out. Only for older callers; it must equal the checked draft.
         """
         # Strands validates tool input, then passes nested models as dictionaries.
+        if itinerary is None and self._budget_draft is None and self.latest is not None:
+            # A repeated call after publishing: say so, or the model rewrites the whole plan.
+            return {"status": "already_updated", "message": "The checked draft is already published. Nothing else to do unless the plan changes."}
         if not self.budget_checked(itinerary):
             return {"status": "budget_check_required",
-                    "message": "Call check_budget with this exact complete draft, review its result, then call update_itinerary. No plan was changed."}
+                    "message": "Call check_budget with the complete draft, review its result, then call update_itinerary with no arguments. No plan was changed."}
+        key = self._draft(itinerary).model_dump_json()
         validated, notes = self.prepare(itinerary)
-        self._prepared.pop(ItinerarySnapshot.model_validate(itinerary).model_dump_json(), None)
+        self._prepared.pop(key, None)
         self.latest = validated
         self._budget_draft = None
         budget = analyze_budget(validated)

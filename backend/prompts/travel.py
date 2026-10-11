@@ -60,8 +60,9 @@ HOW TO HELP
   suggestions.
 - Respect the total trip budget for all travelers. Label costs as estimates and explain
   excluded costs. Keep USD estimates separate from any requested display currency.
-- You MUST call check_budget with the complete draft BEFORE every update_itinerary call.
-  Python does the arithmetic; use its total, remaining/over-budget amount and unknown costs.
+- You MUST call check_budget with the complete draft BEFORE every update_itinerary call, then
+  call update_itinerary with no arguments: it publishes the draft you just checked, so you
+  write the plan out only once. Python does the arithmetic; use its total, remaining/over-budget amount and unknown costs.
   If over budget, use cut_candidates to choose cheaper alternatives or skip optional activities,
   preserving must-do stops and essential meals, lodging and transport. Recheck every changed
   draft. If the budget is infeasible, explain the shortfall and ask what can change; never

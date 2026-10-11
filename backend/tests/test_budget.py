@@ -4,7 +4,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from itinerary import ItineraryUpdates
+from itinerary import ItinerarySnapshot, ItineraryUpdates
 from main import app
 from routers import ask
 
@@ -106,3 +106,17 @@ def test_prompt_requires_forecast_and_budget_checks():
     from prompts.travel import CHAT_PROMPT
 
     assert "use get_forecast" in CHAT_PROMPT and "MUST call check_budget" in CHAT_PROMPT
+
+
+def test_update_without_arguments_publishes_the_checked_draft_once():
+    """The model writes the plan for check_budget only; update_itinerary reuses that draft."""
+    updates = ItineraryUpdates()
+    assert updates.update_itinerary()["status"] == "budget_check_required"
+    assert updates.checked_draft is None
+    updates.check_budget(itinerary=draft())
+    assert updates.checked_draft == ItinerarySnapshot.model_validate(draft())
+    assert updates.update_itinerary()["status"] == "updated"
+    assert updates.latest == ItinerarySnapshot.model_validate(draft())
+    # Publishing consumes the draft; a repeat says so instead of asking for the plan again.
+    assert updates.checked_draft is None
+    assert updates.update_itinerary()["status"] == "already_updated"

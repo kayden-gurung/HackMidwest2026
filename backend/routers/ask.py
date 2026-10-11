@@ -81,7 +81,8 @@ def final_itinerary(body: AskRequest, updates: ItineraryUpdates, evidence: Evide
 
 def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence):
     messages = [{"role": message.role, "content": [{"text": message.content}]} for message in body.history]
-    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget], travel_tools=recording_tools(evidence, max_miles(body)))
+    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget], travel_tools=recording_tools(evidence, max_miles(body)),
+                        checked_draft=lambda: updates.checked_draft)
     mode = body.mode or (body.preferences.planning_style if body.preferences else None) or "Co-pilot"
     mode_instruction = {
         "Hands-on": "Present options and ask the traveler to choose before making a detailed plan.",
@@ -112,8 +113,8 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evi
 NUDGE = (
     "You described a plan or a change to the plan but did not call update_itinerary, so the "
     "traveler's Plan, Map and Budget panels still show the old plan. Call check_budget with the "
-    "complete draft, review the result and revise if needed, then call update_itinerary with the "
-    "checked itinerary, including every unchanged stop. Do not write anything else."
+    "complete draft, including every unchanged stop, review the result and revise if needed, then "
+    "call update_itinerary with no arguments to publish it. Do not write anything else."
 )
 _CHANGED = re.compile(r"\b(swapp|replac|updat|chang|added|adding|remov|moved|moving|switch|instead of|now (has|includes|starts|ends))", re.IGNORECASE)
 _NEW_PLAN = re.compile(r"\bday\s*(1|one)\b", re.IGNORECASE)

@@ -31,10 +31,11 @@ def call(name, arguments, call_id):
     return {"tools": [{"name": name, "input": arguments, "id": call_id}]}
 
 
-def checked_update(candidate, call_id):
+def checked_update(candidate, call_id, resend=False):
+    """The plan is written once, for check_budget; update_itinerary then publishes that draft."""
     return {"tools": [
         {"name": "check_budget", "input": {"itinerary": candidate}, "id": f"{call_id}-budget"},
-        {"name": "update_itinerary", "input": {"itinerary": candidate}, "id": call_id},
+        {"name": "update_itinerary", "input": {"itinerary": candidate} if resend else {}, "id": call_id},
     ]}
 
 
@@ -99,14 +100,14 @@ def install(monkeypatch):
         runs.discard(key)
 
 
-@pytest.mark.parametrize("approved", [True, False])
-def test_real_sdk_pauses_before_commit_and_resumes_same_agent(install, approved):
+@pytest.mark.parametrize("approved,resend", [(True, False), (False, False), (True, True)])
+def test_real_sdk_pauses_before_commit_and_resumes_same_agent(install, approved, resend):
     candidate = plan("Indoor afternoon", 20)
     checks = []
     def check(snapshot):
         checks.append(snapshot)
         return snapshot, []
-    model, updates = install([checked_update(candidate, "replan"), {"text": "Your revised plan is ready."}], check)
+    model, updates = install([checked_update(candidate, "replan", resend), {"text": "Your revised plan is ready."}], check)
     with TestClient(main.app) as client:
         initial = events(client.post("/api/ask/stream", json={"prompt": "Rain tomorrow, move inside", "current_itinerary": plan()}))
         approval = next(event["approval"] for event in initial if "approval" in event)
@@ -138,7 +139,7 @@ def test_unchecked_replan_is_repaired_before_requesting_consent(install):
         return snapshot, []
 
     model, updates = install([
-        call("update_itinerary", {"itinerary": candidate}, "unchecked"),
+        call("update_itinerary", {}, "unchecked"),
         checked_update(candidate, "checked"),
     ], check)
     result = events(TestClient(main.app).post("/api/ask/stream", json={
@@ -165,7 +166,15 @@ def test_real_specialists_use_scoped_tools_and_emit_nested_hooks(install, monkey
     def get_forecast(near: str) -> dict:
         """Get a live forecast for the destination."""
         return {"status": "ok", "source_urls": ["https://open-meteo.com/"]}
-    monkeypatch.setattr(ask, "recording_tools", lambda *args: [find_places, plan_drive, get_forecast])
+    @tool
+    def find_airports(near: str) -> dict:
+        """Find passenger airports near a town."""
+        return {"status": "ok", "airports": []}
+    @tool
+    def flight_links(from_airport: str, to_airport: str) -> dict:
+        """Ticket search links for a route."""
+        return {"status": "ok"}
+    monkeypatch.setattr(ask, "recording_tools", lambda *args: [find_places, plan_drive, get_forecast, find_airports, flight_links])
     candidate = plan()
     model, _ = install([
         call("research_places", {"task": "Research KC"}, "delegate-places"),
@@ -173,9 +182,12 @@ def test_real_specialists_use_scoped_tools_and_emit_nested_hooks(install, monkey
                    call("get_forecast", {"near": "Kansas City"}, "forecast")["tools"][0]]}, {"text": "No verified places found."},
         call("plan_transport", {"task": "Drive Omaha to KC"}, "delegate-transport"),
         call("plan_drive", {"origin": "Omaha", "destination": "Kansas City"}, "route"), {"text": "Estimated drive: 180 miles."},
-        call("review_trip_budget", {"task": json.dumps(candidate)}, "delegate-budget"),
-        call("calculate_budget", {"itinerary": candidate}, "costs"), {"text": "Estimated total $30, within budget."},
-        checked_update(candidate, "update"), {"text": "Your plan is ready."},
+        # Too early: nothing is checked yet, so no Budget specialist model call is spent.
+        call("review_trip_budget", {"task": "Is this within budget?"}, "too-early"),
+        call("check_budget", {"itinerary": candidate}, "check"),
+        call("review_trip_budget", {"task": "Is this within budget?"}, "delegate-budget"),
+        call("calculate_budget", {}, "costs"), {"text": "Estimated total $30, within budget."},
+        call("update_itinerary", {}, "update"), {"text": "Your plan is ready."},
     ])
     response = TestClient(main.app).post("/api/ask/stream", json={"prompt": "Plan a KC road trip", "car_mode": True, "max_drive_miles_per_day": 300, "preferences": {"interests": ["Local food"]}})
     trace = [ev["xray"] for ev in events(response) if "xray" in ev]
@@ -185,8 +197,20 @@ def test_real_specialists_use_scoped_tools_and_emit_nested_hooks(install, monkey
     assert ("places", "get_forecast") in starts and ("orchestrator", "check_budget") in starts
     assert model.seen[0]["tools"] == {"research_places", "plan_transport", "review_trip_budget", "check_budget", "update_itinerary"}
     assert model.seen[1]["tools"] == {"find_places", "get_forecast"}
-    assert model.seen[4]["tools"] == {"plan_drive"}
-    assert model.seen[7]["tools"] == {"calculate_budget"}
+    # The transport specialist holds the Plane mode tools too, or no agent could reach them.
+    assert model.seen[4]["tools"] == {"plan_drive", "find_airports", "flight_links"}
+    assert model.seen[9]["tools"] == {"calculate_budget"}
+    transcript = json.dumps(model.seen[-1]["messages"])
+    assert "No draft has been checked yet" in transcript
+    # The Budget specialist read the checked draft itself: totals without the plan being retyped.
+    budget_result = json.dumps(model.seen[10]["messages"])
+    assert "estimated_total_usd" in budget_result and "no_checked_draft" not in budget_result
+    # The complete plan was written once in the whole run: only in the check_budget call.
+    writes = [block["toolUse"] for seen in [model.seen[-1]] for message in seen["messages"] for block in message["content"]
+              if "toolUse" in block and "itinerary" in (block["toolUse"].get("input") or {})]
+    assert [use["name"] for use in writes] == ["check_budget"]
+    published = next(ev["itinerary"] for ev in events(response) if "itinerary" in ev)
+    assert [item["id"] for item in published["items"]] == ["afternoon", "dinner"]
     assert all("CAR MODE IS ON" in item["prompt"] and "Local food" in item["prompt"] for item in model.seen)
 
 

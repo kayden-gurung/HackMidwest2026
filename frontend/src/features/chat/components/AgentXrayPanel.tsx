@@ -10,7 +10,7 @@ const roles: { id: XrayEvent["agent"]; name: string; detail: string }[] = [
 
 export const toolLabels: Record<string, string> = {
   research_places: "Delegate to Places", plan_transport: "Delegate to Transport", review_trip_budget: "Delegate to Budget",
-  find_places: "Search real places", locate: "Locate a stop", plan_drive: "Calculate a route", calculate_budget: "Check estimated costs", update_itinerary: "Propose itinerary update",
+  find_places: "Search real places", locate: "Locate a stop", plan_drive: "Calculate a route", find_airports: "Find airports", flight_links: "Build flight search links", get_forecast: "Check the forecast", check_budget: "Check the budget", calculate_budget: "Check estimated costs", update_itinerary: "Propose itinerary update",
 };
 
 function eventLabel(event: XrayEvent): string {

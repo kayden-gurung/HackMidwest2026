@@ -18,6 +18,10 @@ from strands.hooks import (AfterInvocationEvent, AfterModelCallEvent, AfterToolC
 
 from budget import analyze_budget
 
+# One traveler message: the orchestrator plus three specialists, each looping over its own tools.
+# A long road trip with a budget review and one repair can pass 24 calls, so leave headroom.
+MAX_MODEL_CALLS = 40
+
 
 def proposal_preview(before, after) -> dict:
     old = {item.id: item.model_dump(mode="json") for item in before.items} if before else {}
@@ -108,7 +112,7 @@ class XrayHooks(HookProvider):
         with self.run._lock:
             self.run.model_calls += 1
             count = self.run.model_calls
-        if count > 24:
+        if count > MAX_MODEL_CALLS:
             raise RuntimeError("Agent model-call limit reached")
         self.run.trace(self.role, "model_started")
 
@@ -141,11 +145,11 @@ class ConsentHook(HookProvider):
             event.cancel_tool = "The traveler declined this re-plan. Keep the current itinerary."
             return
         try:
-            if not self.run.updates.budget_checked(event.tool_use["input"].get("itinerary")):
+            # No itinerary in the call means "publish the draft check_budget just accepted".
+            draft = (event.tool_use.get("input") or {}).get("itinerary")
+            if not self.run.updates.budget_checked(draft):
                 return  # The tool asks the model to check the draft before requesting consent.
-            candidate, notes = await asyncio.to_thread(
-                self.run.updates.prepare, event.tool_use["input"].get("itinerary"), freeze=True
-            )
+            candidate, notes = await asyncio.to_thread(self.run.updates.prepare, draft, freeze=True)
         except ValidationError:
             return  # Let the tool return its usual validation error so the model can repair it.
         before = self.run.body.current_itinerary

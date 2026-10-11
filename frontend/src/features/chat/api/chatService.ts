@@ -86,7 +86,8 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
 
 async function streamReply(tripId: string, path: string, body: unknown): Promise<AssistantMessage | undefined> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 180000);
+  // A plan runs an orchestrator and up to three specialists over slow public map lookups.
+  const timeout = window.setTimeout(() => controller.abort(), 300000);
   try {
     // Streamed so the reply appears as it is written and the panel can say which tool Roam is using.
     let streamed = "";

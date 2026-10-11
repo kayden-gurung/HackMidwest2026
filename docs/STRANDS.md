@@ -8,12 +8,12 @@ Roam runs an orchestrator plus three specialist Strands agents on Amazon Bedrock
 | --- | --- | --- |
 | Roam orchestrator | `research_places`, `plan_transport`, `review_trip_budget`, `check_budget`, `update_itinerary` | Delegate research, synthesize a complete plan, request consent and apply approved updates |
 | Places | `find_places`, `locate`, `get_forecast` | Retrieve specific places, coordinates, live forecasts and source links |
-| Transport | `plan_drive`, `locate` | Check driving feasibility, routes, times and fuel assumptions |
+| Transport | `plan_drive`, `locate`, `find_airports`, `flight_links` | Check driving feasibility, routes, times and fuel assumptions; find airports and flight search links |
 | Budget | `calculate_budget` | Review estimates for all travelers, unknown costs and budget overruns |
 
 `backend/orchestration.py` wraps each specialist with an async `@tool` that invokes that agent. All agents receive the same current itinerary, dates, preferences, car constraints, and trip types. Their conversation state and lookup evidence belong to one request; they are never shared between travelers. A sequential tool executor prevents concurrent invocations of the same specialist. Each run allows at most 24 model calls across the team.
 
-The model chooses which specialist tools to call. The orchestrator instructions require place research for concrete plans, relevant transport checks, and a budget review before an itinerary update. The Places specialist handles the existing live forecast tool. Both budget tools use the shared deterministic arithmetic; the orchestrator's `check_budget` verifies the exact draft before it can request consent or publish. Greetings and clarifying questions do not need specialist calls. Lookup evidence collected by specialists reaches the existing Python itinerary validator. Only the orchestrator can update the panels.
+The model chooses which specialist tools to call. The orchestrator instructions require place research for concrete plans, relevant transport checks, and a budget review before an itinerary update. The Places specialist handles the existing live forecast tool. Both budget tools use the shared deterministic arithmetic; the orchestrator's `check_budget` verifies the exact draft before it can request consent or publish. Greetings and clarifying questions do not need specialist calls. The Transport specialist also holds the Plane mode tools (`find_airports`, `flight_links`); every lookup tool must belong to a specialist, and a test fails if one is left out. Lookup evidence collected by specialists reaches the existing Python itinerary validator. Only the orchestrator can update the panels.
 
 Official pattern: [Agents as Tools](https://strandsagents.com/docs/user-guide/sdk/multi-agent/agents-as-tools/).
 
@@ -28,7 +28,7 @@ Official API: [Hooks](https://strandsagents.com/docs/user-guide/sdk/agents/hooks
 ## Act, with consent
 
 1. The traveler requests a revision, such as “Check tomorrow's forecast. Replace the outdoor afternoon if it will rain, and keep dinner.” The Places specialist checks live weather within the tool's coverage and reports unavailable or out-of-range forecasts honestly.
-2. Roam gathers relevant evidence, reviews the budget, calls `check_budget` on the exact draft, and calls `update_itinerary` with that complete candidate.
+2. Roam gathers relevant evidence and calls `check_budget` with the complete draft. That is the only time a model writes the plan out: the Budget specialist's `calculate_budget` and the orchestrator's `update_itinerary` are both called with no arguments and read that checked draft in Python.
 3. `ConsentHook` validates the candidate before the tool executes and builds a preview: added, removed and changed stops, unchanged stop count, complete proposed plan, totals, unknown costs, assumptions and validation notes.
 4. `BeforeToolCallEvent.interrupt("roam.itinerary-consent", reason=preview)` pauses the actual Strands loop. The pending tool has not committed an itinerary.
 5. The browser displays the review card and disables new messages for that journey. Other journeys remain independent.
