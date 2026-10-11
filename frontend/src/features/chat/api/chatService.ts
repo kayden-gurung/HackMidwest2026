@@ -8,6 +8,7 @@ import { mockReply } from "./mockData";
 import { itineraryStore, validateItinerary } from "../../itinerary/api/itineraryStore";
 import { travelModeStore } from "../../trips/api/travelModeStore";
 import { tripTypesStore } from "../../journey/api/tripTypesStore";
+import { roadTripStore } from "../../../roadtrip/api/roadTripStore";
 
 export interface ChatService {
   /** Earlier messages for a trip. */
@@ -28,7 +29,7 @@ const mockReplySource: ReplySource = () => mockResponse({ id: createId(), role: 
 const runContexts = new Map<string, string>();
 
 function planningContext(tripId: string) {
-  return JSON.stringify({ itinerary: itineraryStore.snapshot(tripId), travelMode: travelModeStore.get(tripId), tripTypes: tripTypesStore.get(tripId) });
+  return JSON.stringify({ itinerary: itineraryStore.snapshot(tripId), travelMode: travelModeStore.get(tripId), tripTypes: tripTypesStore.get(tripId), roadTrip: roadTripStore.get(tripId) });
 }
 
 function checkPlanningContext(tripId: string) {
@@ -78,6 +79,7 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
     travel_mode: carMode ? "road" : "plane",
     max_drive_miles_per_day: carMode ? maxMilesPerDay : undefined,
     trip_types: tripTypesStore.get(tripId),
+    road_trip: roadTripStore.get(tripId),
   };
   agentStore.begin(tripId);
   runContexts.set(tripId, planningContext(tripId));

@@ -17,7 +17,8 @@ from evidence import Evidence, evidence_from_snapshot, recording_tools
 from pins import pin_stops
 from itinerary import ItinerarySnapshot, ItineraryUpdates
 from prompts.travel import TRIP_TYPES, car_mode_instruction, trip_types_instruction
-from schemas import Preferences, describe_preferences
+from schemas import Preferences, RoadTripPreferences, describe_preferences
+from roadtrip import RoadTripPlanner
 from validation import validate_snapshot
 
 # Errors reach the traveler as a short message; the full reason goes to the backend log.
@@ -49,6 +50,7 @@ class AskRequest(BaseModel):
     max_drive_miles_per_day: int | None = Field(default=None, ge=50, le=1500)
     # Trip type chips chosen on the New journey screen ("Food first", "Rest & reset"...). Unknown values are ignored.
     trip_types: list[str] = Field(default_factory=list, max_length=len(TRIP_TYPES))
+    road_trip: RoadTripPreferences | None = None
 
 
 class AskResponse(BaseModel):
@@ -65,10 +67,13 @@ class ResumeRequest(BaseModel):
 def checked_updates(body: AskRequest) -> tuple[ItineraryUpdates, Evidence]:
     """Itinerary updates for one request, checked against what the place tools returned in it."""
     evidence = evidence_from_snapshot(body.current_itinerary)
-    check = lambda snapshot: validate_snapshot(  # noqa: E731
-        snapshot, evidence, car_mode=body.car_mode, pinner=pin_stops, trip_types=body.trip_types
-    )
-    return ItineraryUpdates(check=check), evidence
+    planner = RoadTripPlanner(body.road_trip, body.current_itinerary, max_miles(body)) if body.road_trip else None
+    def check(snapshot):
+        cleaned, notes = validate_snapshot(snapshot, evidence, car_mode=body.car_mode, pinner=pin_stops, trip_types=body.trip_types)
+        return (planner.validate(cleaned) if planner else cleaned), notes
+    updates = ItineraryUpdates(check=check, check_on_budget=planner is not None)
+    updates.roadtrip_planner = planner
+    return updates, evidence
 
 
 def max_miles(body: AskRequest) -> int | None:
@@ -82,8 +87,8 @@ def final_itinerary(body: AskRequest, updates: ItineraryUpdates, evidence: Evide
 
 def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence):
     messages = [{"role": message.role, "content": [{"text": message.content}]} for message in body.history]
-    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget], travel_tools=recording_tools(evidence, max_miles(body)),
-                        checked_draft=lambda: updates.checked_draft)
+    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget], travel_tools=recording_tools(evidence, max_miles(body), getattr(updates, "roadtrip_planner", None)),
+                        checked_draft=lambda: updates.review_draft)
     mode = body.mode or (body.preferences.planning_style if body.preferences else None) or "Co-pilot"
     mode_instruction = {
         "Hands-on": "Present options and ask the traveler to choose before making a detailed plan.",
@@ -93,9 +98,37 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evi
     context = describe_preferences(body.preferences)
     agent.system_prompt = f"{agent.system_prompt}\nToday is {date.today().isoformat()}.\n{context}\nTraveler's planning style: {mode_instruction}"
     if body.car_mode:
-        agent.system_prompt += "\n" + car_mode_instruction(max_miles(body))
+        if body.road_trip:
+            agent.system_prompt += (f"\nCAR MODE IS ON: TRAVEL BY ROAD. This is a one-way drive in the traveler's own car. "
+                                    f"Allow at most {max_miles(body) or 450} miles and about six driving hours per day.")
+        else:
+            agent.system_prompt += "\n" + car_mode_instruction(max_miles(body))
     if trip_types_instruction(body.trip_types):
         agent.system_prompt += "\n" + trip_types_instruction(body.trip_types)
+    if body.road_trip:
+        agent.system_prompt += "\nRoad-trip form constraints (traveler data):\n" + body.road_trip.model_dump_json()
+        agent.system_prompt += """\nThis is a one-way drive. Always delegate plan_transport before a concrete road-trip plan.
+        The backend measures the complete route through the proposed stops, enforces the total extra
+        driving-time budget, and replaces Driving costs and routes with measured data at check_budget.
+        In road-trip mode plan_drive returns distance_miles, drive_minutes, detour_minutes and fuel_cost_usd,
+        rather than individual daily legs. Report these returned figures; never invent drive_days.
+        You may omit Driving items from the draft because the backend adds them from the measured route.
+        Every other item must be a specifically verified place with its exact tool coordinates and
+        source URL. Never add generic breakfast, lunch, overnight, arrival or departure placeholders.
+        Describe those suggestions in assumptions instead. Choose a compact set of nearby stops;
+        do not force every interest into the plan. Before writing the draft, ask plan_transport to
+        preview the complete ordered set of stop names using plan_drive(via=[...]). If that preview
+        exceeds the detour budget, remove the farthest detour and preview again. Only then write
+        check_budget. After a rejected check, fix the stated error rather than repeating the draft.
+        Keep roadTrip out of your draft; it is filled by the backend. Include enough dates for the daily
+        driving limit. Do not invent detour times or claim a route change when none was returned.
+        For different small towns, delegate research_places to use find_route_towns, then research
+        activities/food in the returned towns if useful. For different attractions or restaurants in
+        the same city, use find_places with Activities or Food and exclude_current=True. Radius searches
+        may cross city boundaries: state the returned locality honestly. Keep unaffected stops and IDs.
+        For a different road route with the same endpoints, delegate plan_transport with alternative=True;
+        if unavailable, explain that and keep the current plan. Use via for explicitly requested waypoints.
+        Use check_budget's measured totals. Costs unknown from tools must remain null.\n"""
     if body.current_itinerary is not None:
         # Route lines are for the map only: thousands of numbers would slow every reply, and the
         # model might copy them back out. The backend keeps them (see evidence_from_snapshot).
@@ -152,6 +185,8 @@ def ask(body: AskRequest):
         result = {"reply": reply}
         plan = final_itinerary(body, updates, evidence)
         if plan is not None:
+            if plan.roadTrip is not None:
+                result["reply"] = updates.confirmation()
             result["itinerary"] = plan.model_dump(mode="json")
         return result
     except Exception as error:
@@ -196,8 +231,8 @@ async def drive_run(run: AgentRun, prompt):
                 return
         if run.denied:
             reply = "Kept your current plan. Tell me what you’d like to change."
-        run.emit({"reply": reply or run.updates.confirmation()})
         plan = final_itinerary(run.body, run.updates, run.evidence)
+        run.emit({"reply": run.updates.confirmation() if plan and plan.roadTrip else reply or run.updates.confirmation()})
         if plan is not None and not run.denied:
             run.emit({"itinerary": plan.model_dump(mode="json")})
         runs.discard(run.id)

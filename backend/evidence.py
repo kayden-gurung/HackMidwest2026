@@ -137,14 +137,20 @@ def evidence_from_snapshot(snapshot: ItinerarySnapshot | None) -> Evidence:
     return evidence
 
 
-def recording_tools(evidence: Evidence, max_miles_per_day: int | None = None) -> list:
+def recording_tools(evidence: Evidence, max_miles_per_day: int | None = None, roadtrip=None) -> list:
     """find_places, locate and plan_drive, recording every result into `evidence`.
 
     `max_miles_per_day` is the traveler's car-mode limit; plan_drive splits the drive with it.
     """
 
-    def find_places(near: str, category: str, keyword: str = "", radius_m: int = 3000, limit: int = 8) -> dict:
+    def find_places(near: str, category: str, keyword: str = "", radius_m: int = 3000, limit: int = 8, exclude_current: bool = False) -> dict:
         result = travel_tools.find_places(near, category, keyword, radius_m, limit)
+        if exclude_current and roadtrip and roadtrip.current:
+            existing = {url for item in roadtrip.current.items for url in item.sourceUrls}
+            result = {**result, "places": [place for place in result.get("places", [])
+                                           if not existing.intersection(place.get("source_urls", []))]}
+            if result.get("status") == "ok" and not result["places"]:
+                result.update(status="no_results", message="No different places were found in this search. Keep existing stops or broaden the search.")
         for place in result.get("places", []):
             evidence.add_place(place)
         if result.get("status") == "ok":
@@ -163,8 +169,11 @@ def recording_tools(evidence: Evidence, max_miles_per_day: int | None = None) ->
             evidence.add_point(result)
         return result
 
-    def plan_drive(origin: str, destination: str, round_trip: bool = True) -> dict:
-        result = travel_tools.plan_drive(origin, destination, round_trip, max_miles_per_day or 0)
+    def plan_drive(origin: str, destination: str, round_trip: bool = True, via: list[str] | None = None, alternative: bool = False) -> dict:
+        if roadtrip is not None:
+            result = roadtrip.plan_drive(via=via, alternative=alternative)
+        else:
+            result = travel_tools.plan_drive(origin, destination, round_trip, max_miles_per_day or 0)
         if result.get("status") == "ok":
             evidence.drive_links.update(str(url) for url in result.get("source_urls", []))
             if result.get("google_maps_url"):
@@ -183,8 +192,22 @@ def recording_tools(evidence: Evidence, max_miles_per_day: int | None = None) ->
 
 
 
-    find_places.__doc__ = _FIND_PLACES_DOC
+    find_places.__doc__ = (_FIND_PLACES_DOC or "") + "\n        exclude_current: True to exclude places already in the current road-trip itinerary."
     locate.__doc__ = _LOCATE_DOC
-    plan_drive.__doc__ = _PLAN_DRIVE_DOC
+    plan_drive.__doc__ = _PLAN_DRIVE_DOC + "\n        via: Optional ordered waypoint names for a road-trip preview.\n        alternative: True to request a different provider route in road-trip mode; unavailable alternatives are reported honestly.\nRoad-trip mode uses the form's authoritative endpoints and fuel assumptions, one way."
     # Weather evidence describes conditions, not a place's identity or booking details.
-    return [tool(find_places), tool(locate), tool(plan_drive), tool(travel_tools.get_forecast)]
+    tools = [tool(find_places), tool(locate), tool(plan_drive), tool(travel_tools.get_forecast)]
+    if roadtrip is not None:
+        @tool
+        def find_route_towns(exclude: list[str] | None = None) -> dict:
+            """Find verified different towns/villages along the current road route, within the driving detour budget.
+
+            Args:
+                exclude: Previously suggested town names to omit.
+            """
+            result = roadtrip.find_route_towns(exclude)
+            for point in result.get("towns", []):
+                evidence.add_point(point)
+            return result
+        tools.append(find_route_towns)
+    return tools

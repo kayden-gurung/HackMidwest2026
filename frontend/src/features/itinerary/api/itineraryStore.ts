@@ -14,6 +14,14 @@ const isoDate = (value: unknown): value is string => typeof value === "string" &
 export function validateItinerary(value: unknown): ItinerarySnapshot {
   const plan = value as ItinerarySnapshot;
   const overview = plan?.overview;
+  const road = plan?.roadTrip;
+  if (road != null && (typeof road.origin !== "string" || !road.origin.trim() || typeof road.destination !== "string" || !road.destination.trim()
+    || [road.distanceMiles, road.drivingMinutes, road.directMinutes, road.detourMinutes, road.detourBudgetMinutes,
+      road.fuelCostUsd, road.extraFuelCostUsd, road.mpg, road.gasPrice].some((n) => !Number.isFinite(n) || n < 0)
+    || road.mpg <= 0 || !Number.isInteger(road.routeOption) || road.routeOption < 0 || road.routeOption > 2
+    || road.detourMinutes > road.detourBudgetMinutes + 0.05)) {
+    throw new Error("Roam returned invalid driving estimates. Your previous plan is still here; please retry.");
+  }
   if (!plan || !isoDate(plan.startDate) || !isoDate(plan.endDate) || plan.startDate > plan.endDate
     || (Date.parse(plan.endDate) - Date.parse(plan.startDate)) / 86400000 >= 60
     || !Array.isArray(plan.items) || plan.items.length > 100 || !plan.budget || !money(plan.budget.plannedUsd)
@@ -52,8 +60,8 @@ export const itineraryStore = {
   snapshot(tripId: string): ItinerarySnapshot | undefined {
     const plan = plans.get(tripId);
     if (!plan) return undefined;
-    const { startDate, endDate, items, budget, summary, assumptions, overview } = plan;
-    return { startDate, endDate, items, budget, summary, assumptions, overview };
+    const { startDate, endDate, items, budget, summary, assumptions, overview, roadTrip } = plan;
+    return { startDate, endDate, items, budget, summary, assumptions, overview, roadTrip };
   },
   set(tripId: string, snapshot: ItinerarySnapshot) {
     plans.set(tripId, { ...snapshot, tripId });

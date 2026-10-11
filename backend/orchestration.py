@@ -64,6 +64,8 @@ def specialist_tools(model, travel_tools: list, checked_draft=None) -> tuple[lis
     by_name = {item.tool_name: item for item in travel_tools}
     names = {"places": ["find_places", "locate", "get_forecast"],
              "transport": ["plan_drive", "locate"]}
+    if "find_route_towns" in by_name:
+        names["places"].append("find_route_towns")
 
     @tool
     def calculate_budget(itinerary: ItinerarySnapshot | None = None) -> dict:

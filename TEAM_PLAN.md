@@ -15,7 +15,7 @@ Replace `Unclaimed` with your name and update status as you go. Each lane has on
 | A: UI | Unclaimed | Not started | `frontend/src/components/`, `frontend/src/index.css` | Trip form, itinerary cards, loading and error states |
 | B: Agent | Unclaimed | Not started | `backend/agents/`, `backend/prompts/` | Strands planner returning the agreed itinerary schema |
 | C: Data tools | Unclaimed | Not started | `backend/tools/` | One real place or weather integration with source URLs |
-| D: Integration | Unclaimed | Not started | API routes, schemas, frontend API client, app entry points, Docker and dependencies | Working form-to-backend-to-itinerary flow |
+| D: Integration | Codex (Josh's integration request) | Implemented locally on `feat/strands-roadtrip-integration` | API routes, schemas, frontend API client, app entry points, Docker and dependencies | Live road-trip form, scoped Strands tools, measured route validation, and approved revisions; see `docs/ROADTRIP_STRANDS.md` |
 
 With three teammates, combine B and D. With two, combine A+D and B+C. With five, the fifth person owns manual demo checks and the demo script in `docs/DEMO.md`. Owners can help elsewhere after coordinating; avoid two people editing one file at once.
 

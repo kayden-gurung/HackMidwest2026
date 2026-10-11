@@ -4,10 +4,17 @@ from botocore.exceptions import (
     ClientError, ConnectTimeoutError, EndpointConnectionError,
     NoCredentialsError, PartialCredentialsError, ReadTimeoutError,
 )
-from strands.types.exceptions import ModelThrottledException
+from fastapi import HTTPException
+from strands.types.exceptions import EventLoopException, ModelThrottledException
 
 
 def aws_error_response(error: Exception) -> tuple[int, str]:
+    # Strands wraps hook failures in EventLoopException. Preserve our safe local
+    # validation message instead of reporting it as an AWS outage.
+    while isinstance(error, EventLoopException) and error.__cause__ is not None:
+        error = error.__cause__
+    if isinstance(error, HTTPException):
+        return error.status_code, error.detail
     if isinstance(error, (NoCredentialsError, PartialCredentialsError)):
         return 503, "AWS credentials are missing or incomplete. Configure backend/.env and recreate the backend container."
     if isinstance(error, (ConnectTimeoutError, ReadTimeoutError)):

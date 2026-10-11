@@ -1,6 +1,17 @@
 """Request shapes shared by routes and the agent. Keep in step with the frontend types that mirror them."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class RoadTripPreferences(BaseModel):
+    """Authoritative driving constraints, supplied by the road-trip form."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    origin: str = Field(min_length=1, max_length=200)
+    destination: str = Field(min_length=1, max_length=200)
+    detour_minutes: int = Field(ge=0, le=240)
+    mpg: float = Field(gt=0, le=150, allow_inf_nan=False)
+    gas_price: float = Field(ge=0, le=20, allow_inf_nan=False)
 
 
 class Preferences(BaseModel):

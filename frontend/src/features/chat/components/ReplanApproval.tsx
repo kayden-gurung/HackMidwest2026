@@ -22,6 +22,11 @@ export function ReplanApproval({ approval, busy, onResolve }: { approval: PlanAp
             <div>{plan.startDate} to {plan.endDate}{plan.overview?.destination ? ` · ${plan.overview.destination}` : ""}</div>
             <div className="mt-1 font-semibold">Estimated total: {usd(proposal.before_total_usd)} → {usd(proposal.after_total_usd)}</div>
             <div className="text-muted">{proposal.unchanged_stops} stops kept{plan.budget.plannedUsd != null ? ` · ${usd(plan.budget.plannedUsd)} trip budget` : ""}</div>
+            {plan.roadTrip && <div className="mt-2 border-t border-line pt-2">
+              <div>Extra driving: {plan.roadTrip.detourMinutes.toFixed(1)} / {plan.roadTrip.detourBudgetMinutes} minutes</div>
+              <div>Estimated fuel: {usd(plan.roadTrip.fuelCostUsd)} · {plan.roadTrip.distanceMiles.toFixed(1)} miles one way</div>
+              <div className="text-muted">{plan.roadTrip.mpg} MPG · {usd(plan.roadTrip.gasPrice)}/gallon assumed</div>
+            </div>}
             {proposal.unknown_costs > 0 && <div className="text-muted">{proposal.unknown_costs} unknown costs excluded from the total.</div>}
             {plan.budget.plannedUsd != null && proposal.after_total_usd > plan.budget.plannedUsd && <div className="mt-1 font-semibold text-amber-700">{usd(proposal.after_total_usd - plan.budget.plannedUsd)} above your budget.</div>}
           </div>

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { DriveDraft } from "../types"
 import { Action, Icon } from "./ui"
+import { config } from "../../config/env"
 
 function TextField({
   label,
@@ -15,18 +16,15 @@ function TextField({
 }) {
   return (
     <div>
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">
+      <label className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-muted">
         {label}
-      </div>
-      <div
-        role="textbox"
-        contentEditable
-        suppressContentEditableWarning
-        onInput={(event) => onChange(event.currentTarget.textContent ?? "")}
+      <input
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
         className="min-h-11 rounded-md border border-line bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-school"
-      >
-        {value}
-      </div>
+      />
+      </label>
       {hint && <div className="mt-1.5 text-[10px] text-muted">{hint}</div>}
     </div>
   )
@@ -64,10 +62,12 @@ export default function TripSetup({
   drive,
   setDrive,
   onSubmit,
+  error,
 }: {
   drive: DriveDraft
   setDrive: (draft: DriveDraft) => void
   onSubmit: () => void
+  error?: string
 }) {
   const [expanded, setExpanded] = useState(false)
   const toggleDrive = (value: string) =>
@@ -178,14 +178,11 @@ export default function TripSetup({
                 </Action>
                 {expanded && (
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    {[
-                      ["Max miles / day", `${drive.maxMilesPerDay} mi`],
-                      ["Fuel economy", `${drive.mpg} mpg`],
-                      [
-                        "Fuel assumption",
-                        `$${drive.gasPrice.toFixed(2)} / gal`,
-                      ],
-                    ].map(([label, value]) => (
+                    {([
+                      { label: "Max miles / day", key: "maxMilesPerDay", min: 50, max: 1500, step: 50 },
+                      { label: "Fuel economy · MPG", key: "mpg", min: 1, max: 150, step: 1 },
+                      { label: "Fuel assumption · $/gal", key: "gasPrice", min: 0, max: 20, step: 0.05 },
+                    ] as const).map(({ label, key, min, max, step }) => (
                       <div
                         key={label}
                         className="border border-line bg-white p-3"
@@ -193,7 +190,7 @@ export default function TripSetup({
                         <div className="text-[9px] font-bold uppercase tracking-wider text-muted">
                           {label}
                         </div>
-                        <div className="mt-2 text-sm font-bold">{value}</div>
+                        <input aria-label={label} type="number" min={min} max={max} step={step} value={drive[key]} onChange={(event) => setDrive({ ...drive, [key]: Number(event.target.value) })} className="mt-2 w-full rounded border border-line px-2 py-1 text-sm font-bold" />
                       </div>
                     ))}
                   </div>
@@ -202,6 +199,7 @@ export default function TripSetup({
             </div>
 
           <div className="mt-7 border-t border-line pt-5">
+            {error && <p role="alert" className="mb-3 text-sm text-coral">{error}</p>}
             <Action
               onClick={onSubmit}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-school px-5 py-3.5 text-sm font-bold text-white"
@@ -209,7 +207,7 @@ export default function TripSetup({
               <Icon name="car" className="size-4" /> Find stops along my drive
             </Action>
             <div className="mt-3 text-center text-[10px] text-muted">
-              Find places worth pulling over for. Results use cached demo data.
+              {config.useMocks ? "Example mode uses cached demo stops." : "Search live places and routes. Fuel costs are estimates; availability and bookings are not provided."}
             </div>
           </div>
         </div>
