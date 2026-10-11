@@ -38,7 +38,7 @@ export function TripHeader({ tripId, title, leading, onNewJourney }: { tripId: s
   );
 }
 
-/** How this journey travels: by plane (airports, flight ticket links) or by road (miles, routes, a daily driving limit). */
+/** How this journey travels: by plane (airports, flight ticket links) or by road (miles, routes, overnight stops, a daily driving limit). */
 function TravelModeToggle({ tripId }: { tripId: string }) {
   const { travelBy, maxMilesPerDay, setTravelBy, setMaxMilesPerDay } = useTravelMode(tripId);
   const options = [

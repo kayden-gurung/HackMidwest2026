@@ -45,6 +45,8 @@ export interface ItineraryItem {
   websiteUrl?: string;
   /** Where the facts came from (tool results). Shown as "Source" links. */
   sourceUrls?: string[];
+  /** Driving legs only: the road route as [lat, lng] points, from plan_drive. Drawn as a line on the map. */
+  route?: [number, number][];
 }
 
 /** A highlighted stay or restaurant card in the Plan tab. Optional extra, not needed for the core flow. */

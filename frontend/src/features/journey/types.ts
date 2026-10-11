@@ -22,4 +22,8 @@ export interface JourneyRequest {
   adults: number;
   /** Travelers under 18. */
   children: number;
+  /** How the traveler gets there: "plane" (airports, flight tickets) or "road" (their own car). Defaults to plane. */
+  travelBy?: "plane" | "road";
+  /** Road only: most miles to drive in one day. */
+  maxMilesPerDay?: number;
 }

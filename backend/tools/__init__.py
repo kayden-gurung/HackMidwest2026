@@ -16,6 +16,15 @@ from tools import airports
 from tools.places import PlacesUnavailable, geocode, search_places
 from tools.weather import fetch_forecast
 
+# Category names the model often uses instead of the three real ones. The word also becomes the
+# keyword, so "museum" searches museums rather than failing and costing the model another turn.
+_CATEGORY_ALIASES = {
+    "food": "Food", "restaurant": "Food", "restaurants": "Food", "dining": "Food", "cafe": "Food", "bar": "Food",
+    "stay": "Stays", "stays": "Stays", "hotel": "Stays", "hotels": "Stays", "lodging": "Stays", "accommodation": "Stays",
+    "activity": "Activities", "activities": "Activities", "attraction": "Activities", "attractions": "Activities",
+    "museum": "Activities", "museums": "Activities", "park": "Activities", "parks": "Activities", "beach": "Activities",
+}
+
 
 def find_places(near: str, category: str, keyword: str = "", radius_m: int = 3000, limit: int = 8) -> dict:
     """Find real restaurants, places to stay, or things to do around a location, with coordinates and source links.
@@ -31,11 +40,19 @@ def find_places(near: str, category: str, keyword: str = "", radius_m: int = 300
         limit: How many places to return, at most 25.
     """
     if category not in ("Food", "Stays", "Activities"):
-        return {"status": "error", "message": 'category must be "Food", "Stays" or "Activities".', "places": []}
+        alias = _CATEGORY_ALIASES.get(category.strip().lower())
+        if alias is None:
+            return {"status": "error", "message": 'category must be "Food", "Stays" or "Activities".', "places": []}
+        # Keep a generic word like "food" out of the keyword; a specific one like "museum" narrows the search.
+        if not keyword and category.strip().lower() not in ("food", "stay", "stays", "activity", "activities"):
+            keyword = category.strip().lower()
+        category = alias
     try:
         places = search_places(near, category, keyword or None, radius_m, limit)  # type: ignore[arg-type]
     except PlacesUnavailable as error:
-        return {"status": "unavailable", "message": str(error), "places": []}
+        # Retrying straight away rarely helps and makes the traveler wait another 10+ seconds.
+        return {"status": "unavailable", "places": [],
+                "message": f"{error} Do not retry this search now: continue the plan without it and tell the traveler live place data was unavailable."}
     if not places:
         return {"status": "no_results", "message": f'No {category} places found near "{near}". Try a larger radius or a different keyword.', "places": []}
     return {"status": "ok", "source": "OpenStreetMap", "places": [place.model_dump(exclude_none=True) for place in places]}

@@ -147,3 +147,72 @@ def test_endpoints(services):
     services["overpass_status"] = 503
     places.clear_caches()
     assert client.get("/api/places/search", params={"near": "Polignano a Mare", "category": "Stays"}).status_code == 503
+
+
+# A Nominatim category search result ("restaurants" inside the box), as the fast path receives it.
+NOMINATIM_RESTAURANTS = [
+    {"osm_type": "node", "osm_id": 11, "lat": "40.9960", "lon": "17.2230", "category": "amenity", "type": "restaurant",
+     "name": "Pescheria Antonio", "extratags": {"cuisine": "seafood", "website": "pescheria.example"},
+     "address": {"road": "Via Roma", "house_number": "5", "town": "Polignano a Mare"}},
+    {"osm_type": "node", "osm_id": 12, "lat": "40.9955", "lon": "17.2228", "category": "amenity", "type": "restaurant",
+     "name": "Pizzeria Mare", "extratags": {"cuisine": "pizza"}},
+    # Not a Food place: the fast path must drop it.
+    {"osm_type": "node", "osm_id": 13, "lat": "40.9950", "lon": "17.2225", "category": "tourism", "type": "hotel", "name": "Hotel Blu"},
+]
+
+
+@pytest.fixture
+def fast_services(services):
+    """Nominatim answers geocoding with the town and category searches with NOMINATIM_RESTAURANTS."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        services["calls"].append(request)
+        if "nominatim" in request.url.host:
+            category_search = "viewbox" in request.url.params
+            return httpx.Response(200, json=NOMINATIM_RESTAURANTS if category_search else NOMINATIM_HIT)
+        return httpx.Response(services["overpass_status"], json=services["overpass"])
+
+    places._client = httpx.Client(transport=httpx.MockTransport(handler))
+    return services
+
+
+def test_search_uses_fast_nominatim_path_without_overpass(fast_services):
+    found = places.search_places("Polignano a Mare", "Food", "seafood", radius_m=1500)
+    assert [place.name for place in found] == ["Pescheria Antonio"]
+    place = found[0]
+    assert place.cuisine == "seafood" and place.website_url == "https://pescheria.example"
+    assert place.address == "Via Roma 5, Polignano a Mare"
+    assert place.source_urls == ["https://www.openstreetmap.org/node/11"]
+    search = [call for call in fast_services["calls"] if "viewbox" in call.url.params][0]
+    searched = [call.url.params["q"] for call in fast_services["calls"] if "viewbox" in call.url.params]
+    assert searched == ["seafood", "restaurants"] and search.url.params["bounded"] == "1"
+    assert not [call for call in fast_services["calls"] if "nominatim" not in call.url.host]
+
+
+def test_keyword_that_names_a_phrase_picks_it(fast_services):
+    places.search_places("Polignano a Mare", "Food", "cafe")
+    search = [call for call in fast_services["calls"] if "viewbox" in call.url.params][0]
+    assert search.url.params["q"] == "cafes"
+
+
+def test_fast_path_with_no_match_falls_back_to_overpass(fast_services):
+    found = places.search_places("Polignano a Mare", "Food", "sushi")
+    assert any("overpass" in call.url.host for call in fast_services["calls"])
+    assert found  # the Overpass fixture still answers
+
+
+def test_model_category_aliases_and_no_retry_message(fast_services):
+    result = tools.find_places("Polignano a Mare", "restaurant", keyword="seafood")
+    assert result["status"] == "ok" and result["places"][0]["name"] == "Pescheria Antonio"
+    assert tools.find_places("Polignano a Mare", "Nightlife")["status"] == "error"
+    fast_services["overpass_status"] = 500
+    places.clear_caches()
+    unavailable = tools.find_places("Polignano a Mare", "Food", keyword="sushi")
+    assert unavailable["status"] == "unavailable" and "Do not retry" in unavailable["message"]
+
+
+def test_phrase_keywords_match_whole_words():
+    assert places._phrases_for("Food", "barbecue") == (("restaurants",), "barbecue")
+    assert places._phrases_for("Food", "cocktail bars") == (("bars",), None)
+    assert places._phrases_for("Activities", "art galleries") == (("galleries",), None)
+    assert places._phrases_for("Activities", "parks") == (("parks",), None)
+    assert places._phrases_for("Activities", "jazz") == (("attractions", "museums", "parks"), "jazz")

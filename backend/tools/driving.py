@@ -43,6 +43,11 @@ class DriveDay(BaseModel):
     miles: int
     drive_hours: float
     google_maps_url: str
+    # This day's piece of the route as [lat, lng] points, and where it ends, for drawing it on the map.
+    # Kept from the AI (see evidence.recording_tools): the backend attaches them to the plan itself.
+    path: list[list[float]] = []
+    end_lat: float | None = None
+    end_lng: float | None = None
 
 
 class DriveEstimate(BaseModel):
@@ -74,7 +79,10 @@ def _home_days(days: list[DriveDay]) -> list[DriveDay]:
     """The same legs driven back, last town first."""
     return [
         DriveDay(day=index + 1, start=leg.end, end=leg.start, miles=leg.miles, drive_hours=leg.drive_hours,
-                 google_maps_url=_directions_url(leg.end, leg.start) if "Overnight stop" not in leg.start + leg.end else leg.google_maps_url)
+                 google_maps_url=_directions_url(leg.end, leg.start) if "Overnight stop" not in leg.start + leg.end else leg.google_maps_url,
+                 path=list(reversed(leg.path)),
+                 end_lat=leg.path[0][0] if leg.path else None,
+                 end_lng=leg.path[0][1] if leg.path else None)
         for index, leg in enumerate(reversed(days))
     ]
 
@@ -98,6 +106,26 @@ def _points_along(coordinates: list, fractions: list[float]) -> list[tuple[float
     return points
 
 
+# Points kept per day of driving: enough for a smooth line on the map, small enough to send around.
+MAX_PATH_POINTS = 120
+
+
+def _split_path(coordinates: list, days: int) -> list[list[list[float]]]:
+    """The route cut into `days` even pieces by distance, as [lat, lng] points. `coordinates` are GeoJSON [lng, lat] pairs."""
+    steps = [0.0]
+    for (lng1, lat1), (lng2, lat2) in zip(coordinates, coordinates[1:]):
+        steps.append(steps[-1] + places._distance_m(lat1, lng1, lat2, lng2))
+    total = steps[-1] or 1.0
+    cuts = [0] + [next((i for i, travelled in enumerate(steps) if travelled >= total * day / days), len(steps) - 1) for day in range(1, days)] + [len(coordinates) - 1]
+    pieces = []
+    for start, end in zip(cuts, cuts[1:]):
+        piece = [[round(lat, 5), round(lng, 5)] for lng, lat in coordinates[start:end + 1]]
+        stride = max(1, len(piece) // MAX_PATH_POINTS)
+        # Thin evenly, but always keep the last point so the pieces join up.
+        pieces.append(piece[::stride] + ([piece[-1]] if (len(piece) - 1) % stride else []))
+    return pieces
+
+
 def _drive_days(origin: str, destination: str, days: int, miles: float, hours: float, coordinates: list | None) -> list[DriveDay]:
     """Even daily legs. The overnight towns come from the route itself, so they are on the way."""
     fractions = [day / days for day in range(1, days)]
@@ -106,6 +134,7 @@ def _drive_days(origin: str, destination: str, days: int, miles: float, hours: f
         towns = [places.town_at(lat, lng) for lat, lng in _points_along(coordinates, fractions)]
     ends = [town or f"Overnight stop after about {round(miles * (index + 1) / days)} miles" for index, town in enumerate(towns)] + [destination]
     starts = [origin, *ends[:-1]]
+    paths = _split_path(coordinates, days) if coordinates and len(coordinates) >= 2 else [[] for _ in range(days)]
     return [
         DriveDay(
             day=day + 1,
@@ -116,6 +145,9 @@ def _drive_days(origin: str, destination: str, days: int, miles: float, hours: f
             # A leg that ends at an unnamed point gets directions for the whole route.
             google_maps_url=_directions_url(start if not start.startswith("Overnight stop") else origin,
                                             end if not end.startswith("Overnight stop") else destination),
+            path=paths[day],
+            end_lat=paths[day][-1][0] if paths[day] else None,
+            end_lng=paths[day][-1][1] if paths[day] else None,
         )
         for day, (start, end) in enumerate(zip(starts, ends))
     ]
@@ -141,8 +173,8 @@ def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_m
 
     url = f"{OSRM_URL}/{start.lng:.6f},{start.lat:.6f};{end.lng:.6f},{end.lat:.6f}"
     try:
-        # A simplified route shape is enough to find towns along the way for overnight stops.
-        response = places._http().get(url, params={"overview": "simplified", "geometries": "geojson"}, timeout=ROUTE_TIMEOUT_S)
+        # The route shape: towns along the way for overnight stops, and the line drawn on the map.
+        response = places._http().get(url, params={"overview": "full", "geometries": "geojson"}, timeout=ROUTE_TIMEOUT_S)
         # OSRM answers 400 with code "NoRoute" when the two points are not connected by road.
         body = response.json()
         if response.status_code >= 500:

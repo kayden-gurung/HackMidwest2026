@@ -187,3 +187,81 @@ def test_every_driving_leg_link_counts_as_real(services, monkeypatch):
     result = plan_drive("Kansas City, MO", "Denver, CO")
     for leg in [*result["drive_days"], *result["drive_days_home"]]:
         assert leg["google_maps_url"] in evidence.drive_links
+
+
+ROUTE_WITH_SHAPE = {"code": "Ok", "routes": [{
+    "distance": 965_606.4, "duration": 30_600,
+    "geometry": {"type": "LineString", "coordinates": [[-94.5786, 39.0997], [-97.6, 38.8], [-99.3, 38.9], [-102.0, 39.3], [-104.9903, 39.7392]]},
+}]}
+
+
+def test_driving_legs_get_their_route_line_and_end_pin(services):
+    from itinerary import ItinerarySnapshot
+    from validation import validate_snapshot
+
+    services["route"] = ROUTE_WITH_SHAPE
+    evidence = Evidence()
+    plan_drive = {t.tool_name: t for t in recording_tools(evidence, 250)}["plan_drive"]
+    result = plan_drive("Kansas City, MO", "Denver, CO")
+    # The model never sees the route points: they would only cost time.
+    assert all("path" not in leg and "end_lat" not in leg for leg in [*result["drive_days"], *result["drive_days_home"]])
+    first, home = result["drive_days"][0], result["drive_days_home"][0]
+
+    plan = ItinerarySnapshot.model_validate({
+        "startDate": "2026-10-17", "endDate": "2026-10-20", "budget": {"plannedUsd": 900},
+        "items": [
+            {"id": "d1", "date": "2026-10-17", "title": "Drive to Hays", "category": "Driving", "costUsd": 40, "websiteUrl": first["google_maps_url"]},
+            {"id": "h1", "date": "2026-10-20", "title": "Drive home", "category": "Driving", "costUsd": 40, "websiteUrl": home["google_maps_url"]},
+            # A route the model made up is dropped.
+            {"id": "x", "date": "2026-10-18", "title": "Scenic loop", "category": "Driving", "costUsd": 0, "route": [[1.0, 2.0], [3.0, 4.0]]},
+        ],
+    })
+    cleaned, _ = validate_snapshot(plan, evidence)
+    by_id = {item.id: item for item in cleaned.items}
+    assert by_id["d1"].route and by_id["d1"].route[0] == [39.0997, -94.5786]
+    assert by_id["d1"].location.name == "Hays, Kansas" and by_id["d1"].location.lat is not None
+    assert by_id["d1"].websiteUrl == first["google_maps_url"]
+    assert by_id["h1"].route[0] == [39.7392, -104.9903]  # the first day home starts in Denver
+    assert by_id["x"].route is None
+
+    # A revision keeps the routes the plan already has.
+    again, _ = validate_snapshot(cleaned, __import__("evidence").evidence_from_snapshot(cleaned))
+    assert {item.id: bool(item.route) for item in again.items} == {"d1": True, "h1": True, "x": False}
+
+
+def test_route_lines_stay_out_of_the_ai_prompt_but_survive_a_revision(monkeypatch):
+    """Route points are for the map: the AI never sees them, and the backend puts them back on unchanged legs."""
+    agents = []
+    link = "https://www.google.com/maps/dir/?api=1&origin=Kansas+City&destination=Salina"
+    path = [[39.1 + i / 1000, -94.6 - i / 100] for i in range(120)]
+    leg = {"id": "drive1", "date": "2026-11-14", "title": "Drive Kansas City → Salina", "category": "Driving", "costUsd": 30,
+           "websiteUrl": link, "route": path, "location": {"name": "Salina, Kansas", "lat": path[-1][0], "lng": path[-1][1]}}
+    current = {"startDate": "2026-11-14", "endDate": "2026-11-15", "budget": {"plannedUsd": 900}, "items": [leg]}
+
+    class Reviser:
+        system_prompt = "Roam"
+
+        def __init__(self, kwargs):
+            self.tools = kwargs["extra_tools"]
+            agents.append(self)
+
+        def __call__(self, prompt):
+            # Like the model: copies the leg it saw (no route) and adds a stop.
+            seen = {**leg}
+            seen.pop("route")
+            draft = {**current, "items": [seen, {"id": "lunch", "date": "2026-11-14", "title": "Lunch", "category": "Food", "costUsd": 20}]}
+            update, check = self.tools
+            check(itinerary=draft)
+            update()
+            return "Added lunch."
+
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: Reviser(kwargs))
+    app = FastAPI()
+    app.include_router(ask_router.router)
+    body = TestClient(app).post("/api/ask", json={"prompt": "Add lunch", "travel_mode": "road", "current_itinerary": current}).json()
+
+    prompt = agents[-1].system_prompt
+    assert "Current itinerary" in prompt and link in prompt
+    assert '"route"' not in prompt and str(path[5][0]) not in prompt
+    drive = next(i for i in body["itinerary"]["items"] if i["id"] == "drive1")
+    assert drive["route"] == path

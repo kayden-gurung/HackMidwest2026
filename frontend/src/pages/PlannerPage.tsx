@@ -6,7 +6,7 @@ import { TripPanel } from "../features/itinerary";
 import { describeJourney, NewJourneyView, tripTypesStore, type JourneyRequest } from "../features/journey";
 import { ProfilePanel } from "../features/profile";
 import { SettingsView, useTravelPreferences } from "../features/settings";
-import { MyTripsView, TripHeader, TripNavigation, useTrips } from "../features/trips";
+import { MyTripsView, travelModeStore, TripHeader, TripNavigation, useTrips } from "../features/trips";
 
 /** Which screen fills the main area. "trip" is the chat + itinerary planner for the open journey. */
 type Screen = "trip" | "new" | "trips" | "explore" | "settings";
@@ -55,6 +55,8 @@ export function PlannerPage() {
       openTrip(trip.id);
       // Remembered for the whole journey, so every later message keeps the chosen trip types.
       tripTypesStore.set(trip.id, request.vibes);
+      // Plane or road from the form; the header toggle shows it and every message carries it.
+      travelModeStore.set(trip.id, { carMode: request.travelBy === "road", ...(request.maxMilesPerDay ? { maxMilesPerDay: request.maxMilesPerDay } : {}) });
       // Failures show up in the chat panel as its error state.
       chatService.sendMessage(trip.id, message, preferences).catch(() => undefined);
     }, () => undefined);
