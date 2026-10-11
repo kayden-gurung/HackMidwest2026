@@ -32,7 +32,7 @@ export function describeJourney(request: JourneyRequest): string {
     `Budget: ${request.budgetUsd === null ? "flexible, no set limit" : `${formatUsd(request.budgetUsd)} total`}.`,
     `Dates: ${dates ? `${formatTripDates(dates)} (${dates.start} to ${dates.end}, ${describeLength(dates).toLowerCase()})` : "flexible"}.`,
     request.travelBy === "road"
-      ? "Getting there: by road in our own car."
+      ? `Getting there: by road in our own car${request.maxMilesPerDay ? `, at most ${request.maxMilesPerDay} miles a day` : ""}.`
       : "Getting there: by plane.",
   ].join(" ");
 }

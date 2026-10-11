@@ -3,7 +3,7 @@ import { Icon } from "../../../components/ui";
 import { formatDateRange } from "../../../lib/format";
 import { useTrip } from "../hooks/useTrips";
 import { useItinerary } from "../../itinerary/hooks/useItinerary";
-import { useTravelMode } from "../api/travelModeStore";
+import { MILES_PER_DAY_OPTIONS, useTravelMode } from "../api/travelModeStore";
 import { useTripTypes } from "../../journey/api/tripTypesStore";
 
 /** Top bar: current trip title and summary, a "New trip" button on small screens, and the Plane / Road toggle. */
@@ -38,9 +38,9 @@ export function TripHeader({ tripId, title, leading, onNewJourney }: { tripId: s
   );
 }
 
-/** How this journey travels: by plane (airports, flight ticket links) or by road (miles, routes, overnight stops). */
+/** How this journey travels: by plane (airports, flight ticket links) or by road (miles, routes, overnight stops, a daily driving limit). */
 function TravelModeToggle({ tripId }: { tripId: string }) {
-  const { travelBy, setTravelBy } = useTravelMode(tripId);
+  const { travelBy, maxMilesPerDay, setTravelBy, setMaxMilesPerDay } = useTravelMode(tripId);
   const options = [
     { value: "plane", label: "Plane", icon: "plane", hint: "Fly: Roam finds airports and links to flight tickets." },
     { value: "road", label: "Road", icon: "car", hint: "Drive: Roam plans miles, routes and overnight stops. No flights." },
@@ -64,6 +64,20 @@ function TravelModeToggle({ tripId }: { tripId: string }) {
           </button>
         );
       })}
+      {travelBy === "road" && (
+        <select
+          aria-label="Most miles to drive per day"
+          value={maxMilesPerDay}
+          onChange={(event) => setMaxMilesPerDay(Number(event.target.value))}
+          className="cursor-pointer rounded-full bg-mint/60 py-1.5 pl-2.5 pr-1 text-xs font-semibold text-sea outline-none focus-visible:ring-2 focus-visible:ring-sea"
+        >
+          {MILES_PER_DAY_OPTIONS.map((miles) => (
+            <option key={miles} value={miles}>
+              {miles} mi/day
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }

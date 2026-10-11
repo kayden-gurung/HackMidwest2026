@@ -56,7 +56,7 @@ export function PlannerPage() {
       // Remembered for the whole journey, so every later message keeps the chosen trip types.
       tripTypesStore.set(trip.id, request.vibes);
       // Plane or road from the form; the header toggle shows it and every message carries it.
-      travelModeStore.set(trip.id, { carMode: request.travelBy === "road" });
+      travelModeStore.set(trip.id, { carMode: request.travelBy === "road", ...(request.maxMilesPerDay ? { maxMilesPerDay: request.maxMilesPerDay } : {}) });
       // Failures show up in the chat panel as its error state.
       chatService.sendMessage(trip.id, message, preferences).catch(() => undefined);
     }, () => undefined);

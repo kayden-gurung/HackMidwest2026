@@ -227,3 +227,41 @@ def test_driving_legs_get_their_route_line_and_end_pin(services):
     # A revision keeps the routes the plan already has.
     again, _ = validate_snapshot(cleaned, __import__("evidence").evidence_from_snapshot(cleaned))
     assert {item.id: bool(item.route) for item in again.items} == {"d1": True, "h1": True, "x": False}
+
+
+def test_route_lines_stay_out_of_the_ai_prompt_but_survive_a_revision(monkeypatch):
+    """Route points are for the map: the AI never sees them, and the backend puts them back on unchanged legs."""
+    agents = []
+    link = "https://www.google.com/maps/dir/?api=1&origin=Kansas+City&destination=Salina"
+    path = [[39.1 + i / 1000, -94.6 - i / 100] for i in range(120)]
+    leg = {"id": "drive1", "date": "2026-11-14", "title": "Drive Kansas City → Salina", "category": "Driving", "costUsd": 30,
+           "websiteUrl": link, "route": path, "location": {"name": "Salina, Kansas", "lat": path[-1][0], "lng": path[-1][1]}}
+    current = {"startDate": "2026-11-14", "endDate": "2026-11-15", "budget": {"plannedUsd": 900}, "items": [leg]}
+
+    class Reviser:
+        system_prompt = "Roam"
+
+        def __init__(self, kwargs):
+            self.tools = kwargs["extra_tools"]
+            agents.append(self)
+
+        def __call__(self, prompt):
+            # Like the model: copies the leg it saw (no route) and adds a stop.
+            seen = {**leg}
+            seen.pop("route")
+            draft = {**current, "items": [seen, {"id": "lunch", "date": "2026-11-14", "title": "Lunch", "category": "Food", "costUsd": 20}]}
+            update, check = self.tools
+            check(itinerary=draft)
+            update()
+            return "Added lunch."
+
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: Reviser(kwargs))
+    app = FastAPI()
+    app.include_router(ask_router.router)
+    body = TestClient(app).post("/api/ask", json={"prompt": "Add lunch", "travel_mode": "road", "current_itinerary": current}).json()
+
+    prompt = agents[-1].system_prompt
+    assert "Current itinerary" in prompt and link in prompt
+    assert '"route"' not in prompt and str(path[5][0]) not in prompt
+    drive = next(i for i in body["itinerary"]["items"] if i["id"] == "drive1")
+    assert drive["route"] == path

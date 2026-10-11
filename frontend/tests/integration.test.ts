@@ -386,8 +386,8 @@ test("car mode is sent with each message, takes flights off the plan, and accept
   assert.deepEqual(itineraryStore.get(tripId)!.items.map((item) => item.id), ["d"]);
   await chatService.sendMessage(tripId, "Drive instead");
   assert.equal(requests[1].car_mode, true);
-  // No daily mileage limit is sent: the backend keeps each driving day to a comfortable length.
-  assert.equal(requests[1].max_drive_miles_per_day, undefined);
+  // Road sends the daily mileage limit (400 by default; changeable in the header and on New journey).
+  assert.equal(requests[1].max_drive_miles_per_day, 400);
   assert.equal(travelModeStore.get("another-trip").carMode, false);
 
   assert.doesNotThrow(() => validateItinerary(itineraryStore.snapshot(tripId)));
@@ -448,7 +448,7 @@ test("the Plane / Road toggle is sent with each message, and links say what they
   travelModeStore.set("toggle-trip", { carMode: true });
   await chatService.sendMessage("toggle-trip", "Now by road");
   assert.equal(sent[1].travel_mode, "road");
-  assert.equal(sent[1].max_drive_miles_per_day, undefined);
+  assert.equal(sent[1].max_drive_miles_per_day, 400);
 
   const base = { id: "x", date: "2026-10-17", title: "x", costUsd: null } as const;
   assert.equal(websiteLabel({ ...base, category: "Flights", websiteUrl: "https://www.google.com/travel/flights?q=Flights" }), "Find tickets");
@@ -488,4 +488,22 @@ test("driving legs keep their road route for the map; malformed routes are rejec
   assert.equal(ok.items[0].route!.length, 3);
   assert.throws(() => validateItinerary(plan([[39.1]])));
   assert.throws(() => validateItinerary(plan([[200, 0], [0, 0]])));
+});
+
+test("road trips send the daily miles limit, and New journey can set it", async () => {
+  const requests: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ reply: "ok" }), { status: 200 });
+  });
+  travelModeStore.set("miles-trip", { carMode: true, maxMilesPerDay: 300 });
+  await chatService.sendMessage("miles-trip", "Plan Denver");
+  assert.equal(requests.at(-1).travel_mode, "road");
+  assert.equal(requests.at(-1).max_drive_miles_per_day, 300);
+  travelModeStore.set("miles-trip", { carMode: false });
+  await chatService.sendMessage("miles-trip", "Fly instead");
+  assert.equal(requests.at(-1).max_drive_miles_per_day, undefined);
+  const base = { prompt: "Denver", vibes: [], budgetUsd: 900, dates: null, origin: "Kansas City", adults: 2, children: 0 };
+  assert.match(describeJourney({ ...base, travelBy: "road", maxMilesPerDay: 300 }), /by road in our own car, at most 300 miles a day\./);
+  assert.match(describeJourney({ ...base, travelBy: "plane" }), /Getting there: by plane\./);
 });

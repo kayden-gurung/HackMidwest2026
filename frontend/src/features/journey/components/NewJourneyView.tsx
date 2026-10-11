@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Action, Icon, ScreenHeader } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
 import { useProfile } from "../../profile";
-import type { TravelBy } from "../../trips";
+import { MILES_PER_DAY_OPTIONS, type TravelBy } from "../../trips";
 import { budgetSliderUsd, journeyDefaults, travelerLimits, vibes } from "../api/mockData";
 import { describeParty } from "../describeJourney";
 import type { DateRange, JourneyRequest } from "../types";
@@ -71,13 +71,15 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
   const [children, setChildren] = useState(journeyDefaults.children);
   // Plane: airports and flight ticket links. Road: miles, routes and overnight stops.
   const [travelBy, setTravelBy] = useState<TravelBy>("plane");
+  // Road only: the daily driving limit, also shown (and changeable) in the trip header afterwards.
+  const [maxMilesPerDay, setMaxMilesPerDay] = useState<number>(400);
 
   const toggleVibe = (item: string) =>
     setSelectedVibes((current) => (current.includes(item) ? current.filter((picked) => picked !== item) : [...current, item]));
   const vibeChip = (selected: boolean) =>
     `rounded-full border px-3.5 py-2 text-xs font-semibold ${selected ? "border-sea bg-mint text-sea" : "border-line text-muted hover:border-sea"}`;
 
-  const findTrip = () => onStart({ prompt: prompt.trim(), vibes: vibes.filter((item) => selectedVibes.includes(item)), budgetUsd, dates, origin: origin.trim(), adults, children, travelBy });
+  const findTrip = () => onStart({ prompt: prompt.trim(), vibes: vibes.filter((item) => selectedVibes.includes(item)), budgetUsd, dates, origin: origin.trim(), adults, children, travelBy, maxMilesPerDay: travelBy === "road" ? maxMilesPerDay : undefined });
 
   return (
     <main className="flex min-w-0 flex-1 flex-col lg:h-screen">
@@ -129,6 +131,23 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
               <TravelOption selected={travelBy === "plane"} icon="plane" title="By plane" detail="Nearby airports and links to real flight tickets." onSelect={() => setTravelBy("plane")} />
               <TravelOption selected={travelBy === "road"} icon="car" title="By road" detail="Miles, routes and overnight stops. No flights." onSelect={() => setTravelBy("road")} />
             </div>
+            {travelBy === "road" && (
+              <label className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-line px-4 py-3 text-sm">
+                <span className="font-semibold">Most driving per day</span>
+                <select
+                  aria-label="Most miles to drive per day"
+                  value={maxMilesPerDay}
+                  onChange={(event) => setMaxMilesPerDay(Number(event.target.value))}
+                  className="cursor-pointer rounded-full bg-mint/60 px-3 py-1.5 text-xs font-semibold text-sea outline-none focus-visible:ring-2 focus-visible:ring-sea"
+                >
+                  {MILES_PER_DAY_OPTIONS.map((miles) => (
+                    <option key={miles} value={miles}>
+                      {miles} miles
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <div className="mt-7 grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-line p-4">

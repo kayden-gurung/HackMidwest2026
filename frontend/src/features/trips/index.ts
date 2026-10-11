@@ -4,5 +4,5 @@ export { TripHeader } from "./components/TripHeader";
 export { TripNavigation } from "./components/TripNavigation";
 export { useTrips } from "./hooks/useTrips";
 export { tripsService } from "./api/tripsService";
-export { travelModeStore, type TravelBy } from "./api/travelModeStore";
+export { MILES_PER_DAY_OPTIONS, travelModeStore, type TravelBy } from "./api/travelModeStore";
 export type { TripCard, TripDetails, TripStatus, TripSummary } from "./types";
