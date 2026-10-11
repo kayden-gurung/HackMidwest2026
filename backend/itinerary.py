@@ -82,6 +82,7 @@ class ItineraryUpdates:
         # Optional accuracy check (validation.validate_snapshot): returns a cleaned plan plus notes.
         self.check = check
         self._budget_draft: ItinerarySnapshot | None = None
+        self._prepared: dict[str, tuple[ItinerarySnapshot, list[str]]] = {}
 
     @tool
     def check_budget(self, itinerary: ItinerarySnapshot) -> dict:
@@ -100,6 +101,22 @@ class ItineraryUpdates:
         result = analyze_budget(draft)
         self._budget_draft = draft.model_copy(deep=True)
         return result
+
+    def budget_checked(self, itinerary) -> bool:
+        """Consent and publication both require the exact draft's budget check."""
+        return self._budget_draft == ItinerarySnapshot.model_validate(itinerary)
+
+    def prepare(self, itinerary, *, freeze=False) -> tuple[ItinerarySnapshot, list[str]]:
+        """Freeze a consent preview until commit; later calls may use newly gathered evidence."""
+        draft = ItinerarySnapshot.model_validate(itinerary)
+        key = draft.model_dump_json()
+        prepared = self._prepared.get(key)
+        if prepared is None:
+            prepared = self.check(draft) if self.check else (draft, [])
+            if freeze:
+                self._prepared[key] = prepared
+        validated, notes = prepared
+        return validated.model_copy(deep=True), list(notes)
 
     def confirmation(self) -> str:
         """Some model turns finish the tool action without a final text block."""
@@ -138,13 +155,11 @@ class ItineraryUpdates:
             itinerary: Complete revised plan matching the schema, not just changed stops.
         """
         # Strands validates tool input, then passes nested models as dictionaries.
-        validated = ItinerarySnapshot.model_validate(itinerary)
-        if self._budget_draft != validated:
+        if not self.budget_checked(itinerary):
             return {"status": "budget_check_required",
                     "message": "Call check_budget with this exact complete draft, review its result, then call update_itinerary. No plan was changed."}
-        notes: list[str] = []
-        if self.check is not None:
-            validated, notes = self.check(validated)
+        validated, notes = self.prepare(itinerary)
+        self._prepared.pop(ItinerarySnapshot.model_validate(itinerary).model_dump_json(), None)
         self.latest = validated
         self._budget_draft = None
         budget = analyze_budget(validated)

@@ -71,8 +71,9 @@ class AWSRouteTests(unittest.TestCase):
         with patch("routers.ask.build_agent", return_value=FailedAgent()):
             response = self.client.post("/api/ask/stream", json={"prompt": "hello"})
         events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
-        self.assertEqual(events[0], {"text": "partial reply"})
-        self.assertEqual(events[1]["status"], 503)
+        self.assertIn("run", events[0])
+        self.assertEqual(events[1], {"text": "partial reply"})
+        self.assertEqual(events[2]["status"], 503)
         self.assertEqual(events[-1], {"done": True})
 
     def test_chat_history_reaches_agent_and_mode_guidance_is_applied(self):
@@ -117,12 +118,12 @@ class AWSRouteTests(unittest.TestCase):
         self.assertIsNone(agent.call_args.kwargs["retry_strategy"])
         self.assertEqual(model.call_args.kwargs["temperature"], 0.3)
 
-    def test_agent_has_the_merged_place_tools(self):
+    def test_orchestrator_delegates_to_specialist_tools(self):
         with patch("agent.BedrockModel"), patch("agent.Agent") as factory:
             build_agent()
         tools = factory.call_args.kwargs["tools"]
         names = {tool.tool_name for tool in tools}
-        self.assertEqual(names, {"find_places", "locate", "plan_drive", "get_forecast"})
+        self.assertEqual(names, {"research_places", "plan_transport", "review_trip_budget"})
 
 
 if __name__ == "__main__":

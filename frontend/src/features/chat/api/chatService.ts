@@ -1,7 +1,8 @@
 import { config } from "../../../config/env";
 import { api, ApiError } from "../../../lib/apiClient";
 import { createId, mockResponse } from "../../../lib/mock";
-import type { AskRequest, AskResponse, AssistantMessage, ChatMessage, TravelPreferences } from "../types";
+import type { AskRequest, AskResponse, AssistantMessage, ChatMessage, PlanApproval, TravelPreferences, XrayEvent } from "../types";
+import { agentStore } from "./agentStore";
 import { conversationStore } from "./conversationStore";
 import { mockReply } from "./mockData";
 import { itineraryStore, validateItinerary } from "../../itinerary/api/itineraryStore";
@@ -12,17 +13,30 @@ export interface ChatService {
   /** Earlier messages for a trip. */
   getConversation(tripId: string): Promise<ChatMessage[]>;
   /**
-   * Sends the user's prompt and resolves with Roam's reply. Both are saved to the trip's conversation.
+   * Saves the prompt and eventual reply. Returns undefined while the agent awaits consent.
    * `preferences` are the traveler's settings; they go to the backend with the prompt.
    */
-  sendMessage(tripId: string, prompt: string, preferences?: TravelPreferences, mode?: AskRequest["mode"]): Promise<AssistantMessage>;
-  retryMessage(tripId: string, preferences?: TravelPreferences, mode?: AskRequest["mode"]): Promise<AssistantMessage>;
+  sendMessage(tripId: string, prompt: string, preferences?: TravelPreferences, mode?: AskRequest["mode"]): Promise<AssistantMessage | undefined>;
+  retryMessage(tripId: string, preferences?: TravelPreferences, mode?: AskRequest["mode"]): Promise<AssistantMessage | undefined>;
+  resolveApproval(tripId: string, approved: boolean): Promise<AssistantMessage | undefined>;
 }
 
 /** Where Roam's reply comes from. This is the only part that differs between mock and real mode. */
-type ReplySource = (tripId: string, prompt: string, preferences?: TravelPreferences, mode?: AskRequest["mode"]) => Promise<AssistantMessage>;
+type ReplySource = (tripId: string, prompt: string, preferences?: TravelPreferences, mode?: AskRequest["mode"]) => Promise<AssistantMessage | undefined>;
 
 const mockReplySource: ReplySource = () => mockResponse({ id: createId(), role: "assistant", text: mockReply }, 600);
+const runContexts = new Map<string, string>();
+
+function planningContext(tripId: string) {
+  return JSON.stringify({ itinerary: itineraryStore.snapshot(tripId), travelMode: travelModeStore.get(tripId), tripTypes: tripTypesStore.get(tripId) });
+}
+
+function checkPlanningContext(tripId: string) {
+  const previous = runContexts.get(tripId);
+  if (previous !== undefined && previous !== planningContext(tripId)) {
+    throw new Error("Your trip settings or plan changed during this review. Send your change again for a fresh proposal.");
+  }
+}
 
 /** The backend's field names are snake_case. */
 function toRequestPreferences(preferences: TravelPreferences): AskRequest["preferences"] {
@@ -64,6 +78,12 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
     max_drive_miles_per_day: carMode ? maxMilesPerDay : undefined,
     trip_types: tripTypesStore.get(tripId),
   };
+  agentStore.begin(tripId);
+  runContexts.set(tripId, planningContext(tripId));
+  return streamReply(tripId, "/api/ask/stream", body);
+};
+
+async function streamReply(tripId: string, path: string, body: unknown): Promise<AssistantMessage | undefined> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 180000);
   try {
@@ -74,11 +94,21 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
     let reply: unknown;
     let itinerary: AskResponse["itinerary"] | undefined;
     let failure: ApiError | undefined;
+    let approval: PlanApproval | undefined;
+    let completed = false;
     const json = await api.postEvents<AskResponse>(
-      "/api/ask/stream",
+      path,
       body,
       (event) => {
-        if (typeof event.text === "string") {
+        if (event.run && typeof (event.run as { id?: unknown }).id === "string") {
+          agentStore.setRun(tripId, (event.run as { id: string }).id);
+        } else if (event.xray) {
+          agentStore.record(tripId, event.xray as XrayEvent);
+        } else if (event.approval) {
+          approval = event.approval as PlanApproval;
+        } else if (event.done === true) {
+          completed = true;
+        } else if (typeof event.text === "string") {
           // Keep text written before and after a tool call from running together.
           streamed += (afterTool && streamed ? "\n\n" : "") + event.text;
           afterTool = false;
@@ -98,8 +128,14 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
       controller.signal,
     );
     // A plain JSON answer (older backend) carries the same fields as the final stream events.
-    if (json) ({ reply, itinerary } = json);
+    if (json) { ({ reply, itinerary, approval } = json); completed = true; }
     if (failure) throw failure;
+    if (!completed) throw new Error("Roam’s connection ended before the plan was ready. Please try again.");
+    if (approval) {
+      if (!approval.run_id || !approval.interrupts?.length) throw new Error("Roam returned an incomplete review. Please try again.");
+      agentStore.setApproval(tripId, approval);
+      return undefined;
+    }
     if (typeof reply !== "string" || !reply.trim()) throw new Error("Roam returned an empty reply. Please try again.");
     return { id: createId(), role: "assistant", text: reply, toolSteps, itinerary: itinerary == null ? undefined : validateItinerary(itinerary) };
   } catch (error) {
@@ -109,7 +145,7 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
   } finally {
     window.clearTimeout(timeout);
   }
-};
+}
 
 const replySource: ReplySource = config.useMocks ? mockReplySource : httpReplySource;
 
@@ -118,15 +154,26 @@ const replySource: ReplySource = config.useMocks ? mockReplySource : httpReplySo
  * backend has no GET /api/trips/{id}/messages yet. When it does, load the history from there.
  * The reply is written to the store even if the traveler has switched to another journey meanwhile.
  */
-async function replyTo(tripId: string, prompt: string, preferences?: TravelPreferences, mode?: AskRequest["mode"]): Promise<AssistantMessage> {
+async function finishReply(tripId: string, source: () => Promise<AssistantMessage | undefined>): Promise<AssistantMessage | undefined> {
   conversationStore.setStatus(tripId, "sending");
   try {
-    const reply = await replySource(tripId, prompt, preferences, mode);
-    if (reply.itinerary) itineraryStore.set(tripId, reply.itinerary);
+    const reply = await source();
+    if (!reply) {
+      conversationStore.setStatus(tripId, "awaiting_approval");
+      return undefined;
+    }
+    if (reply.itinerary) {
+      checkPlanningContext(tripId);
+      itineraryStore.set(tripId, reply.itinerary);
+    }
+    runContexts.delete(tripId);
+    agentStore.setApproval(tripId, undefined);
     conversationStore.append(tripId, reply);
     conversationStore.setStatus(tripId, "idle");
     return reply;
   } catch (error) {
+    runContexts.delete(tripId);
+    agentStore.setApproval(tripId, undefined);
     conversationStore.setError(tripId, error instanceof Error ? error.message : "Roam couldn’t reply. Please try again.");
     conversationStore.setStatus(tripId, "error");
     throw error;
@@ -136,15 +183,25 @@ async function replyTo(tripId: string, prompt: string, preferences?: TravelPrefe
 export const chatService: ChatService = {
   getConversation: async (tripId) => conversationStore.getMessages(tripId),
   sendMessage: async (tripId, prompt, preferences, mode) => {
-    if (conversationStore.getStatus(tripId) === "sending") throw new Error("Roam is already responding to this journey.");
+    if (["sending", "awaiting_approval"].includes(conversationStore.getStatus(tripId))) throw new Error("Roam is already responding to this journey. Review the pending plan first.");
     const text = prompt.trim();
     if (!text) throw new Error("Enter a trip request first.");
     conversationStore.append(tripId, { id: createId(), role: "user", text });
-    return replyTo(tripId, text, preferences, mode);
+    return finishReply(tripId, () => replySource(tripId, text, preferences, mode));
   },
   retryMessage: async (tripId, preferences, mode) => {
     const last = conversationStore.getMessages(tripId).at(-1);
     if (conversationStore.getStatus(tripId) !== "error" || last?.role !== "user") throw new Error("There is no failed message to retry.");
-    return replyTo(tripId, last.text, preferences, mode);
+    return finishReply(tripId, () => replySource(tripId, last.text, preferences, mode));
+  },
+  resolveApproval: async (tripId, approved) => {
+    const approval = agentStore.get(tripId).approval;
+    if (!approval || conversationStore.getStatus(tripId) !== "awaiting_approval") throw new Error("There is no pending plan to review.");
+    return finishReply(tripId, () => {
+      if (approved) checkPlanningContext(tripId);
+      return streamReply(tripId, `/api/ask/${encodeURIComponent(approval.run_id)}/resume`, {
+        interrupt_ids: approval.interrupts.map((item) => item.id), approved,
+      });
+    });
   },
 };
