@@ -15,7 +15,8 @@ const initialDrive: DriveDraft = {
   detourBudget: 60,
   departureDate: "Flexible",
   maxMilesPerDay: 450,
-  mpg: 28,
+  // Asked on New trip: the traveler enters their own car's fuel economy.
+  mpg: 0,
   gasPrice: 3.25,
 }
 
