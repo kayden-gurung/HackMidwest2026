@@ -97,7 +97,6 @@ docker compose restart frontend          # Vite only reads .env on start
 | Variable            | Default                  | Meaning |
 |---------------------|--------------------------|---------|
 | `VITE_USE_MOCKS`    | `false`                  | `true` enables the offline design demo |
-| `VITE_SHOW_EXAMPLE` | `true`                   | Keep the seeded Puglia example visible alongside real journeys |
 | `VITE_API_BASE_URL` | empty (same origin)      | Prefix for API calls; leave empty to use the Vite proxy |
 | `BACKEND_URL`       | `http://backend:8000`    | Where the Vite proxy sends `/api` (use `http://localhost:8000` outside Docker) |
 

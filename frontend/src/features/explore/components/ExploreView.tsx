@@ -16,9 +16,10 @@ function matchesFilter(idea: DestinationIdea, filter: ExploreFilter): boolean {
 
 /**
  * "Explore" screen: a featured collection, filterable destination ideas and food picks.
- * Choosing any idea calls `onPlan` with a prompt, which opens New journey pre-filled.
+ * A destination card opens its premade sample trip (`onOpenTrip`); the collection and the food
+ * picks call `onPlan` with a prompt, which opens New journey pre-filled.
  */
-export function ExploreView({ onPlan }: { onPlan: (prompt: string) => void }) {
+export function ExploreView({ onPlan, onOpenTrip }: { onPlan: (prompt: string) => void; onOpenTrip: (tripId: string) => void }) {
   const [filter, setFilter] = useState<ExploreFilter>("For you");
   const visibleIdeas = destinationIdeas.filter((idea) => matchesFilter(idea, filter));
 
@@ -53,15 +54,15 @@ export function ExploreView({ onPlan }: { onPlan: (prompt: string) => void }) {
 
           {/* Destination cards */}
           {visibleIdeas.length === 0 && <EmptyState className="mt-5" message="No ideas match this filter yet." />}
-          <div className="mt-5 grid gap-5 md:grid-cols-3">
+          <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {visibleIdeas.map((idea) => (
-              <Action key={idea.id} onClick={() => onPlan(`${idea.title} in ${idea.place}`)} className="group relative h-80 overflow-hidden rounded-2xl bg-map">
+              <Action key={idea.id} onClick={() => onOpenTrip(idea.id)} className="group relative h-80 overflow-hidden rounded-2xl bg-map">
                 <img src={idea.imageUrl} alt="" className="size-full object-cover transition-transform duration-500 group-hover:scale-105" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-transparent" />
                 <div className="absolute inset-x-0 bottom-0 p-5 text-white">
                   <div className="text-xs font-bold uppercase tracking-widest text-sun">{idea.title}</div>
                   <div className="mt-1 font-display text-2xl font-semibold">{idea.place}</div>
-                  <div className="mt-2 text-xs text-white/70">From {formatUsd(idea.fromPriceUsd)} · {idea.days} days</div>
+                  <div className="mt-2 text-xs text-white/70">From {formatUsd(idea.fromPriceUsd)} · {idea.days} days · {idea.travelers} {idea.travelers === 1 ? "traveler" : "travelers"}</div>
                 </div>
                 {/* Save-for-later heart: visual only for now. */}
                 <div className="absolute right-3 top-3 grid size-9 place-items-center rounded-full bg-surface/90 text-ink">♡</div>

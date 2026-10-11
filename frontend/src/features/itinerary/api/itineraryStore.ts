@@ -1,11 +1,9 @@
-import { config } from "../../../config/env";
 import { tripDates } from "../lib/itinerary";
 import type { Itinerary, ItinerarySnapshot } from "../types";
-import { mockItineraries } from "./mockData";
-import { EXAMPLE_TRIP_ID } from "../../trips/api/mockData";
+import { sampleTrips } from "../../explore/api/sampleTrips";
 
-const seed = config.useMocks ? mockItineraries : config.showExample ? { [EXAMPLE_TRIP_ID]: mockItineraries[EXAMPLE_TRIP_ID] } : {};
-const plans = new Map<string, Itinerary>(Object.entries(structuredClone(seed)));
+// New journeys start without a plan; only the sample trips opened from Explore come with one.
+const plans = new Map<string, Itinerary>(sampleTrips.map((trip) => [trip.id, structuredClone(trip.itinerary)]));
 const listeners = new Set<() => void>();
 const categories = ["Flights", "Driving", "Stays", "Food", "Activities"];
 const money = (value: unknown): boolean => value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0);

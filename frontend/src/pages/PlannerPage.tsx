@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Action, BrandMark, EmptyState, ErrorState, Icon, LoadingState, type IconName } from "../components/ui";
 import { ChatPanel, chatService } from "../features/chat";
-import { ExploreView } from "../features/explore";
+import { ExploreView, findSampleTrip } from "../features/explore";
 import { TripPanel } from "../features/itinerary";
 import { describeJourney, NewJourneyView, tripTypesStore, type JourneyRequest } from "../features/journey";
 import { ProfilePanel } from "../features/profile";
@@ -29,8 +29,9 @@ export function PlannerPage() {
   const [selectedTripId, setSelectedTripId] = useState<string>();
   // Prompt carried from an Explore idea into the New journey form.
   const [journeyPrompt, setJourneyPrompt] = useState("");
-  // Until the traveler picks one, the newest journey is open.
-  const activeTrip = trips.find((trip) => trip.id === selectedTripId) ?? trips[0];
+  // Until the traveler picks one, the newest journey is open. A sample trip opened from Explore is
+  // not one of their journeys (it is not in the sidebar), but opens in the same planner.
+  const activeTrip = trips.find((trip) => trip.id === selectedTripId) ?? findSampleTrip(selectedTripId)?.summary ?? trips[0];
 
   const openTrip = (tripId: string) => {
     setSelectedTripId(tripId);
@@ -99,7 +100,7 @@ export function PlannerPage() {
 
         {screen === "new" && <NewJourneyView key={journeyPrompt} initialPrompt={journeyPrompt} onStart={startJourney} />}
         {screen === "trips" && <MyTripsView onOpenTrip={openTrip} onNewJourney={() => openNewJourney()} />}
-        {screen === "explore" && <ExploreView onPlan={openNewJourney} />}
+        {screen === "explore" && <ExploreView onPlan={openNewJourney} onOpenTrip={openTrip} />}
         {screen === "settings" && <SettingsView onClose={() => setScreen("trip")} />}
 
         {screen === "trip" && (

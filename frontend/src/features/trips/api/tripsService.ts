@@ -3,7 +3,8 @@ import { api } from "../../../lib/apiClient";
 import { createId, mockResponse } from "../../../lib/mock";
 import { formatDateRange } from "../../../lib/format";
 import type { TripCard, TripDetails, TripSummary } from "../types";
-import { EXAMPLE_TRIP_ID, mockTripCards, mockTripDetails, mockTrips } from "./mockData";
+import { mockTripCards, mockTrips } from "./mockData";
+import { findSampleTrip, sampleTrips } from "../../explore/api/sampleTrips";
 import { itineraryStore } from "../../itinerary/api/itineraryStore";
 
 export interface TripsService {
@@ -25,26 +26,17 @@ export const DRAFT_TITLE = "New journey";
  * LOCAL STORE: journeys live in this module's memory, so they survive switching between
  * journeys but reset when the page reloads. With mocks on it starts with the Figma sample
  * trips; with mocks off it starts with one empty journey so the real backend gets a clean slate.
+ * The Explore sample trips are not journeys and never appear in this list, but their details are
+ * kept so the planner header can describe one when it is opened from Explore.
  */
 const newDraft = (): TripSummary => ({ id: createId(), title: DRAFT_TITLE, isDraft: true });
-const exampleTrips = mockTrips.filter((trip) => trip.id === EXAMPLE_TRIP_ID);
-const exampleDetails = { [EXAMPLE_TRIP_ID]: mockTripDetails[EXAMPLE_TRIP_ID] };
-// With mocks off: the Puglia example (if showExample) is listed first and opens on load; "New journey" makes real ones.
-let trips: TripSummary[] = config.useMocks
-  ? structuredClone(mockTrips)
-  : config.showExample
-    ? structuredClone(exampleTrips)
-    : [newDraft()];
-const details: Record<string, TripDetails> = config.useMocks
-  ? structuredClone(mockTripDetails)
-  : config.showExample
-    ? structuredClone(exampleDetails)
-    : {};
+let trips: TripSummary[] = config.useMocks ? structuredClone(mockTrips) : [newDraft()];
+const details: Record<string, TripDetails> = Object.fromEntries(sampleTrips.map((trip) => [trip.id, structuredClone(trip.details)]));
 
 export const localTripsService: TripsService = {
   listTrips: () => mockResponse(trips),
   getTrip: async (tripId) => {
-    const trip = trips.find((item) => item.id === tripId);
+    const trip = trips.find((item) => item.id === tripId) ?? findSampleTrip(tripId)?.summary;
     if (!trip) throw new Error(`No trip with id "${tripId}"`);
     return mockResponse({ ...details[tripId], id: trip.id, title: trip.title });
   },

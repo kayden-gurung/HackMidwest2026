@@ -1,37 +1,11 @@
 import type { DestinationIdea } from "../types";
+import { sampleTrips } from "./sampleTrips";
 
-// MOCK DATA: destinations and images from the Figma design. Tags are our own labels so the filters work.
+// MOCK DATA: destinations and images from the Figma design. Each idea opens a premade sample trip
+// (see ./sampleTrips), and its price, length and tags come from that trip so the filters stay honest.
 // Personalized suggestions should come from the agent once it can read the traveler's preferences.
 
-export const destinationIdeas: DestinationIdea[] = [
-  {
-    id: "madeira",
-    title: "Coastal quiet",
-    place: "Madeira, Portugal",
-    fromPriceUsd: 1940,
-    days: 7,
-    tags: ["Beach", "Outdoors"],
-    imageUrl: "https://images.unsplash.com/photo-1766866794128-4e87ba6fa53d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=85&w=900",
-  },
-  {
-    id: "busan",
-    title: "Mountains to sea",
-    place: "Busan, South Korea",
-    fromPriceUsd: 2280,
-    days: 7,
-    tags: ["Outdoors", "Food", "Culture"],
-    imageUrl: "https://images.unsplash.com/photo-1771406117596-e7a09655527b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=85&w=900",
-  },
-  {
-    id: "naples",
-    title: "Food by the bay",
-    place: "Naples, Italy",
-    fromPriceUsd: 1720,
-    days: 7,
-    tags: ["Food", "Culture", "Beach"],
-    imageUrl: "https://images.unsplash.com/photo-1773600876856-338c2e99cd45?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=85&w=900",
-  },
-];
+export const destinationIdeas: DestinationIdea[] = sampleTrips.map((trip) => trip.idea);
 
 /** "Because you like local food" row. */
 export const foodIdeas = [
