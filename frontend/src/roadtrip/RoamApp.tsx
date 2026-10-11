@@ -9,6 +9,7 @@ import type { AppScreen, DriveDraft } from "./types"
 import { config } from "../config/env"
 import { chatService } from "../features/chat/api/chatService"
 import { travelModeStore } from "../features/trips/api/travelModeStore"
+import { planFirstDrive } from "./api/firstPlan"
 import { describeDrive, roadTripConstraints, roadTripStore } from "./api/roadTripStore"
 
 const initialDrive: DriveDraft = {
@@ -152,7 +153,13 @@ export default function App() {
       setActiveId(id)
       setFormError(undefined)
       setScreen("drive")
-      if (!config.useMocks) chatService.sendMessage(id, prompt, { interests: driveDraft.interests, currency: "USD" }, "Co-pilot").catch(() => undefined)
+      if (!config.useMocks) {
+        // The first plan is built fast from live map data without the AI; the chat (Strands) handles
+        // every change after it. If the fast planner can't make a plan, the chat plans it instead.
+        const draft = { ...driveDraft, interests: [...driveDraft.interests] }
+        planFirstDrive(id, draft).catch(() =>
+          chatService.sendMessage(id, prompt, { interests: draft.interests, currency: "USD" }, "Co-pilot").catch(() => undefined))
+      }
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Check your trip preferences.")
     }

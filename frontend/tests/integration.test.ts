@@ -579,3 +579,70 @@ test("road trips send the daily miles limit, and New journey can set it", async 
   assert.match(describeJourney({ ...base, travelBy: "road", maxMilesPerDay: 300 }), /by road in our own car, at most 300 miles a day\./);
   assert.match(describeJourney({ ...base, travelBy: "plane" }), /Getting there: by plane\./);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Fast first plan (frontend/src/roadtrip/api/firstPlan.ts)
+
+import { firstPlanMessage, firstPlanRequest, planFirstDrive } from "../src/roadtrip/api/firstPlan";
+
+const fastDraft = {
+  start: "Kansas City, MO", destination: "Denver, CO", interests: ["History"], detourBudget: 60,
+  departureDate: "Flexible", maxMilesPerDay: 450,
+} as Parameters<typeof firstPlanRequest>[0];
+
+function fastPlan(complete: boolean) {
+  const drive = { id: "road-drive-1", date: "2026-10-17", time: null, title: "Drive Kansas City, MO → Denver, CO", category: "Driving",
+    costUsd: 70, location: { name: "Denver, CO", lat: 39.74, lng: -104.99 }, websiteUrl: "https://www.google.com/maps/dir/?api=1",
+    sourceUrls: ["https://project-osrm.org/"], route: [[39.1, -94.58], [39.74, -104.99]] };
+  const stop = { id: "stop-node-11", date: "2026-10-17", time: "10:30", title: "Stop: Fort Hays", category: "Activities", costUsd: null,
+    location: { name: "Fort Hays", lat: 38.87, lng: -99.34 }, sourceUrls: ["https://www.openstreetmap.org/node/11"] };
+  return {
+    itinerary: { startDate: "2026-10-17", endDate: "2026-10-17", items: complete ? [drive, stop] : [drive],
+      budget: { plannedUsd: null }, summary: "", assumptions: [] },
+    route: { miles: 600, hours: 8.5 },
+    stops: complete ? [{ name: "Fort Hays", town: "Hays" }] : [],
+    detour_minutes_used: complete ? 12 : 0, notes: [], complete,
+  };
+}
+
+test("fast first plan request sends the form, never more than the backend accepts", () => {
+  const body = firstPlanRequest(fastDraft);
+  assert.equal(body.include_places, true);
+  assert.equal(body.departure_date, null);
+  assert.equal(body.detour_budget_minutes, 60);
+  assert.equal("mpg" in body, false); // the backend's defaults match roadTripStore's fuel assumptions
+  assert.equal(firstPlanRequest({ ...fastDraft, detourBudget: 900 }).detour_budget_minutes, 600);
+  assert.equal(firstPlanRequest(fastDraft, false).include_places, false);
+});
+
+test("fast first plan shows the route, then the full plan with an opening chat message", async () => {
+  const tripId = "fast-first-plan";
+  const calls: boolean[] = [];
+  const fetcher = (async (_url: string, init: RequestInit) => {
+    const includePlaces = JSON.parse(String(init.body)).include_places as boolean;
+    calls.push(includePlaces);
+    return new Response(JSON.stringify(fastPlan(includePlaces)), { status: 200 });
+  }) as unknown as typeof fetch;
+  await planFirstDrive(tripId, fastDraft, fetcher);
+  assert.deepEqual(calls.sort(), [false, true]);
+  assert.deepEqual(itineraryStore.get(tripId)?.items.map((i) => i.id), ["road-drive-1", "stop-node-11"]);
+  const opening = conversationStore.getMessages(tripId).at(-1);
+  assert.equal(opening?.role, "assistant");
+  assert.match(opening?.text ?? "", /600 miles.*1 stop on the way: Fort Hays\./s); // the town is already in the name
+  assert.equal(conversationStore.getStatus(tripId), "idle");
+});
+
+test("fast first plan failing is reported, so the chat can plan instead", async () => {
+  const tripId = "fast-first-plan-down";
+  const failing = (async () => new Response("busy", { status: 503 })) as unknown as typeof fetch;
+  await assert.rejects(planFirstDrive(tripId, fastDraft, failing), /503/);
+  assert.equal(conversationStore.getStatus(tripId), "idle");
+  assert.equal(conversationStore.getMessages(tripId).length, 0);
+});
+
+test("fast first plan message names the stops, the extra driving and the notes", () => {
+  const text = firstPlanMessage({ ...fastPlan(true), notes: ["Live place search was unavailable."] } as never, 17.4);
+  assert.match(text, /ready in 17 s/);
+  assert.match(text, /about 12 minutes of extra driving/);
+  assert.match(text, /Live place search was unavailable\./);
+});
