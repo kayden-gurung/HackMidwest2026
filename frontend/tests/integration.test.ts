@@ -507,3 +507,70 @@ test("road trips send the daily miles limit, and New journey can set it", async 
   assert.match(describeJourney({ ...base, travelBy: "road", maxMilesPerDay: 300 }), /by road in our own car, at most 300 miles a day\./);
   assert.match(describeJourney({ ...base, travelBy: "plane" }), /Getting there: by plane\./);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Route planner (frontend/src/roadtrip/api/tripPlanner.ts)
+
+import { planRequest, planTrip, toLiveDrive, type PlannedStop, type TripPlanResponse } from "../src/roadtrip/api/tripPlanner";
+import type { DriveDraft } from "../src/roadtrip/types";
+
+const plannerDraft: DriveDraft = {
+  start: "Kansas City, MO", destination: "Denver, CO", interests: ["History"], detourBudget: 60,
+  departureDate: "Flexible", maxMilesPerDay: 400, mpg: 28, gasPrice: 3.25,
+};
+
+function plannedStop(id: string, miles: number, lat: number, lng: number, extra: Partial<PlannedStop> = {}): PlannedStop {
+  return {
+    id, name: `Stop ${id}`, town: "Hays", interests: ["History"], category: "History", kind: "historic fort",
+    reason: "Historic fort in Hays.", lat, lng, address: null, website_url: null,
+    source_urls: [`https://www.openstreetmap.org/node/${id}`], miles_from_start: miles, detour_minutes: 4,
+    detour_miles: 2.5, gas_cost_usd: 0.3, detour_estimated: false, visit_minutes: 45, less_explored: false, ...extra,
+  };
+}
+
+function tripPlanFixture(): TripPlanResponse {
+  return {
+    itinerary: { startDate: "2026-10-17", endDate: "2026-10-18", summary: "", assumptions: [], items: [] },
+    route: { origin: "Kansas City", destination: "Denver", miles: 600, hours: 8.5, fuel_cost_usd: 61, summary: "",
+             google_maps_url: "https://www.google.com/maps/dir/?api=1", route_index: 0, route_count: 1,
+             path: [[39.1, -94.58], [39.45, -100.3], [39.74, -104.99]] },
+    stops: [plannedStop("2", 400, 39.6, -102.0), plannedStop("1", 330, 39.45, -100.3)],
+    more_stops: [plannedStop("3", 100, 39.2, -96.0, { detour_estimated: true })],
+    detour_minutes_used: 8, notes: [],
+  };
+}
+
+test("route planner request sends the setup form and only a real departure date", () => {
+  const body = planRequest(plannerDraft);
+  assert.equal(body.departure_date, null);
+  assert.equal(body.detour_budget_minutes, 60);
+  assert.deepEqual(body.interests, ["History"]);
+  assert.equal(planRequest({ ...plannerDraft, departureDate: " 2026-10-17 " }).departure_date, "2026-10-17");
+});
+
+test("route planner plan is placed on the map, north up, chosen stops first in route order", () => {
+  const live = toLiveDrive(tripPlanFixture(), plannerDraft);
+  assert.deepEqual(live.chosenIds, ["2", "1"]);
+  assert.deepEqual(live.stops.map((s) => s.id), ["1", "2", "3"]);
+  // Kansas City is east (right) and a little south (lower) of Denver.
+  assert.ok(live.start.x > live.end.x && live.start.y > live.end.y);
+  assert.equal(live.start.label, "Kansas City");
+  for (const point of [live.start, live.end, ...live.stops]) {
+    assert.ok(point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100);
+  }
+  assert.match(live.routePath, /^M[\d.]+ [\d.]+ L/);
+  assert.equal(live.stops[0].lookup, "live");
+  assert.equal(live.stops[0].sourceUrl, "https://www.openstreetmap.org/node/1");
+  assert.equal(live.stops[2].detourEstimated, true);
+});
+
+test("route planner explains failures in plain words", async () => {
+  const answer = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+  await assert.rejects(planTrip(plannerDraft, answer(503, { detail: "busy" })), /map servers are busy/);
+  await assert.rejects(planTrip(plannerDraft, answer(404, { detail: 'No driving route found from "A" to "B".' })), /No driving route found/);
+  await assert.rejects(planTrip(plannerDraft, (async () => { throw new TypeError("fetch failed"); }) as unknown as typeof fetch), /Check that Docker is running/);
+  const proxyDown = (async () => new Response("Proxy error", { status: 500 })) as unknown as typeof fetch;
+  await assert.rejects(planTrip(plannerDraft, proxyDown), /backend didn't answer \(error 500\)/);
+  const ok = await planTrip(plannerDraft, answer(200, tripPlanFixture()));
+  assert.equal(ok.route.miles, 600);
+});

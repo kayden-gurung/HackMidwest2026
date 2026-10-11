@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
+import { planTrip, type LiveDrive } from "./api/tripPlanner"
 import AppShell from "./components/AppShell"
 import Dashboard from "./components/Dashboard"
 import DriveWorkspace from "./components/DriveWorkspace"
@@ -29,12 +30,59 @@ function LoadingState() {
           Looking along the route
         </div>
         <div className="mt-3 text-sm leading-6 text-muted">
-          Comparing cached demo stops against your interests and extra
-          driving-time budget.
+          Searching OpenStreetMap for small towns and stops that fit your
+          interests and detour budget. The first search of a route can take
+          up to 30 seconds.
         </div>
         <div className="mx-auto mt-6 h-1.5 max-w-xs overflow-hidden bg-panel">
           <div className="h-full w-2/3 animate-pulse bg-school" />
         </div>
+      </div>
+    </div>
+  )
+}
+
+function PlanErrorState({
+  message,
+  onRetry,
+  onEdit,
+  onDemo,
+}: {
+  message: string
+  onRetry: () => void
+  onEdit: () => void
+  onDemo: () => void
+}) {
+  return (
+    <div className="grid h-full min-h-[560px] place-items-center p-6">
+      <div className="max-w-md text-center">
+        <div className="mx-auto grid size-20 place-items-center rounded-full border border-line bg-white">
+          <Icon name="car" className="size-7 text-school" />
+        </div>
+        <div className="mt-6 font-display text-3xl font-semibold">
+          Couldn’t plan this drive
+        </div>
+        <div className="mt-3 text-sm leading-6 text-muted">{message}</div>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <Action
+            onClick={onRetry}
+            className="rounded-md bg-school px-4 py-2 text-xs font-bold text-white"
+          >
+            Try again
+          </Action>
+          <Action
+            onClick={onEdit}
+            className="rounded-md border border-line bg-white px-4 py-2 text-xs font-bold"
+          >
+            Edit trip
+          </Action>
+        </div>
+        <Action
+          onClick={onDemo}
+          className="mt-4 text-[10px] font-bold text-muted underline"
+        >
+          Show the cached demo drive instead (sample data)
+        </Action>
       </div>
     </div>
   )
@@ -158,24 +206,56 @@ export default function App() {
   const [screen, setScreen] = useState<AppScreen>("dashboard")
   const [driveDraft, setDriveDraft] = useState(initialDrive)
   const [loading, setLoading] = useState(false)
+  // The live plan from the route planner; null shows the cached demo drive.
+  const [live, setLive] = useState<LiveDrive | null>(null)
+  const [planError, setPlanError] = useState<string | null>(null)
+  // Only the latest request may update the screen, if the traveler submits twice.
+  const request = useRef(0)
 
-  const submit = () => {
+  const submit = async () => {
+    const id = ++request.current
     setLoading(true)
-    window.setTimeout(() => {
-      setLoading(false)
+    setPlanError(null)
+    try {
+      const plan = await planTrip(driveDraft)
+      if (id !== request.current) return
+      setLive(plan)
       setScreen("drive")
-    }, 850)
+    } catch (error) {
+      if (id !== request.current) return
+      setPlanError((error as Error).message)
+    } finally {
+      if (id === request.current) setLoading(false)
+    }
   }
 
-  const navigate = (next: AppScreen) => setScreen(next)
+  const openDemo = () => {
+    setPlanError(null)
+    setLive(null)
+    setScreen("drive")
+  }
+
+  const navigate = (next: AppScreen) => {
+    setPlanError(null)
+    setScreen(next)
+  }
 
   let content: React.ReactNode
   if (loading) content = <LoadingState />
+  else if (planError)
+    content = (
+      <PlanErrorState
+        message={planError}
+        onRetry={submit}
+        onEdit={() => navigate("setup")}
+        onDemo={openDemo}
+      />
+    )
   else if (screen === "dashboard")
     content = (
       <Dashboard
         onNew={() => setScreen("setup")}
-        onOpen={() => setScreen("drive")}
+        onOpen={openDemo}
       />
     )
   else if (screen === "setup")
@@ -189,7 +269,10 @@ export default function App() {
   else if (screen === "drive")
     content = (
       <DriveWorkspace
+        // A new plan starts the workspace fresh (selected and added stops).
+        key={live?.id ?? "demo"}
         draft={driveDraft}
+        live={live}
         onEdit={() => setScreen("setup")}
       />
     )

@@ -73,6 +73,9 @@ class DriveEstimate(BaseModel):
     drive_days_home: list[DriveDay] = []
     # One plain sentence with the numbers, so they are not misread: miles each way vs. round trip.
     summary: str = ""
+    # Which of the routes OSRM offered this is (0 = fastest), and how many it offered.
+    route_index: int = 0
+    route_count: int = 1
 
 
 def _home_days(days: list[DriveDay]) -> list[DriveDay]:
@@ -153,17 +156,65 @@ def _drive_days(origin: str, destination: str, days: int, miles: float, hours: f
     ]
 
 
-_cache: dict[tuple[str, str, bool, int | None], DriveEstimate | None] = {}
+_cache: dict[tuple, DriveEstimate | None] = {}
+# OSRM's answer for a pair of points: the fastest route first, then any alternatives. None = no road.
+_routes_cache: dict[tuple, list[dict] | None] = {}
+# How many alternatives to ask OSRM for. It often has fewer, especially on long drives.
+MAX_ALTERNATIVES = 2
 
 
-def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_miles_per_day: int | None = None) -> DriveEstimate | None:
+def _osrm_routes(start: places.GeoPoint, end: places.GeoPoint) -> list[dict] | None:
+    """Every route OSRM offers between two points, fastest first, or None when no road connects them.
+
+    Raises PlacesUnavailable when the routing service cannot be reached.
+    """
+    key = (round(start.lat, 5), round(start.lng, 5), round(end.lat, 5), round(end.lng, 5))
+    if key in _routes_cache:
+        return _routes_cache[key]
+    url = f"{OSRM_URL}/{start.lng:.6f},{start.lat:.6f};{end.lng:.6f},{end.lat:.6f}"
+    try:
+        # The route shape: towns along the way for overnight stops, and the line drawn on the map.
+        response = places._http().get(url, params={"overview": "full", "geometries": "geojson", "alternatives": MAX_ALTERNATIVES},
+                                      timeout=ROUTE_TIMEOUT_S)
+        # OSRM answers 400 with code "NoRoute" when the two points are not connected by road.
+        body = response.json()
+        if response.status_code >= 500:
+            response.raise_for_status()
+    except (httpx.HTTPError, ValueError) as error:
+        raise places.PlacesUnavailable("The driving directions service is not responding. Try again in a moment.") from error
+    routes = body.get("routes") if isinstance(body, dict) else None
+    routes = routes if routes and body.get("code") == "Ok" else None
+    _routes_cache[key] = routes
+    return routes
+
+
+def route_path(origin: str, destination: str, route_index: int = 0) -> list[list[float]] | None:
+    """The full road route as GeoJSON [lng, lat] points, or None when unknown. Uses the same cache as estimate_drive."""
+    start, end = places.geocode(origin), places.geocode(destination)
+    if start is None or end is None:
+        return None
+    routes = _osrm_routes(start, end)
+    if not routes or not 0 <= route_index < len(routes):
+        return None
+    geometry = routes[route_index].get("geometry")
+    coordinates = geometry.get("coordinates") if isinstance(geometry, dict) else None
+    return coordinates if coordinates and len(coordinates) >= 2 else None
+
+
+def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_miles_per_day: int | None = None,
+                   route_index: int = 0, mpg: float | None = None, gas_price: float | None = None) -> DriveEstimate | None:
     """Road distance, driving time and estimated fuel cost between two places.
 
-    Returns None when either place is unknown or there is no road route (an ocean in the way).
+    `route_index` picks one of the routes OSRM offers (0 = fastest; see route_count in the result).
+    `mpg` and `gas_price` override the ROAM_CAR_MPG / ROAM_GAS_USD_PER_GALLON defaults.
+    Returns None when either place is unknown, there is no road route (an ocean in the way),
+    or there is no route with that index.
     Raises PlacesUnavailable when the map services cannot be reached.
     """
     max_miles_per_day = max_miles_per_day if max_miles_per_day and max_miles_per_day > 0 else None
-    key = (" ".join(origin.split()).lower(), " ".join(destination.split()).lower(), round_trip, max_miles_per_day)
+    mpg = mpg if mpg and mpg > 0 else _number_from_env("ROAM_CAR_MPG", 27)
+    gas_price = gas_price if gas_price and gas_price > 0 else _number_from_env("ROAM_GAS_USD_PER_GALLON", 3.40)
+    key = (" ".join(origin.split()).lower(), " ".join(destination.split()).lower(), round_trip, max_miles_per_day, route_index, mpg, gas_price)
     if key in _cache:
         return _cache[key]
 
@@ -171,33 +222,21 @@ def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_m
     if start is None or end is None:
         return None
 
-    url = f"{OSRM_URL}/{start.lng:.6f},{start.lat:.6f};{end.lng:.6f},{end.lat:.6f}"
-    try:
-        # The route shape: towns along the way for overnight stops, and the line drawn on the map.
-        response = places._http().get(url, params={"overview": "full", "geometries": "geojson"}, timeout=ROUTE_TIMEOUT_S)
-        # OSRM answers 400 with code "NoRoute" when the two points are not connected by road.
-        body = response.json()
-        if response.status_code >= 500:
-            response.raise_for_status()
-    except (httpx.HTTPError, ValueError) as error:
-        raise places.PlacesUnavailable("The driving directions service is not responding. Try again in a moment.") from error
-
-    routes = body.get("routes") if isinstance(body, dict) else None
-    if not routes or body.get("code") != "Ok":
+    routes = _osrm_routes(start, end)
+    if not routes or not 0 <= route_index < len(routes):
         _cache[key] = None
         return None
+    route = routes[route_index]
 
     try:
-        miles = float(routes[0]["distance"]) / METERS_PER_MILE
-        hours = float(routes[0]["duration"]) / 3600
+        miles = float(route["distance"]) / METERS_PER_MILE
+        hours = float(route["duration"]) / 3600
     except (KeyError, TypeError, ValueError):
         return None
 
-    mpg = _number_from_env("ROAM_CAR_MPG", 27)
-    gas_price = _number_from_env("ROAM_GAS_USD_PER_GALLON", 3.40)
     total_miles = miles * (2 if round_trip else 1)
     days = max(1, math.ceil(hours / MAX_DRIVING_HOURS_PER_DAY), math.ceil(miles / max_miles_per_day) if max_miles_per_day else 1)
-    geometry = routes[0].get("geometry")
+    geometry = route.get("geometry")
     coordinates = geometry.get("coordinates") if isinstance(geometry, dict) else None
 
     drive_days = _drive_days(origin, destination, days, miles, hours, coordinates)
@@ -228,6 +267,8 @@ def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_m
         drive_days=drive_days,
         drive_days_home=_home_days(drive_days) if round_trip else [],
         summary=summary,
+        route_index=route_index,
+        route_count=len(routes),
     )
     _cache[key] = estimate
     return estimate
@@ -235,3 +276,4 @@ def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_m
 
 def clear_cache() -> None:
     _cache.clear()
+    _routes_cache.clear()

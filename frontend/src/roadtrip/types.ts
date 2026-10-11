@@ -24,11 +24,17 @@ export type DriveStop = {
   interests: string[]
   x: number
   y: number
-  lookup: "demo" | "pending" | "failed"
+  /** "live": found by the route planner from OpenStreetMap; the others are demo states. */
+  lookup: "demo" | "pending" | "failed" | "live"
   sourceLabel: string
   sourceUrl?: string
   lessExplored?: boolean
   learned: string
+  town?: string
+  milesFromStart?: number
+  /** True when the routing service could not measure the detour and it was estimated from distance. */
+  detourEstimated?: boolean
+  websiteUrl?: string
 }
 
 export type CommunityDiscovery = {
