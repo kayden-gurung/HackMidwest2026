@@ -14,7 +14,6 @@ export default function AppShell({
     { screen: "dashboard" as const, icon: "map" as const, label: "Dashboard" },
     { screen: "setup" as const, icon: "plus" as const, label: "New trip" },
     { screen: "drive" as const, icon: "car" as const, label: "Drive" },
-    { screen: "fly" as const, icon: "plane" as const, label: "Fly" },
     { screen: "explore" as const, icon: "compass" as const, label: "Explore" },
   ]
   return (

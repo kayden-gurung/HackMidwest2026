@@ -140,18 +140,7 @@ export const sampleDiscoveries: CommunityDiscovery[] = [
 
 export const trips: TripSummary[] = [
   {
-    id: "puglia",
-    mode: "fly",
-    title: "A slow week in Puglia",
-    route: "New York → Bari",
-    date: "Jun 18–25",
-    status: "Ready to review",
-    image:
-      "https://images.unsplash.com/photo-1770493967117-6ae3927c0d05?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=82&w=900",
-  },
-  {
     id: "kc-stl",
-    mode: "drive",
     title: "The river road east",
     route: "Kansas City → St. Louis",
     date: "Flexible",
@@ -161,7 +150,6 @@ export const trips: TripSummary[] = [
   },
   {
     id: "kc-omaha",
-    mode: "drive",
     title: "Missouri Valley towns",
     route: "Kansas City → Omaha",
     date: "No date",
@@ -171,7 +159,6 @@ export const trips: TripSummary[] = [
   },
   {
     id: "kc-wichita",
-    mode: "drive",
     title: "Prairie architecture",
     route: "Kansas City → Wichita",
     date: "No date",

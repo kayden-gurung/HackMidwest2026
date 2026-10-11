@@ -1,15 +1,5 @@
-export type TravelMode = "fly" | "drive"
-export type AppScreen = "dashboard" | "setup" | "fly" | "drive" | "explore" | "settings"
+export type AppScreen = "dashboard" | "setup" | "drive" | "explore" | "settings"
 
-export type FlyDraft = {
-  departure: string
-  destination: string
-  dates: string
-  travelers: number
-  budget: number
-  interests: string[]
-  pace: string
-}
 
 export type DriveDraft = {
   start: string
@@ -54,7 +44,6 @@ export type CommunityDiscovery = {
 
 export type TripSummary = {
   id: string
-  mode: TravelMode
   title: string
   route: string
   date: string

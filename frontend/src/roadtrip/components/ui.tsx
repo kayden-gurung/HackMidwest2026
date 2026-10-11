@@ -1,6 +1,6 @@
 import type { KeyboardEvent, ReactNode } from "react"
 
-export type IconName = "compass" | "plane" | "car" | "map" | "calendar" | "wallet" | "plus" | "search" | "send" | "chevron" | "settings" | "sparkles" | "clock" | "utensils" | "camera" | "layers" | "close" | "check" | "alert"
+export type IconName = "compass" | "car" | "map" | "calendar" | "wallet" | "plus" | "search" | "send" | "chevron" | "settings" | "sparkles" | "clock" | "utensils" | "camera" | "layers" | "close" | "check" | "alert"
 
 const paths: Record<IconName, ReactNode> = {
   compass: (
@@ -9,7 +9,6 @@ const paths: Record<IconName, ReactNode> = {
       <path d="m15.5 8.5-2 5-5 2 2-5 5-2Z" />
     </>
   ),
-  plane: <path d="m22 2-7.5 18-3.2-7.3L4 9.5 22 2Z" />,
   car: (
     <>
       <path d="m5 16-1 2v2m15-4 1 2v2M5 16h14l-1.5-6h-11L5 16Z" />
@@ -118,41 +117,6 @@ export function Action({
   )
 }
 
-export function ModeSwitch({
-  mode,
-  onChange,
-  compact = false,
-}: {
-  mode: "fly" | "drive"
-  onChange: (mode: "fly" | "drive") => void
-  compact?: boolean
-}) {
-  return (
-    <div
-      className={`grid grid-cols-2 border border-line bg-white p-1 ${
-        compact ? "w-48 rounded-md" : "w-full rounded-lg"
-      }`}
-    >
-      {(["fly", "drive"] as const).map((item) => (
-        <Action
-          key={item}
-          onClick={() => onChange(item)}
-          className={`flex items-center justify-center gap-2 rounded-md font-bold uppercase tracking-wider ${
-            compact ? "px-3 py-2 text-[10px]" : "px-4 py-3 text-xs"
-          } ${
-            mode === item ? "bg-school text-white" : "text-muted hover:text-ink"
-          }`}
-        >
-          <Icon
-            name={item === "fly" ? "plane" : "car"}
-            className={compact ? "size-3.5" : "size-4"}
-          />{" "}
-          {item}
-        </Action>
-      ))}
-    </div>
-  )
-}
 
 export function StatusTag({
   children,

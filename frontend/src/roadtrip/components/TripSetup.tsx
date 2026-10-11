@@ -1,6 +1,6 @@
 import { useState } from "react"
-import type { DriveDraft, FlyDraft, TravelMode } from "../types"
-import { Action, Icon, ModeSwitch } from "./ui"
+import type { DriveDraft } from "../types"
+import { Action, Icon } from "./ui"
 
 function TextField({
   label,
@@ -61,30 +61,15 @@ function Chips({
 }
 
 export default function TripSetup({
-  mode,
-  onMode,
-  fly,
-  setFly,
   drive,
   setDrive,
   onSubmit,
 }: {
-  mode: TravelMode
-  onMode: (mode: TravelMode) => void
-  fly: FlyDraft
-  setFly: (draft: FlyDraft) => void
   drive: DriveDraft
   setDrive: (draft: DriveDraft) => void
   onSubmit: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const toggleFly = (value: string) =>
-    setFly({
-      ...fly,
-      interests: fly.interests.includes(value)
-        ? fly.interests.filter((item) => item !== value)
-        : [...fly.interests, value],
-    })
   const toggleDrive = (value: string) =>
     setDrive({
       ...drive,
@@ -101,106 +86,16 @@ export default function TripSetup({
             Start a new trip
           </div>
           <div className="mt-3 font-display text-4xl font-semibold">
-            {mode === "fly"
-              ? "Where do you want to land?"
-              : "The drive is the trip."}
+            The drive is the trip.
           </div>
           <div className="mx-auto mt-3 max-w-xl text-sm leading-6 text-muted">
-            {mode === "fly"
-              ? "Plan the destination, flights, budget, and days in between."
-              : "Find places worth pulling over for, without turning a direct drive into an all-day detour."}
+            Find places worth pulling over for, without turning a direct drive into an all-day detour.
           </div>
         </div>
 
-        <div className="mx-auto mt-7 max-w-md">
-          <ModeSwitch mode={mode} onChange={onMode} />
-        </div>
 
         <div className="mt-8 border border-line bg-canvas p-5 md:p-7">
-          {mode === "fly" ? (
-            <div className="space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <TextField
-                  label="Departure city or airport"
-                  value={fly.departure}
-                  onChange={(departure) => setFly({ ...fly, departure })}
-                />
-                <TextField
-                  label="Destination or an idea"
-                  value={fly.destination}
-                  onChange={(destination) => setFly({ ...fly, destination })}
-                  hint="Try “warm coast with great food.”"
-                />
-                <TextField
-                  label="Travel dates"
-                  value={fly.dates}
-                  onChange={(dates) => setFly({ ...fly, dates })}
-                />
-                <TextField
-                  label="Total budget"
-                  value={`$${fly.budget.toLocaleString()}`}
-                  onChange={() => undefined}
-                />
-              </div>
-              <div>
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">
-                  Travelers
-                </div>
-                <div className="flex w-fit items-center border border-line bg-white">
-                  <Action
-                    onClick={() =>
-                      setFly({
-                        ...fly,
-                        travelers: Math.max(1, fly.travelers - 1),
-                      })
-                    }
-                    className="px-4 py-3 text-lg"
-                  >
-                    −
-                  </Action>
-                  <div className="min-w-12 text-center text-sm font-bold">
-                    {fly.travelers}
-                  </div>
-                  <Action
-                    onClick={() =>
-                      setFly({ ...fly, travelers: fly.travelers + 1 })
-                    }
-                    className="px-4 py-3 text-lg"
-                  >
-                    +
-                  </Action>
-                </div>
-              </div>
-              <div>
-                <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-muted">
-                  Interests
-                </div>
-                <Chips
-                  values={[
-                    "Local food",
-                    "Beaches",
-                    "History",
-                    "Nature",
-                    "Art",
-                    "Nightlife",
-                  ]}
-                  selected={fly.interests}
-                  onToggle={toggleFly}
-                />
-              </div>
-              <div>
-                <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-muted">
-                  Travel pace
-                </div>
-                <Chips
-                  values={["Unhurried", "Balanced", "Full days"]}
-                  selected={[fly.pace]}
-                  onToggle={(pace) => setFly({ ...fly, pace })}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-5">
+          <div className="space-y-5">
               <div className="grid gap-4 sm:grid-cols-2">
                 <TextField
                   label="Starting city"
@@ -305,23 +200,16 @@ export default function TripSetup({
                 )}
               </div>
             </div>
-          )}
 
           <div className="mt-7 border-t border-line pt-5">
             <Action
               onClick={onSubmit}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-school px-5 py-3.5 text-sm font-bold text-white"
             >
-              <Icon
-                name={mode === "fly" ? "plane" : "car"}
-                className="size-4"
-              />{" "}
-              {mode === "fly" ? "Plan my trip" : "Find stops along my drive"}
+              <Icon name="car" className="size-4" /> Find stops along my drive
             </Action>
             <div className="mt-3 text-center text-[10px] text-muted">
-              {mode === "drive"
-                ? "Find places worth pulling over for. Results use cached demo data."
-                : "Flight prices and availability are sample data in this prototype."}
+              Find places worth pulling over for. Results use cached demo data.
             </div>
           </div>
         </div>
