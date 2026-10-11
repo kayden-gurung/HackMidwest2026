@@ -70,7 +70,7 @@ def final_itinerary(body: AskRequest, updates: ItineraryUpdates, evidence: Evide
 
 def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence):
     messages = [{"role": message.role, "content": [{"text": message.content}]} for message in body.history]
-    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary], travel_tools=recording_tools(evidence, max_miles(body)))
+    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget], travel_tools=recording_tools(evidence, max_miles(body)))
     mode = body.mode or (body.preferences.planning_style if body.preferences else None) or "Co-pilot"
     mode_instruction = {
         "Hands-on": "Present options and ask the traveler to choose before making a detailed plan.",
@@ -92,8 +92,9 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evi
 # without calling update_itinerary, so the panels keep the old plan. Then it is asked once more.
 NUDGE = (
     "You described a plan or a change to the plan but did not call update_itinerary, so the "
-    "traveler's Plan, Map and Budget panels still show the old plan. Call update_itinerary now with "
-    "the complete itinerary, including every unchanged stop. Do not write anything else."
+    "traveler's Plan, Map and Budget panels still show the old plan. Call check_budget with the "
+    "complete draft, review the result and revise if needed, then call update_itinerary with the "
+    "checked itinerary, including every unchanged stop. Do not write anything else."
 )
 _CHANGED = re.compile(r"\b(swapp|replac|updat|chang|added|adding|remov|moved|moving|switch|instead of|now (has|includes|starts|ends))", re.IGNORECASE)
 _NEW_PLAN = re.compile(r"\bday\s*(1|one)\b", re.IGNORECASE)
@@ -151,8 +152,12 @@ async def ask_stream(body: AskRequest):
                     result = ev["result"]
             reply = str(result).strip() if result is not None else ""
             if needs_panel_update(body, updates, reply):
-                yield f"data: {json.dumps({'tool': 'update_itinerary'})}\n\n"
-                await agent.invoke_async(NUDGE)
+                async for ev in agent.stream_async(NUDGE):
+                    if "current_tool_use" in ev and ev["current_tool_use"].get("name"):
+                        tool_use = ev["current_tool_use"]
+                        if tool_use.get("toolUseId", tool_use["name"]) != last_tool:
+                            last_tool = tool_use.get("toolUseId", tool_use["name"])
+                            yield f"data: {json.dumps({'tool': tool_use['name']})}\n\n"
             # The final answer, exactly as POST /ask returns it. The text chunks above also include
             # what the model said between tool calls, so clients replace them with this.
             reply = reply or updates.confirmation()

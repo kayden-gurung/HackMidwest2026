@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from strands import tool
 
+from budget import analyze_budget
+
 
 class PlanModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -79,13 +81,32 @@ class ItineraryUpdates:
         self.latest: ItinerarySnapshot | None = None
         # Optional accuracy check (validation.validate_snapshot): returns a cleaned plan plus notes.
         self.check = check
+        self._budget_draft: ItinerarySnapshot | None = None
+
+    @tool
+    def check_budget(self, itinerary: ItinerarySnapshot) -> dict:
+        """Check a complete draft's estimated total against its total USD budget before publishing it.
+
+        Python calculates the subtotal, remaining/over-budget amount and unknown costs. Returns
+        ranked cut candidates when over budget; you decide which alternatives preserve the
+        traveler's priorities. Never treat unknown costs as free or remove essential costs to
+        pretend a trip is affordable. After any draft change, call check_budget again, then
+        update_itinerary with that exact draft. This check does not publish or edit the plan.
+
+        Args:
+            itinerary: Complete draft itinerary, including costs for all travelers and budget.
+        """
+        draft = ItinerarySnapshot.model_validate(itinerary)
+        result = analyze_budget(draft)
+        self._budget_draft = draft.model_copy(deep=True)
+        return result
 
     def confirmation(self) -> str:
         """Some model turns finish the tool action without a final text block."""
         plan = self.latest
         if plan is None:
             return ""
-        total = sum(item.costUsd or 0 for item in plan.items)
+        total = analyze_budget(plan)["estimated_total_usd"]
         unknown = sum(item.costUsd is None for item in plan.items)
         dates = plan.startDate.isoformat() if plan.startDate == plan.endDate else f"{plan.startDate.isoformat()} to {plan.endDate.isoformat()}"
         budget = "" if plan.budget.plannedUsd is None else f" against your ${plan.budget.plannedUsd:,.2f} budget"
@@ -97,6 +118,8 @@ class ItineraryUpdates:
         """Update the traveler's Plan, Map and Budget panels with a complete itinerary.
 
         Call whenever you propose or revise a concrete trip plan, even a short draft.
+        You MUST call check_budget with this exact draft first. If you change the draft,
+        check it again before calling update_itinerary. An unchecked draft will be rejected.
         Send the FULL replacement snapshot, retaining unaffected stops and stable IDs.
         Give every specific stop a location so it shows on the map: coordinates and source
         URL from the find_places result for that exact place, or from locate for a named
@@ -116,12 +139,17 @@ class ItineraryUpdates:
         """
         # Strands validates tool input, then passes nested models as dictionaries.
         validated = ItinerarySnapshot.model_validate(itinerary)
+        if self._budget_draft != validated:
+            return {"status": "budget_check_required",
+                    "message": "Call check_budget with this exact complete draft, review its result, then call update_itinerary. No plan was changed."}
         notes: list[str] = []
         if self.check is not None:
             validated, notes = self.check(validated)
         self.latest = validated
+        self._budget_draft = None
+        budget = analyze_budget(validated)
         result = {"status": "updated", "stops": len(validated.items),
-                  "estimated_total_usd": sum(item.costUsd or 0 for item in validated.items),
+                  "estimated_total_usd": budget["estimated_total_usd"],
                   "unknown_costs": sum(item.costUsd is None for item in validated.items)}
         if notes:
             # Tell the model what was removed so it can look places up or stop mentioning them.

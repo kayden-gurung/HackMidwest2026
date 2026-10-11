@@ -11,6 +11,9 @@ import { JourneyStarters } from "../../journey/components/JourneyStarters";
 const toolStatus: Record<string, string> = {
   find_places: "Searching real places…",
   locate: "Looking up locations…",
+  plan_drive: "Checking driving routes…",
+  get_forecast: "Checking the live forecast…",
+  check_budget: "Checking your budget…",
   update_itinerary: "Updating your plan…",
 };
 
@@ -67,7 +70,7 @@ export function ChatPanel({
             ),
           )}
           {/* While streaming: the reply so far, then a status line that names the tool Roam is using. */}
-          {sendStatus === "sending" && streamedReply?.text && <AssistantReply message={{ id: "draft", role: "assistant", text: streamedReply.text }} onSuggestion={handleSend} />}
+          {sendStatus === "sending" && streamedReply?.text && <AssistantReply message={{ id: "draft", role: "assistant", text: streamedReply.text, toolSteps: streamedReply.toolSteps }} onSuggestion={handleSend} />}
           {sendStatus === "sending" && (
             <LoadingState label={(streamedReply?.tool && toolStatus[streamedReply.tool]) || (streamedReply?.tool ? "Working…" : streamedReply?.text ? "Writing…" : "Roam is thinking…")} className="pl-11" />
           )}

@@ -95,7 +95,7 @@ def test_assumptions_never_exceed_the_schema_limit():
 def test_recording_tools_keep_their_names_and_record_results(fake_map):
     evidence = Evidence()
     tools = {t.tool_name: t for t in recording_tools(evidence)}
-    assert set(tools) == {"find_places", "locate", "plan_drive"}
+    assert set(tools) == {"find_places", "locate", "plan_drive", "get_forecast"}
     assert "OpenStreetMap" in tools["find_places"].tool_spec["description"]
     tools["find_places"]("Polignano a Mare", "Food")
     tools["locate"]("Polignano a Mare")
@@ -110,11 +110,13 @@ class FakeAgent:
     def __init__(self, kwargs, look_up=True):
         self.tools = {t.tool_name: t for t in kwargs["travel_tools"]}
         self.update = kwargs["extra_tools"][0]
+        self.budget = kwargs["extra_tools"][1]
         self.look_up = look_up
 
     def __call__(self, prompt):
         if self.look_up:
             self.tools["find_places"]("Polignano a Mare", "Food")
+        self.budget(itinerary=model_plan())
         self.tool_result = self.update(itinerary=model_plan())
         return "Here is your plan."
 
@@ -213,9 +215,11 @@ def test_chat_in_car_mode_never_returns_flights(fake_map, monkeypatch):
         def __init__(self, kwargs):
             seen["tools"] = {t.tool_name for t in kwargs["travel_tools"]}
             self.update = kwargs["extra_tools"][0]
+            self.budget = kwargs["extra_tools"][1]
 
         def __call__(self, prompt):
             seen["prompt"] = self.system_prompt
+            self.budget(itinerary=car_plan())
             self.update(itinerary=car_plan())
             return "Road trip ready."
 
@@ -470,13 +474,16 @@ class ForgetfulAgent:
 
     def __init__(self, kwargs, reply="Done! I've swapped the museum for the WWI Museum."):
         self.update = kwargs["extra_tools"][0]
+        self.budget = kwargs["extra_tools"][1]
         self.reply = reply
         self.prompts = []
 
     def _act(self, prompt):
         self.prompts.append(prompt)
         if prompt.startswith("You described"):
-            self.update(itinerary=plan(item("museum", title="National WWI Museum")))
+            draft = plan(item("museum", title="National WWI Museum"))
+            self.budget(itinerary=draft)
+            self.update(itinerary=draft)
             return ""
         return self.reply
 

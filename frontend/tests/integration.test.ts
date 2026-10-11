@@ -226,8 +226,8 @@ test("Google Maps links use the address, else exact coordinates, never a bare na
   assert.equal(googleMapsUrl(base), undefined);
 });
 
-test("streamed replies show the draft and tool while writing, then save the final reply", async () => {
-  const events = [{ text: "Let me check " }, { text: "real places." }, { tool: "find_places" }, { text: "Here is your plan." }, { reply: "Here is your plan." }, { done: true }];
+test("streamed replies show the draft and tools, retaining forecast and budget steps with the final reply", async () => {
+  const events = [{ text: "Let me check " }, { text: "real places." }, { tool: "find_places" }, { tool: "get_forecast" }, { tool: "check_budget" }, { tool: "update_itinerary" }, { text: "Here is your plan." }, { reply: "Here is your plan." }, { done: true }];
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
   // Split mid-event so the client has to stitch chunks back together.
   const chunks = [body.slice(0, 7), body.slice(7, 40), body.slice(40)];
@@ -245,9 +245,13 @@ test("streamed replies show the draft and tool while writing, then save the fina
   assert.equal(reply.text, "Here is your plan.");
   assert.ok(drafts.some((draft) => draft?.text === "Let me check real places." && draft.tool === undefined));
   assert.ok(drafts.some((draft) => draft?.tool === "find_places"));
+  assert.ok(drafts.some((draft) => draft?.tool === "get_forecast"));
+  assert.ok(drafts.some((draft) => draft?.tool === "check_budget"));
+  assert.deepEqual(reply.toolSteps, ["find_places", "get_forecast", "check_budget", "update_itinerary"]);
   assert.ok(drafts.some((draft) => draft?.text === "Let me check real places.\n\nHere is your plan."));
   assert.equal(conversationStore.getDraft("stream-trip"), undefined);
   assert.equal(conversationStore.getMessages("stream-trip").at(-1)?.text, "Here is your plan.");
+  assert.deepEqual((conversationStore.getMessages("stream-trip").at(-1) as any).toolSteps, reply.toolSteps);
 });
 
 test("an error event in the stream is shown like any other backend error", async () => {

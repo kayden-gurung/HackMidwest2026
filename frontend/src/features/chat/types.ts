@@ -47,6 +47,8 @@ export interface AssistantMessage {
   /** Follow-up prompts shown as chips; clicking one sends it as a message. */
   suggestions?: string[];
   itinerary?: ItinerarySnapshot;
+  /** Actual streamed tool calls, retained so planning checks stay visible after the reply. */
+  toolSteps?: string[];
 }
 
 export type ChatMessage = UserMessage | AssistantMessage;

@@ -158,4 +158,5 @@ def recording_tools(evidence: Evidence, max_miles_per_day: int | None = None) ->
     find_places.__doc__ = _FIND_PLACES_DOC
     locate.__doc__ = _LOCATE_DOC
     plan_drive.__doc__ = _PLAN_DRIVE_DOC
-    return [tool(find_places), tool(locate), tool(plan_drive)]
+    # Weather evidence describes conditions, not a place's identity or booking details.
+    return [tool(find_places), tool(locate), tool(plan_drive), tool(travel_tools.get_forecast)]
