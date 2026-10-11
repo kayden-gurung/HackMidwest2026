@@ -9,7 +9,8 @@ class RoadTripPreferences(BaseModel):
 
     origin: str = Field(min_length=1, max_length=200)
     destination: str = Field(min_length=1, max_length=200)
-    detour_minutes: int = Field(ge=0, le=240)
+    # The trip form accepts exact typed allowances through 600 minutes.
+    detour_minutes: int = Field(ge=0, le=600)
     mpg: float = Field(gt=0, le=150, allow_inf_nan=False)
     gas_price: float = Field(ge=0, le=20, allow_inf_nan=False)
 

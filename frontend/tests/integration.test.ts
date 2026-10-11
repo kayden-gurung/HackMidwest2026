@@ -75,6 +75,24 @@ test("driving form validation and route summaries reject invalid or over-limit v
     fuelCostUsd: 2, extraFuelCostUsd: 1, mpg: 28, gasPrice: 3.25, routeOption: 0 } }), /driving estimates/);
 });
 
+test("the detour slider and exact typed allowances reach the API unchanged", async () => {
+  const bodies: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return eventResponse([{ reply: "No plan changed." }, { done: true }]);
+  });
+  for (const minutes of [0, 45, 37, 240, 600]) {
+    const draft = { ...driveDraft, detourBudget: minutes };
+    const tripId = `exact-detour-${minutes}`;
+    roadTripStore.set(tripId, roadTripConstraints(draft));
+    await chatService.sendMessage(tripId, describeDrive(draft));
+    assert.equal(bodies.at(-1).road_trip.detour_minutes, minutes);
+  }
+  for (const detourBudget of [-1, 601, 1.5, NaN]) {
+    assert.throws(() => roadTripConstraints({ ...driveDraft, detourBudget }), /driving limits/);
+  }
+});
+
 function eventResponse(events: Record<string, unknown>[]) {
   return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "Content-Type": "text/event-stream" } });
 }

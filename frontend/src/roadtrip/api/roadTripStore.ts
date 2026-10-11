@@ -15,7 +15,7 @@ export function roadTripConstraints(draft: DriveDraft): RoadTripConstraints {
   if (!Number.isFinite(draft.mpg) || draft.mpg <= 0 || draft.mpg > 150
     || !Number.isFinite(draft.gasPrice) || draft.gasPrice < 0 || draft.gasPrice > 20
     || !Number.isInteger(draft.maxMilesPerDay) || draft.maxMilesPerDay < 50 || draft.maxMilesPerDay > 1500
-    || ![15, 30, 60, 120].includes(draft.detourBudget)) throw new Error("Check your driving limits and fuel assumptions.");
+    || !Number.isInteger(draft.detourBudget) || draft.detourBudget < 0 || draft.detourBudget > 600) throw new Error("Check your driving limits and fuel assumptions.");
   return { origin: draft.start.trim(), destination: draft.destination.trim(), detour_minutes: draft.detourBudget,
     mpg: draft.mpg, gas_price: draft.gasPrice };
 }

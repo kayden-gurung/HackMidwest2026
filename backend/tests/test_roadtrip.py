@@ -170,6 +170,21 @@ def test_invalid_road_preferences_return_422_without_inference():
     assert TestClient(main.app).post("/api/ask", json={"prompt": "Plan", "road_trip": invalid}).status_code == 422
 
 
+@pytest.mark.parametrize("minutes", [0, 37, 600])
+def test_exact_detour_allowances_from_slider_and_typed_form_are_accepted(minutes):
+    values = preferences().model_dump()
+    values["detour_minutes"] = minutes
+    request = AskRequest.model_validate({"prompt": "Plan", "road_trip": values})
+    assert request.road_trip.detour_minutes == minutes
+
+
+@pytest.mark.parametrize("minutes", [-1, 601, 1.5])
+def test_invalid_exact_detour_allowances_return_422_without_inference(minutes):
+    values = preferences().model_dump()
+    values["detour_minutes"] = minutes
+    assert TestClient(main.app).post("/api/ask", json={"prompt": "Plan", "road_trip": values}).status_code == 422
+
+
 def test_same_draft_is_remeasured_after_alternative_selection(providers, monkeypatch):
     def routes(points, alternatives=False):
         base = {"miles": 130, "minutes": 135, "coordinates": [[0, 0], [1, 0], [3, 0]]}
