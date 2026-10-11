@@ -1,38 +1,11 @@
-import { useId, useState } from "react"
-import type { KeyboardEvent } from "react"
+import { useEffect, useId, useState } from "react"
+import type { KeyboardEvent, ReactNode } from "react"
 import { suggestCities, isKnownCity } from "../data/cities"
 import type { DriveDraft } from "../types"
 import { Action, Icon } from "./ui"
 
 const fieldClass =
   "min-h-11 w-full rounded-md border border-line bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-school"
-
-function TextField({
-  label,
-  value,
-  onChange,
-  hint,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  hint?: string
-}) {
-  return (
-    <label className="block">
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">
-        {label}
-      </div>
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={fieldClass}
-      />
-      {hint && <div className="mt-1.5 text-[10px] text-muted">{hint}</div>}
-    </label>
-  )
-}
 
 function CityField({
   label,
@@ -131,6 +104,10 @@ function CityField({
   )
 }
 
+/** Shared hover / press feel for every choice button on this screen. */
+const choiceMotion =
+  "transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm"
+
 function Chips({
   values,
   selected,
@@ -146,15 +123,234 @@ function Chips({
         <Action
           key={value}
           onClick={() => onToggle(value)}
-          className={`rounded-full border px-3 py-2 text-xs font-semibold ${
+          className={`rounded-full border px-3 py-2 text-xs font-semibold ${choiceMotion} ${
             selected.includes(value)
               ? "border-school bg-mint text-school"
-              : "border-line bg-white text-muted"
+              : "border-line bg-white text-muted hover:border-school/60 hover:text-school"
           }`}
         >
           {value}
         </Action>
       ))}
+    </div>
+  )
+}
+
+function SectionLabel({ children, hint }: { children: ReactNode; hint?: string }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-muted">{children}</div>
+      {hint && <div className="mt-1 text-[10px] text-muted">{hint}</div>}
+    </div>
+  )
+}
+
+/** Today as YYYY-MM-DD in local time, the earliest date the picker allows. */
+function today(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+}
+
+/** Departure: either a date from the calendar picker, or flexible. No free typing. */
+function DepartureChoice({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const flexible = value === "Flexible" || value === ""
+  const option = (selected: boolean) =>
+    `flex items-center justify-center gap-2 rounded-md border py-3 text-xs font-bold ${choiceMotion} ${
+      selected ? "border-school bg-school text-white" : "border-line bg-white text-muted hover:border-school/60 hover:text-school"
+    }`
+  return (
+    <div>
+      <SectionLabel>Departure date · optional</SectionLabel>
+      <div className="grid grid-cols-2 gap-2">
+        <Action onClick={() => onChange(flexible ? today() : value)} className={option(!flexible)}>
+          <Icon name="calendar" className="size-4" /> Pick a date
+        </Action>
+        <Action onClick={() => onChange("Flexible")} className={option(flexible)}>
+          <Icon name="clock" className="size-4" /> I'm flexible
+        </Action>
+      </div>
+      {!flexible && (
+        <input
+          type="date"
+          aria-label="Departure date"
+          min={today()}
+          value={value}
+          // Only the calendar sets the date: typing is blocked so the value is always a real date.
+          onKeyDown={(event) => event.key !== "Tab" && event.preventDefault()}
+          onClick={(event) => event.currentTarget.showPicker?.()}
+          onChange={(event) => onChange(event.target.value || "Flexible")}
+          className="mt-2 min-h-11 w-full cursor-pointer rounded-md border border-line bg-white px-3 py-3 text-sm font-semibold outline-none transition-colors hover:border-school/60 focus:border-school"
+        />
+      )}
+    </div>
+  )
+}
+
+/** Number input with a unit, for the car settings. Empty or invalid input becomes 0. */
+function NumberField({
+  label,
+  unit,
+  value,
+  onChange,
+  placeholder,
+  step = 1,
+  error,
+}: {
+  label: string
+  unit: string
+  value: number
+  onChange: (value: number) => void
+  placeholder: string
+  step?: number
+  error?: string
+}) {
+  const id = useId()
+  return (
+    <div>
+      <label htmlFor={id} className="mb-2 block text-[9px] font-bold uppercase tracking-wider text-muted">
+        {label}
+      </label>
+      <div
+        className={`flex items-center gap-2 rounded-md border bg-white px-3 py-2.5 transition-colors focus-within:border-school hover:border-school/60 ${
+          error ? "border-coral" : "border-line"
+        }`}
+      >
+        <input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step={step}
+          value={value > 0 ? value : ""}
+          placeholder={placeholder}
+          onChange={(event) => {
+            const next = Number(event.target.value)
+            onChange(Number.isFinite(next) && next > 0 ? next : 0)
+          }}
+          className="w-full bg-transparent text-sm font-bold outline-none placeholder:font-semibold placeholder:text-muted"
+        />
+        <span className="shrink-0 text-xs font-semibold text-muted">{unit}</span>
+      </div>
+      {error && <div className="mt-1.5 text-[10px] font-semibold text-coral">{error}</div>}
+    </div>
+  )
+}
+
+type DriveEstimate = { miles: number; hours: number }
+
+/** Real road miles and hours from the backend (OpenStreetMap + OSRM), refetched when the cities change. */
+function useDriveEstimate(start: string, destination: string) {
+  const [state, setState] = useState<{ status: "idle" | "loading" | "ok" | "error"; estimate?: DriveEstimate }>({ status: "idle" })
+  useEffect(() => {
+    if (!isKnownCity(start) || !isKnownCity(destination) || start === destination) {
+      setState({ status: "idle" })
+      return
+    }
+    const controller = new AbortController()
+    setState({ status: "loading" })
+    // A short pause so picking a city from the list doesn't fire a request per keystroke.
+    const timer = window.setTimeout(() => {
+      const query = new URLSearchParams({ origin: start, destination, round_trip: "false" })
+      fetch(`/api/places/drive?${query}`, { signal: controller.signal })
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
+        .then((body) => setState({ status: "ok", estimate: { miles: body.distance_miles, hours: body.drive_hours } }))
+        .catch((error) => {
+          if (error.name !== "AbortError") setState({ status: "error" })
+        })
+    }, 350)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [start, destination])
+  return state
+}
+
+function formatHours(hours: number): string {
+  const whole = Math.floor(hours)
+  const minutes = Math.round((hours - whole) * 60)
+  return whole ? `${whole} h ${minutes} min` : `${minutes} min`
+}
+
+/** "Your car & drive": the car settings and what the drive itself will take, worked out live. */
+function CarAndDrive({ drive, setDrive, showErrors }: { drive: DriveDraft; setDrive: (draft: DriveDraft) => void; showErrors: boolean }) {
+  const route = useDriveEstimate(drive.start, drive.destination)
+  const miles = route.estimate?.miles ?? 0
+  const gallons = drive.mpg > 0 ? miles / drive.mpg : 0
+  const fuelCost = gallons * drive.gasPrice
+  const days = drive.maxMilesPerDay > 0 ? Math.max(1, Math.ceil(miles / drive.maxMilesPerDay)) : 1
+
+  return (
+    <div className="mt-6 border border-line bg-canvas p-5 md:p-7">
+      <div className="flex items-start gap-3">
+        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-mint text-school">
+          <Icon name="car" className="size-4" />
+        </div>
+        <div>
+          <div className="font-display text-xl font-semibold">Your car &amp; drive</div>
+          <div className="mt-1 text-xs text-muted">Tell us about your car so detours and fuel costs are worked out for you.</div>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <NumberField
+          label="Your car's fuel economy"
+          unit="mpg"
+          value={drive.mpg}
+          placeholder="e.g. 28"
+          onChange={(mpg) => setDrive({ ...drive, mpg })}
+          error={showErrors && drive.mpg <= 0 ? "Enter your car's fuel economy." : undefined}
+        />
+        <NumberField
+          label="Gas price"
+          unit="$ / gal"
+          value={drive.gasPrice}
+          step={0.05}
+          placeholder="e.g. 3.25"
+          onChange={(gasPrice) => setDrive({ ...drive, gasPrice })}
+        />
+        <NumberField
+          label="Max driving per day"
+          unit="mi"
+          value={drive.maxMilesPerDay}
+          step={25}
+          placeholder="e.g. 450"
+          onChange={(maxMilesPerDay) => setDrive({ ...drive, maxMilesPerDay })}
+        />
+      </div>
+
+      <div className="mt-5 border-t border-line pt-5">
+        <SectionLabel hint="One way, before any detours. Fuel uses your mpg and gas price.">
+          {drive.start && drive.destination ? `${drive.start} → ${drive.destination}` : "Your drive"}
+        </SectionLabel>
+        {route.status === "idle" && (
+          <div className="text-xs text-muted">Pick a starting city and a destination to see the distance and fuel.</div>
+        )}
+        {route.status === "loading" && <div className="animate-pulse text-xs text-muted">Measuring the drive…</div>}
+        {route.status === "error" && (
+          <div className="text-xs text-muted">Couldn't measure this drive right now. You can still find stops.</div>
+        )}
+        {route.status === "ok" && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              ["Distance", `${miles.toLocaleString()} mi`],
+              ["Driving time", formatHours(route.estimate!.hours)],
+              ["Fuel needed", drive.mpg > 0 ? `~${gallons.toFixed(1)} gal` : "Add your mpg"],
+              ["Fuel cost", drive.mpg > 0 && drive.gasPrice > 0 ? `~$${fuelCost.toFixed(2)}` : "Add your mpg"],
+            ].map(([label, value]) => (
+              <div key={label} className="border border-line bg-white px-3 py-2.5">
+                <div className="text-[9px] font-bold uppercase tracking-wider text-muted">{label}</div>
+                <div className="mt-1 text-sm font-bold">{value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {route.status === "ok" && days > 1 && (
+          <div className="mt-2 text-[10px] text-muted">
+            At {drive.maxMilesPerDay} miles a day, that's about {days} driving days each way.
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -170,7 +366,7 @@ export default function TripSetup({
   onSubmit: () => void
   error?: string
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [showErrors, setShowErrors] = useState(false)
   const toggleDrive = (value: string) =>
     setDrive({
       ...drive,
@@ -178,6 +374,15 @@ export default function TripSetup({
         ? drive.interests.filter((item) => item !== value)
         : [...drive.interests, value],
     })
+
+  const submit = () => {
+    // Fuel economy drives every detour cost, so ask for it before finding stops.
+    if (drive.mpg <= 0) {
+      setShowErrors(true)
+      return
+    }
+    onSubmit()
+  }
 
   return (
     <div className="h-full overflow-y-auto px-5 py-7 md:px-9">
@@ -194,132 +399,75 @@ export default function TripSetup({
           </div>
         </div>
 
-
         <div className="mt-8 border border-line bg-canvas p-5 md:p-7">
-          <div className="space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <CityField
-                  label="Starting city"
-                  value={drive.start}
-                  onChange={(start) => setDrive({ ...drive, start })}
-                />
-                <CityField
-                  label="Destination"
-                  value={drive.destination}
-                  onChange={(destination) =>
-                    setDrive({ ...drive, destination })
-                  }
-                />
-              </div>
-              <div>
-                <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-muted">
-                  What should we look for?
-                </div>
-                <Chips
-                  values={[
-                    "History",
-                    "Small towns",
-                    "Local food",
-                    "Nature",
-                    "Architecture",
-                    "Quirky stops",
-                  ]}
-                  selected={drive.interests}
-                  onToggle={toggleDrive}
-                />
-              </div>
-              <div>
-                <div className="mb-3 flex items-end justify-between">
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-widest text-muted">
-                      Extra driving-time budget
-                    </div>
-                    <div className="mt-1 text-[10px] text-muted">
-                      Covers driving detours only—not time spent visiting.
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {([15, 30, 60, 120] as const).map((minutes) => (
-                    <Action
-                      key={minutes}
-                      onClick={() =>
-                        setDrive({ ...drive, detourBudget: minutes })
-                      }
-                      className={`rounded-md border py-3 text-center text-xs font-bold ${
-                        drive.detourBudget === minutes
-                          ? "border-school bg-school text-white"
-                          : "border-line bg-white text-muted"
-                      }`}
-                    >
-                      {minutes} min
-                    </Action>
-                  ))}
-                </div>
-              </div>
-              <TextField
-                label="Departure date · optional"
-                value={drive.departureDate}
-                onChange={(departureDate) =>
-                  setDrive({ ...drive, departureDate })
-                }
+          <div className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <CityField
+                label="Starting city"
+                value={drive.start}
+                onChange={(start) => setDrive({ ...drive, start })}
               />
-              <div className="border-t border-line pt-4">
-                <Action
-                  onClick={() => setExpanded(!expanded)}
-                  className="flex items-center justify-between text-xs font-bold"
-                >
-                  Driving preferences{" "}
-                  <Icon
-                    name="chevron"
-                    className={`size-4 transition-transform ${
-                      expanded ? "rotate-90" : ""
+              <CityField
+                label="Destination"
+                value={drive.destination}
+                onChange={(destination) => setDrive({ ...drive, destination })}
+              />
+            </div>
+            <div>
+              <SectionLabel>What should we look for?</SectionLabel>
+              <Chips
+                values={["History", "Small towns", "Local food", "Nature", "Architecture", "Quirky stops"]}
+                selected={drive.interests}
+                onToggle={toggleDrive}
+              />
+            </div>
+            <div>
+              <SectionLabel hint="Covers driving detours only—not time spent visiting.">Extra driving-time budget</SectionLabel>
+              <div className="grid grid-cols-4 gap-2">
+                {([15, 30, 60, 120] as const).map((minutes) => (
+                  <Action
+                    key={minutes}
+                    onClick={() => setDrive({ ...drive, detourBudget: minutes })}
+                    className={`rounded-md border py-3 text-center text-xs font-bold ${choiceMotion} ${
+                      drive.detourBudget === minutes
+                        ? "border-school bg-school text-white"
+                        : "border-line bg-white text-muted hover:border-school/60 hover:text-school"
                     }`}
-                  />
-                </Action>
-                {expanded && (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    {[
-                      ["Max miles / day", `${drive.maxMilesPerDay} mi`],
-                      ["Fuel economy", `${drive.mpg} mpg`],
-                      [
-                        "Fuel assumption",
-                        `$${drive.gasPrice.toFixed(2)} / gal`,
-                      ],
-                    ].map(([label, value]) => (
-                      <div
-                        key={label}
-                        className="border border-line bg-white p-3"
-                      >
-                        <div className="text-[9px] font-bold uppercase tracking-wider text-muted">
-                          {label}
-                        </div>
-                        <div className="mt-2 text-sm font-bold">{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  >
+                    {minutes} min
+                  </Action>
+                ))}
               </div>
             </div>
+            <DepartureChoice
+              value={drive.departureDate}
+              onChange={(departureDate) => setDrive({ ...drive, departureDate })}
+            />
+          </div>
+        </div>
 
-          <div className="mt-7 border-t border-line pt-5">
-            {error && (
-              <div
-                role="alert"
-                className="mb-3 bg-peach px-3 py-2 text-xs font-semibold text-school"
-              >
-                {error}
-              </div>
-            )}
-            <Action
-              onClick={onSubmit}
-              className="flex w-full items-center justify-center gap-2 rounded-md bg-school px-5 py-3.5 text-sm font-bold text-white"
+        <CarAndDrive drive={drive} setDrive={setDrive} showErrors={showErrors} />
+
+        <div className="mt-6 pb-4">
+          {error && (
+            <div
+              role="alert"
+              className="mb-3 bg-peach px-3 py-2 text-xs font-semibold text-school"
             >
-              <Icon name="car" className="size-4" /> Find stops along my drive
-            </Action>
-            <div className="mt-3 text-center text-[10px] text-muted">
-              Find places worth pulling over for. Results use cached demo data.
+              {error}
             </div>
+          )}
+          <Action
+            onClick={submit}
+            className="group flex w-full items-center justify-center gap-2 rounded-md bg-school px-5 py-3.5 text-sm font-bold text-white shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-ink hover:shadow-lg active:translate-y-0 active:shadow-sm"
+          >
+            <Icon name="car" className="size-4 transition-transform duration-300 group-hover:translate-x-1" /> Find stops along my drive
+          </Action>
+          {showErrors && drive.mpg <= 0 && (
+            <div className="mt-3 text-center text-xs font-semibold text-coral">Add your car's fuel economy above to continue.</div>
+          )}
+          <div className="mt-3 text-center text-[10px] text-muted">
+            Find places worth pulling over for. Results use cached demo data.
           </div>
         </div>
       </div>
