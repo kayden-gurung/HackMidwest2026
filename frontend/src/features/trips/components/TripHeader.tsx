@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 import { Icon, Toggle } from "../../../components/ui";
 import { formatDateRange } from "../../../lib/format";
-import { useSettings } from "../../settings";
 import { useTrip } from "../hooks/useTrips";
 import { useItinerary } from "../../itinerary/hooks/useItinerary";
 import { MILES_PER_DAY_OPTIONS, useTravelMode } from "../api/travelModeStore";
 
-/** Top bar: current trip title and summary, the car mode switch, and the planning-mode label. */
+/** Top bar: current trip title and summary, and the car mode switch. */
 export function TripHeader({ tripId, title, leading }: { tripId: string; title: string; leading?: ReactNode }) {
   // The title comes from the sidebar's list so it updates the moment a journey is named.
   const trip = useTrip(tripId, title);
@@ -17,8 +16,6 @@ export function TripHeader({ tripId, title, leading }: { tripId: string; title: 
     details?.travelers ? `${details.travelers} ${details.travelers === 1 ? "traveler" : "travelers"}` : undefined,
     details?.origin ? `From ${details.origin}` : undefined,
   ].filter(Boolean);
-  // Chosen under "How should Roam help?" in Settings.
-  const { planningStyle } = useSettings().settings;
 
   return (
     <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-line bg-canvas/90 px-5 backdrop-blur md:px-8">
@@ -29,13 +26,7 @@ export function TripHeader({ tripId, title, leading }: { tripId: string; title: 
           <div className="hidden text-xs text-muted sm:block">{trip.status === "loading" ? "\u00a0" : summary.length > 0 ? summary.join(" · ") : "No dates yet. Tell Roam where you want to go."}</div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <CarModeSwitch tripId={tripId} />
-        {/* Shows the planning style; change it in Settings. */}
-        <div className="hidden rounded-full border border-line bg-surface p-1 sm:block">
-          <div className="rounded-full bg-deep px-3 py-1.5 text-xs font-semibold text-white">{planningStyle}</div>
-        </div>
-      </div>
+      <CarModeSwitch tripId={tripId} />
     </header>
   );
 }
