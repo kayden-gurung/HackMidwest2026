@@ -15,10 +15,13 @@ const isoDate = (value: unknown): value is string => typeof value === "string" &
 /** Reject malformed updates atomically, keeping the last good plan visible. */
 export function validateItinerary(value: unknown): ItinerarySnapshot {
   const plan = value as ItinerarySnapshot;
+  const overview = plan?.overview;
   if (!plan || !isoDate(plan.startDate) || !isoDate(plan.endDate) || plan.startDate > plan.endDate
     || (Date.parse(plan.endDate) - Date.parse(plan.startDate)) / 86400000 >= 60
     || !Array.isArray(plan.items) || plan.items.length > 100 || !plan.budget || !money(plan.budget.plannedUsd)
     || (plan.summary != null && typeof plan.summary !== "string")
+    || (overview != null && (typeof overview.destination !== "string" || !overview.destination.trim()
+      || [overview.headline, overview.pace, overview.imageUrl, overview.imageAlt].some((field) => field != null && typeof field !== "string")))
     || (plan.assumptions != null && (!Array.isArray(plan.assumptions) || !plan.assumptions.every((item) => typeof item === "string")))) {
     throw new Error("Roam returned an invalid plan. Your previous plan is still here; please retry.");
   }
@@ -49,8 +52,8 @@ export const itineraryStore = {
   snapshot(tripId: string): ItinerarySnapshot | undefined {
     const plan = plans.get(tripId);
     if (!plan) return undefined;
-    const { startDate, endDate, items, budget, summary, assumptions } = plan;
-    return { startDate, endDate, items, budget, summary, assumptions };
+    const { startDate, endDate, items, budget, summary, assumptions, overview } = plan;
+    return { startDate, endDate, items, budget, summary, assumptions, overview };
   },
   set(tripId: string, snapshot: ItinerarySnapshot) {
     plans.set(tripId, { ...snapshot, tripId });

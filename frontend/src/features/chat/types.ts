@@ -4,12 +4,19 @@ import type { ItinerarySnapshot } from "../itinerary/types";
 export interface DestinationRecommendation {
   destination: string;
   stops: string[];
-  imageUrl: string;
-  imageAlt: string;
-  matchPercent: number;
-  estimatedTotalUsd: number;
-  flightPricePerPersonUsd: number;
-  pace: string;
+  imageUrl?: string;
+  imageAlt?: string;
+  /** Legacy demo score. The postcard uses a recommendation label instead. */
+  matchPercent?: number;
+  estimatedTotalUsd: number | null;
+  flightPricePerPersonUsd?: number;
+  pace?: string;
+  headline?: string;
+  description?: string;
+  budgetUsd?: number | null;
+  unknownCosts?: number;
+  dateLabel?: string;
+  durationDays?: number;
 }
 
 export interface FlightOption {
