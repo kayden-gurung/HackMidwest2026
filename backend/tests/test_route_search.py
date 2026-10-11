@@ -1,5 +1,6 @@
 """Route search and the first plan, on a small fake Kansas City -> Denver world. No network."""
 
+import itertools
 import json
 import math
 import re
@@ -376,14 +377,43 @@ def test_overpass_gives_up_within_its_time_budget(monkeypatch):
 
     def handler(request):
         tried.append(request.url.host)
+        time.sleep(1.5)
         raise httpx.ReadTimeout("slow", request=request)
 
     monkeypatch.setattr(places, "_client", httpx.Client(transport=httpx.MockTransport(handler)))
-    clock = iter([0.0, 0.0, 19.0, 19.0])  # the first server used up the budget
-    monkeypatch.setattr(places.time, "monotonic", lambda: next(clock, 19.0))
+    monkeypatch.setattr(places, "_rotation", itertools.count())
+    began = time.monotonic()
     with pytest.raises(places.PlacesUnavailable):
-        places.overpass("q", timeout_s=20, budget_s=20)
-    assert tried == ["overpass-api.de"]  # the backup server was not tried with under 3 s left
+        places.overpass("q", timeout_s=20, budget_s=4)
+    # After the first server failed at 1.5 s, under 3 s were left: no other server was started.
+    assert tried == ["overpass-api.de"] and time.monotonic() - began < 3.5
+
+
+def test_a_slow_server_gets_a_second_server_asked_and_the_first_answer_wins(monkeypatch):
+    tried = []
+
+    def handler(request):
+        tried.append(request.url.host)
+        if request.url.host == "overpass-api.de":
+            time.sleep(3)  # merely slow
+        return httpx.Response(200, json={"elements": [{"type": "node", "id": request.url.host}]})
+
+    monkeypatch.setattr(places, "_client", httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(places, "_rotation", itertools.count())
+    monkeypatch.setattr(places, "HEDGE_AFTER_S", 0.5)
+    began = time.monotonic()
+    assert places.overpass("q", timeout_s=20, budget_s=20) == [{"type": "node", "id": "overpass.private.coffee"}]
+    assert time.monotonic() - began < 2 and tried == ["overpass-api.de", "overpass.private.coffee"]
+
+
+def test_concurrent_searches_start_on_different_servers(monkeypatch):
+    tried = []
+    monkeypatch.setattr(places, "_client", httpx.Client(transport=httpx.MockTransport(
+        lambda r: tried.append(r.url.host) or httpx.Response(200, json={"elements": []}))))
+    monkeypatch.setattr(places, "_rotation", itertools.count())
+    places.overpass("a")
+    places.overpass("b")
+    assert tried == ["overpass-api.de", "overpass.private.coffee"]
 
 
 TIMED_OUT = {"elements": [{"type": "node", "id": 1}],
@@ -400,6 +430,7 @@ def test_an_overpass_answer_that_ran_out_of_time_is_never_trusted_or_saved(tmp_p
         return httpx.Response(200, json={"elements": [{"type": "node", "id": 2}]})
 
     monkeypatch.setattr(places, "_client", httpx.Client(transport=places.DiskCacheTransport(httpx.MockTransport(handler), tmp_path)))
+    monkeypatch.setattr(places, "_rotation", itertools.count())
     assert places.overpass("q") == [{"type": "node", "id": 2}]  # the backup server's full answer
     assert tried == ["overpass-api.de", "overpass.private.coffee"]
     saved = [p.read_text() for p in tmp_path.rglob("*.json")]
@@ -427,7 +458,8 @@ def test_background_warming_waits_while_a_traveler_is_searching(monkeypatch):
         assert order == []  # still waiting
         places.overpass("q")  # the traveler's own search goes straight through
     background.join(timeout=5)
-    assert order == ["MainThread", places.BACKGROUND_THREAD_PREFIX]
+    # The traveler's search first, then the background one (requests run on helper threads named after them).
+    assert [name.split("-overpass")[0] for name in order] == ["MainThread", places.BACKGROUND_THREAD_PREFIX]
 
 
 def test_route_search_leaves_out_the_start_and_end_cities(world):

@@ -76,7 +76,13 @@ def _warm_one(start: str, destination: str) -> bool:
     return True
 
 
-def warm(routes: list[tuple[str, str]] | None = None, rounds: int = RETRY_ROUNDS, wait_s: float = RETRY_WAIT_S) -> None:
+# Give the app a moment after startup, so warming does not compete with the first search.
+START_DELAY_S = 20
+
+
+def warm(routes: list[tuple[str, str]] | None = None, rounds: int = RETRY_ROUNDS, wait_s: float = RETRY_WAIT_S,
+         start_delay_s: float = 0) -> None:
+    time.sleep(start_delay_s)
     pending = list(routes if routes is not None else demo_routes())
     for round_number in range(rounds):
         pending = [route for route in pending if not _warm_one(*route)]
@@ -94,7 +100,8 @@ def start_warming() -> None:
     if "pytest" in sys.modules or not demo_routes():
         return
     # The name marks its map searches as background work (tools/places.py _overpass_slot).
-    threading.Thread(target=warm, name=places.BACKGROUND_THREAD_PREFIX, daemon=True).start()
+    threading.Thread(target=warm, kwargs={"start_delay_s": START_DELAY_S}, name=places.BACKGROUND_THREAD_PREFIX,
+                     daemon=True).start()
 
 
 if __name__ == "__main__":

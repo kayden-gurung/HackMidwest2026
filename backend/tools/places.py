@@ -15,6 +15,7 @@ requires an identifying User-Agent, so calls are spaced out and results are cach
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import logging
 import math
@@ -22,6 +23,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
@@ -507,14 +509,19 @@ def _nominatim_elements(category: str, origin: GeoPoint, radius_m: int, keyword:
     return elements
 
 
-# Overpass allows about two requests at a time per visitor; more get "429 Too Many Requests".
-# Everything in this backend shares these two slots. Background work (warm.py, threads named
-# "roam-warm...") only ever takes one, and waits while a traveler's request is running.
-_overpass_slots = threading.BoundedSemaphore(2)
-_background_slot = threading.BoundedSemaphore(1)
+# Overpass allows about two requests at a time per visitor and per server; more get "429 Too Many
+# Requests". Each server gets its own two slots here. Background work (warm.py, threads named
+# "roam-warm...") uses at most one per server, and never starts while a traveler is searching.
+BACKGROUND_THREAD_PREFIX = "roam-warm"
+_host_slots = {urlsplit(url).hostname: threading.BoundedSemaphore(2) for url in OVERPASS_URLS}
+_host_background = {urlsplit(url).hostname: threading.BoundedSemaphore(1) for url in OVERPASS_URLS}
+# Requests start on different servers in turn, so two searches at once do not queue on one server.
+_rotation = itertools.count()
+# A slow server is common on the public instances; a second one is asked only after this long, so a
+# quick answer costs one request and the shared servers are not asked twice for nothing.
+HEDGE_AFTER_S = 8.0
 _foreground_lock = threading.Lock()
 _foreground_requests = 0
-BACKGROUND_THREAD_PREFIX = "roam-warm"
 
 
 @contextmanager
@@ -538,47 +545,89 @@ def _in_background() -> bool:
     return threading.current_thread().name.startswith(BACKGROUND_THREAD_PREFIX)
 
 
-@contextmanager
-def _overpass_slot():
-    if not _in_background():
-        with _overpass_slots:
-            yield
-        return
-    with _background_slot:
-        while True:
-            while traveler_waiting():
-                time.sleep(0.5)
-            if _overpass_slots.acquire(timeout=0.5):
-                break
-        try:
-            yield
-        finally:
-            _overpass_slots.release()
+class _ServerBusy(Exception):
+    """All of this server's slots are in use by our own other requests: try another server."""
+
+
+def _ask_server(url: str, query: str, timeout_s: float, background: bool) -> list[dict]:
+    host = urlsplit(url).hostname
+    background_slot = _host_background.get(host) if background else None
+    if background_slot is not None and (traveler_waiting() or not background_slot.acquire(blocking=False)):
+        raise _ServerBusy()
+    slot = _host_slots.get(host)
+    if slot is not None and not slot.acquire(blocking=False):
+        if background_slot is not None:
+            background_slot.release()
+        raise _ServerBusy()
+    try:
+        response = _http().post(url, data={"data": query}, timeout=timeout_s)
+        response.raise_for_status()
+        if overpass_failed(response.content):
+            raise ValueError("the server ran out of time on this query")
+        elements = response.json().get("elements", [])
+        return elements if isinstance(elements, list) else []
+    finally:
+        if slot is not None:
+            slot.release()
+        if background_slot is not None:
+            background_slot.release()
 
 
 def overpass(query: str, timeout_s: float = SEARCH_TIMEOUT_S, budget_s: float | None = None) -> list[dict]:
-    """Runs an Overpass query on the first server that answers. Raises PlacesUnavailable when none does.
+    """Runs an Overpass query and returns the first complete answer. Raises PlacesUnavailable when none comes.
 
-    `budget_s` caps the total wait across servers: the backup server only gets the time that is left.
-    An answer that says the server ran out of time counts as no answer.
+    The query goes to the next server in turn (so concurrent searches spread out). If that one has not
+    answered after HEDGE_AFTER_S, a second server is asked too, and the first complete answer wins.
+    Whenever a server fails, the next is asked, until `budget_s` runs out. An answer that says the
+    server ran out of time counts as a failure.
     """
+    background = _in_background()
+    while background and traveler_waiting():
+        time.sleep(0.5)
     started = time.monotonic()
-    with _overpass_slot():
-        for url in OVERPASS_URLS:
-            remaining = timeout_s if budget_s is None else min(timeout_s, budget_s - (time.monotonic() - started))
-            if remaining < 3:
-                break
-            try:
-                response = _http().post(url, data={"data": query}, timeout=remaining)
-                response.raise_for_status()
-                if overpass_failed(response.content):
-                    log.warning("Overpass %s ran out of time on this query after %.1f s", urlsplit(url).hostname, time.monotonic() - started)
-                    continue
-                elements = response.json().get("elements", [])
-                return elements if isinstance(elements, list) else []
-            except (httpx.HTTPError, ValueError, AttributeError) as error:
-                log.warning("Overpass %s failed after %.1f s: %s", urlsplit(url).hostname, time.monotonic() - started, _why(error))
+    deadline = started + (budget_s if budget_s is not None else timeout_s * len(OVERPASS_URLS))
+    first = next(_rotation) % len(OVERPASS_URLS)
+    order = OVERPASS_URLS[first:] + OVERPASS_URLS[:first]
+    pool = ThreadPoolExecutor(max_workers=len(order), thread_name_prefix=f"{threading.current_thread().name}-overpass")
+    running: dict = {}  # future -> server URL
+    untried = list(order)
+
+    def ask_another() -> None:
+        while untried:
+            remaining = deadline - time.monotonic()
+            url = untried.pop(0)
+            if remaining >= 3:
+                running[pool.submit(_ask_server, url, query, min(timeout_s, remaining), background)] = url
+                return
+
+    try:
+        ask_another()
+        # Hedge: if the first server is merely slow, also ask a second one after HEDGE_AFTER_S.
+        hedge_at = started + HEDGE_AFTER_S
+        while running:
+            now = time.monotonic()
+            until = min(deadline, hedge_at) if untried else deadline
+            done, _ = wait(list(running), timeout=max(0.0, until - now), return_when=FIRST_COMPLETED)
+            if not done:
+                if time.monotonic() >= deadline:
+                    break
+                hedge_at = float("inf")
+                ask_another()
                 continue
+            for future in done:
+                url = running.pop(future)
+                try:
+                    return future.result()
+                except _ServerBusy:
+                    pass
+                except (httpx.HTTPError, ValueError, AttributeError) as error:
+                    reason = str(error) if isinstance(error, ValueError) else _why(error)
+                    log.warning("Overpass %s failed after %.1f s: %s", urlsplit(url).hostname, time.monotonic() - started, reason)
+                ask_another()
+        log.warning("Overpass: no complete answer after %.1f s", time.monotonic() - started)
+    finally:
+        # Requests still running finish in the background and free their slots.
+        pool.shutdown(wait=False)
     raise PlacesUnavailable("The place search service is not responding. Try again in a moment.")
 
 

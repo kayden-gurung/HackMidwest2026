@@ -662,6 +662,11 @@ export default function DriveWorkspace({
               {live?.pending ? "searching" : `${stops.length} ${live ? "found" : "demo"}`}
             </StatusTag>
           </div>
+          {live && !live.pending && stops.length === 0 && live.notes.length > 0 && (
+            <div className="mb-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
+              {live.notes.join(" ")}
+            </div>
+          )}
           {live?.pending && (
             <div className="mb-3 flex items-center gap-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
               <div className="size-4 shrink-0 animate-spin rounded-full border-2 border-line border-t-school" />
@@ -671,7 +676,7 @@ export default function DriveWorkspace({
               </span>
             </div>
           )}
-          {live && !live.pending && stops.length === 0 && (
+          {live && !live.pending && stops.length === 0 && live.notes.length === 0 && (
             <div className="mb-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
               No stops matched these interests within the detour budget. Try
               more interests or a bigger budget.
