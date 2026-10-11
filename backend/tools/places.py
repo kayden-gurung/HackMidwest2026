@@ -33,11 +33,13 @@ OVERPASS_URLS = [
 USER_AGENT = "RoamTravelPlanner/0.1 (HackMidwest 2026 student project; github.com/kayden-gurung/HackMidwest2026)"
 
 GEOCODE_TIMEOUT_S = 8.0
-SEARCH_TIMEOUT_S = 20.0
+# Kept short so a slow or overloaded Overpass server fails fast instead of stalling the chat.
+SEARCH_TIMEOUT_S = 10.0
 NOMINATIM_MIN_INTERVAL_S = 1.1
 MAX_RADIUS_M = 20_000
 MAX_LIMIT = 25
-OVERPASS_FETCH = 200
+# Candidates fetched before ranking; fewer means smaller, faster Overpass responses.
+OVERPASS_FETCH = 80
 
 # Matches the Budget sections in the frontend. Flights are not a place search.
 PlaceCategory = Literal["Food", "Stays", "Activities"]
@@ -161,7 +163,7 @@ def _overpass_query(category: str, lat: float, lng: float, radius_m: int, keywor
     for key, values in CATEGORY_FILTERS[category]:
         tag_filter = f'["{key}"~"^({values})$"]' if values else f'["{key}"]'
         statements += [f"nwr{tag_filter}{extra}{around};" for extra in extra_filters]
-    return f"[out:json][timeout:15];({''.join(statements)});out tags center {fetch};"
+    return f"[out:json][timeout:9];({''.join(statements)});out tags center {fetch};"
 
 
 def _distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:

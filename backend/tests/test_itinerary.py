@@ -94,6 +94,36 @@ def test_invalid_request_plan_rejected_before_model(monkeypatch):
     assert TestClient(app).post("/api/ask", json={"prompt": "revise", "current_itinerary": invalid}).status_code == 422
 
 
+def test_trip_overview_reaches_chat_and_revision_context(monkeypatch):
+    agents = []
+
+    class FakeAgent:
+        system_prompt = "Roam"
+
+        def __init__(self, tool):
+            self.update = tool
+
+        def __call__(self, prompt):
+            plan = draft()
+            plan["overview"] = {"destination": "Kansas City, Missouri", "headline": "A weekend of new corners.", "pace": "Relaxed"}
+            self.update(itinerary=plan)
+            return "Your trip is taking shape."
+
+    def factory(**kwargs):
+        agent = FakeAgent(kwargs["extra_tools"][0])
+        agents.append(agent)
+        return agent
+
+    monkeypatch.setattr(ask_router, "build_agent", factory)
+    client = TestClient(app)
+    first = client.post("/api/ask", json={"prompt": "Plan trip"}).json()
+    assert first["itinerary"]["overview"]["destination"] == "Kansas City, Missouri"
+    assert first["itinerary"]["overview"]["imageUrl"] is None
+    revised = client.post("/api/ask", json={"prompt": "Slow down", "current_itinerary": first["itinerary"]})
+    assert revised.status_code == 200
+    assert "A weekend of new corners." in agents[-1].system_prompt
+
+
 def test_completed_tool_update_without_chat_text_still_returns_a_confirmation(monkeypatch):
     class FakeAgent:
         system_prompt = "Roam"

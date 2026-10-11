@@ -8,6 +8,7 @@ import { itineraryStore, validateItinerary } from "../src/features/itinerary/api
 import { budgetTotals, googleMapsUrl, hasCoordinates, itemCostLabel } from "../src/features/itinerary/lib/itinerary";
 import type { ItinerarySnapshot } from "../src/features/itinerary/types";
 import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
+import { postcardFromItinerary } from "../src/features/chat/lib/tripPostcard";
 import { travelModeStore } from "../src/features/trips/api/travelModeStore";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
@@ -158,6 +159,33 @@ test("unknown budgets/costs stay distinct from free items; invalid dates, IDs an
   ]) assert.throws(() => validateItinerary({ ...plan, ...patch }), /invalid/);
 });
 
+test("live postcards use each journey's metadata and keep unknown estimates separate from free costs", () => {
+  const plan = planFixture();
+  plan.overview = { destination: "Kansas City, Missouri", headline: "A weekend of new corners.", pace: "Relaxed" };
+  plan.summary = "Good food and a little time outside.";
+  const postcard = postcardFromItinerary(validateItinerary(plan))!;
+  assert.equal(postcard.destination, "Kansas City, Missouri");
+  assert.equal(postcard.budgetUsd, 300);
+  assert.equal(postcard.estimatedTotalUsd, 30);
+  assert.equal(postcard.unknownCosts, 1);
+  assert.equal(postcard.durationDays, 2);
+  assert.equal(postcard.imageUrl, undefined);
+  assert.equal(postcard.flightPricePerPersonUsd, undefined);
+  assert.equal(postcard.matchPercent, undefined);
+  itineraryStore.set("postcard-trip", plan);
+  assert.deepEqual(itineraryStore.snapshot("postcard-trip")!.overview, plan.overview);
+  const other = { ...planFixture(), overview: { destination: "Kyoto, Japan", imageUrl: "https://example.com/kyoto.jpg" } };
+  assert.equal(postcardFromItinerary(other)!.destination, "Kyoto, Japan");
+  assert.equal(postcardFromItinerary(other)!.imageUrl, "https://example.com/kyoto.jpg");
+  const unknown = { ...plan, items: plan.items.map((item) => ({ ...item, costUsd: null })) };
+  assert.equal(postcardFromItinerary(unknown)!.estimatedTotalUsd, null);
+  const free = { ...plan, items: plan.items.map((item) => ({ ...item, costUsd: 0 })) };
+  assert.equal(postcardFromItinerary(free)!.estimatedTotalUsd, 0);
+  assert.equal(postcardFromItinerary(free)!.unknownCosts, 0);
+  assert.equal(postcardFromItinerary({ ...plan, items: [] }), undefined);
+  assert.throws(() => validateItinerary({ ...plan, overview: { destination: "" } }), /invalid plan/);
+});
+
 test("car mode is sent with each message, takes flights off the plan, and accepts Driving stops", async () => {
   const requests: any[] = [];
   mock.method(globalThis, "fetch", async (_url, init) => {
@@ -195,4 +223,34 @@ test("Google Maps links use the address, else exact coordinates, never a bare na
   assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate", lat: 39.05, lng: -94.59 } })), "39.05,-94.59");
   assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate" } })), "Blue Plate");
   assert.equal(googleMapsUrl(base), undefined);
+});
+
+test("streamed replies show the draft and tool while writing, then save the final reply", async () => {
+  const events = [{ text: "Let me check " }, { text: "real places." }, { tool: "find_places" }, { text: "Here is your plan." }, { reply: "Here is your plan." }, { done: true }];
+  const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+  // Split mid-event so the client has to stitch chunks back together.
+  const chunks = [body.slice(0, 7), body.slice(7, 40), body.slice(40)];
+  const drafts: (ReturnType<typeof conversationStore.getDraft>)[] = [];
+  const unsubscribe = conversationStore.subscribe(() => drafts.push(conversationStore.getDraft("stream-trip")));
+  let url = "";
+  mock.method(globalThis, "fetch", async (requestUrl: string) => {
+    url = requestUrl;
+    const stream = new ReadableStream({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close(); } });
+    return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
+  });
+  const reply = await chatService.sendMessage("stream-trip", "Weekend in KC");
+  unsubscribe();
+  assert.match(url, /\/api\/ask\/stream$/);
+  assert.equal(reply.text, "Here is your plan.");
+  assert.ok(drafts.some((draft) => draft?.text === "Let me check real places." && draft.tool === undefined));
+  assert.ok(drafts.some((draft) => draft?.tool === "find_places"));
+  assert.ok(drafts.some((draft) => draft?.text === "Let me check real places.\n\nHere is your plan."));
+  assert.equal(conversationStore.getDraft("stream-trip"), undefined);
+  assert.equal(conversationStore.getMessages("stream-trip").at(-1)?.text, "Here is your plan.");
+});
+
+test("an error event in the stream is shown like any other backend error", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(`data: ${JSON.stringify({ error: "Bedrock throttled the request.", status: 429 })}\n\ndata: {"done": true}\n\n`, { headers: { "Content-Type": "text/event-stream" } }));
+  await assert.rejects(chatService.sendMessage("stream-error-trip", "Hi"), /Bedrock throttled/);
+  assert.equal(conversationStore.getError("stream-error-trip"), "Bedrock throttled the request.");
 });

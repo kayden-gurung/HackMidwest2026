@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Action, Icon, ScreenHeader } from "../../../components/ui";
 import { formatUsd } from "../../../lib/format";
 import { useProfile } from "../../profile";
@@ -6,8 +6,7 @@ import { budgetSliderUsd, journeyDefaults, travelerLimits, vibes } from "../api/
 import { describeParty } from "../describeJourney";
 import type { DateRange, JourneyRequest } from "../types";
 import { DateRangePicker } from "./DateRangePicker";
-
-const HERO_IMAGE = "https://images.unsplash.com/photo-1763571588664-a8748e5e2b75?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=85&w=1000";
+import { JourneyStarters } from "./JourneyStarters";
 
 /** Small uppercase label above each section of the form. */
 function FieldLabel({ children }: { children: ReactNode }) {
@@ -37,6 +36,7 @@ function Stepper({ label, hint, value, min, max, onChange }: { label: string; hi
  */
 export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (request: JourneyRequest) => void; initialPrompt?: string }) {
   const [prompt, setPrompt] = useState(initialPrompt);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   // Empty means "No preference"; picking any vibe clears it, and clearing every vibe brings it back.
   const [selectedVibes, setSelectedVibes] = useState(journeyDefaults.vibes);
   const [budgetUsd, setBudgetUsd] = useState(journeyDefaults.budgetUsd);
@@ -60,35 +60,28 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
       <ScreenHeader
         title="Plan a new journey"
         subtitle="Tell Roam the feeling. We’ll figure out the place."
-        action={<div className="hidden rounded-full bg-mint px-3 py-1.5 text-xs font-bold text-sea sm:block">Usually takes 2 minutes</div>}
       />
       <div className="flex-1 overflow-y-auto px-5 py-8 md:px-8 lg:px-12">
-        <div className="mx-auto max-w-4xl">
-          {/* Hero */}
-          <div className="overflow-hidden rounded-3xl bg-deep text-white shadow-xl">
-            <div className="grid lg:grid-cols-[1.1fr_.9fr]">
-              <div className="p-6 md:p-10">
-                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-sun">
-                  <Icon name="sparkles" className="size-3.5" /> Start anywhere
-                </div>
-                <div className="mt-6 max-w-xl font-display text-4xl font-semibold leading-tight md:text-5xl">Where should we take you next?</div>
-                <div className="mt-4 max-w-lg text-sm leading-6 text-white/65">Name a place or describe a feeling—quiet beaches, mountain air, the best street food. Roam will match your budget and pace.</div>
-              </div>
-              <div className="min-h-64 bg-cover bg-center" style={{ backgroundImage: `linear-gradient(135deg,rgba(23,59,58,.05),rgba(23,59,58,.6)),url('${HERO_IMAGE}')` }} />
-            </div>
+        <div className="mx-auto max-w-3xl">
+          <div className="pb-7 pt-2 md:pb-9">
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-sea">A new journey</div>
+            <h1 className="mt-4 font-display text-4xl font-semibold leading-tight tracking-tight md:text-5xl">Where would you rather be?</h1>
+            <p className="mt-3 max-w-lg text-sm leading-6 text-muted">A place, a feeling, a budget. Start with whatever you know.<br className="hidden sm:block" /> We’ll help turn it into your next chapter.</p>
           </div>
-
-          {/* Request form, overlapping the bottom of the hero */}
-          <div className="relative mx-auto -mt-7 max-w-3xl rounded-3xl border border-line bg-surface p-5 shadow-[0_20px_60px_rgba(18,38,38,0.12)] md:p-7">
+          <div className="rounded-[20px] border border-line bg-surface p-5 shadow-[0_8px_32px_rgba(18,38,38,0.035)] md:p-7">
             <FieldLabel>What are you imagining?</FieldLabel>
             <textarea
+              ref={promptRef}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="e.g. A warm, low-key beach week with incredible food..."
+              placeholder="A beach escape, great food, a little hiking…"
               aria-label="Describe your trip"
               rows={3}
               className="mt-3 w-full resize-none rounded-2xl bg-panel p-4 text-base leading-7 outline-none ring-sea placeholder:text-muted focus:ring-2"
             />
+
+            <div className="mb-3 mt-5"><FieldLabel>Find your starting point</FieldLabel></div>
+            <JourneyStarters onChoose={(text, nextVibe) => { setPrompt(text); setSelectedVibes([nextVibe]); promptRef.current?.focus(); }} />
 
             <div className="mt-6">
               <FieldLabel>Choose a vibe</FieldLabel>
@@ -173,7 +166,7 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
             <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-line pt-5 sm:flex-row">
               <div className="text-xs text-muted">For {describeParty(adults, children)} · Flights included</div>
               <Action onClick={findTrip} className="flex w-full items-center justify-center gap-2 rounded-xl bg-sea px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-deep sm:w-auto">
-                Find my trip <Icon name="sparkles" className="size-4 text-sun" />
+                Let’s roam <Icon name="chevron" className="size-4" />
               </Action>
             </div>
           </div>
