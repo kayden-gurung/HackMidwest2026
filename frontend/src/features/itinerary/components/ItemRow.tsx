@@ -45,11 +45,11 @@ export function ItemRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
-            <div className="text-sm font-semibold leading-5">{item.title}</div>
+            <div className="min-w-0 text-sm font-semibold leading-5 [overflow-wrap:anywhere]">{item.title}</div>
             <div className="shrink-0 text-xs font-bold leading-5">{itemCostLabel(item)}</div>
           </div>
-          {when && <div className="mt-0.5 text-xs text-muted">{when}</div>}
-          {item.description && <div className="mt-1.5 text-xs leading-5 text-ink/70">{item.description}</div>}
+          {when && <div className="mt-0.5 text-xs text-muted [overflow-wrap:anywhere]">{when}</div>}
+          {item.description && <div className="mt-1.5 text-xs leading-5 text-ink/70 [overflow-wrap:anywhere]">{item.description}</div>}
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
             {onShowOnMap && hasCoordinates(item) && (
               <Action onClick={() => onShowOnMap(item.id)} className={linkClass}>
