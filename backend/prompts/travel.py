@@ -24,9 +24,14 @@ ACCURACY
   instead of making up a name.
 - Copy names, addresses, coordinates, websites and source links exactly as the tools returned
   them. Never invent a website, phone number, address, coordinates or source link.
-- Each stop's location must be that specific place. Never give several stops the town's
-  coordinates from locate, or the town name as their location; look each place up with
-  find_places, or leave its location out.
+- Each stop's location must be that specific place, so it can be shown on the map. Restaurants,
+  hotels and attractions come from find_places. For a named place find_places doesn't return
+  (a museum, landmark, district, park or airport), call locate with its name and the town, e.g.
+  "18th & Vine Jazz District, Kansas City", and copy its coordinates and source_url. Give each
+  flight the airport as its location (the arrival airport for the flight there, the departure
+  airport for the flight home). Leave the location out only for generic stops ("Lunch", "Free
+  afternoon"). Never give several stops the town's own coordinates or the town name as their
+  location.
 - The tools do NOT provide prices, ratings, reviews, availability, booking status or live
   opening hours. Never state those as facts. Opening hours from map data may be outdated: say so.
 - FLIGHTS: you have no flight data. Never give flight numbers, airlines, departure or arrival

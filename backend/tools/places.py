@@ -65,6 +65,8 @@ class GeoPoint(BaseModel):
     lng: float
     # The matching OpenStreetMap record, when Nominatim names one.
     source_url: str | None = None
+    # What Nominatim matched: "city", "town", "suburb"... for areas, or "attraction", "aerodrome"... for places.
+    kind: str | None = None
 
 
 class Place(BaseModel):
@@ -134,6 +136,7 @@ def geocode(place: str) -> GeoPoint | None:
                 lat=float(top["lat"]),
                 lng=float(top["lon"]),
                 source_url=f"https://www.openstreetmap.org/{osm[0]}/{osm[1]}" if osm[0] in ("node", "way", "relation") and osm[1] else None,
+                kind=top.get("addresstype") or top.get("type"),
             )
         except (KeyError, TypeError, ValueError):
             point = None

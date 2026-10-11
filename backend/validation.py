@@ -71,10 +71,12 @@ def _fix_shared_pins(items: list, evidence: Evidence) -> list[str]:
 
     cleared: list[str] = []
     for group in groups:
-        if len(group) < 2 or len({(_key(i.location.name), _key(i.title)) for i in group}) < 2:
-            continue
         names = {_key(i.location.name) for i in group}
-        towns = {_key(point.name) for point in evidence.points} | {_key(point.name.split(",")[0]) for point in evidence.points}
+        towns = {_key(t.name) for t in evidence.towns()} | {_key(t.name.split(",")[0]) for t in evidence.towns()}
+        # Several stops at one real place ("Museum tour", "Museum cafe") are fine. Different places
+        # on one pin, or stops whose "place" is just the town, mean a stand-in pin.
+        if len(group) < 2 or (len(names) == 1 and not names & towns):
+            continue
         for item in group:
             cleared.append(item.location.name or item.title)
             if len(names) == 1 or _key(item.location.name) in towns:
@@ -89,7 +91,7 @@ def _fix_shared_pins(items: list, evidence: Evidence) -> list[str]:
 def _add_town_context(items: list, evidence: Evidence) -> None:
     """A stop with only a name (no address, no pin) searches Google Maps for that name anywhere.
     When the trip has one looked-up town, add it so the search lands in the right town."""
-    towns = {_key(point.name): point.name for point in evidence.points}
+    towns = {_key(point.name): point.name for point in evidence.towns()}
     if len(towns) != 1:
         return
     town = next(iter(towns.values()))[:400]
@@ -127,10 +129,10 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
         claimed_sources = list(item.sourceUrls)
         # Links plan_drive returned (route sources, Google Maps directions) are real too, but have no pin.
         drive_sources = [url for url in claimed_sources if url in evidence.drive_links]
-        item.sourceUrls = [url for url in claimed_sources if url in evidence.places_by_source]
+        item.sourceUrls = [url for url in claimed_sources if evidence.known_source(url)]
         if item.sourceUrls:
             # Real place: take its facts from the tool result, whatever the model wrote.
-            known = evidence.places_by_source[item.sourceUrls[0]]
+            known = evidence.known_source(item.sourceUrls[0])
             address = known.address or (item.location.address if item.location else None)
             item.location = Location(name=item.location.name if item.location else known.name, address=address, lat=known.lat, lng=known.lng)
             item.websiteUrl = known.website_url

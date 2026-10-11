@@ -373,3 +373,88 @@ def test_lookup_limit_defaults_to_15_and_can_be_changed(monkeypatch):
     items = ItinerarySnapshot.model_validate(plan(*(item(f"s{n}", location={"name": f"Stop {n}"}) for n in range(5)))).items
     pin_stops(items, town_evidence())
     assert len(queries) == 2
+
+
+def test_real_kansas_city_plan_gets_its_pins_back(monkeypatch):
+    """Built from a live plan (Nov 2026) where only 5 of 9 stops reached the map."""
+    import tools.places as places_module
+    from pins import pin_stops
+    from tools.places import GeoPoint
+
+    kc = {"status": "ok", "name": "Kansas City, Jackson County, Missouri, United States", "lat": 39.100105, "lng": -94.5781416,
+          "source_url": "https://www.openstreetmap.org/relation/141008", "kind": "city"}
+    nelson = {"status": "ok", "name": "Nelson-Atkins Museum of Art, 4525, Oak Street, Westport, Kansas City, Missouri, 64111, United States",
+              "lat": 39.0449664, "lng": -94.5809582, "source_url": "https://www.openstreetmap.org/relation/15394221", "kind": "tourism"}
+    airport = GeoPoint(name="Kansas City International Airport, 1, London Avenue, Kansas City, Missouri, 64153, United States",
+                       lat=39.3022673, lng=-94.720996, source_url="https://www.openstreetmap.org/way/209241979", kind="aerodrome")
+    district = GeoPoint(name="18th and Vine Jazz District, Kansas City, Missouri, United States", lat=39.0915, lng=-94.5612,
+                        source_url="https://www.openstreetmap.org/way/77", kind="neighbourhood")
+    found = {"Kansas City International Airport": airport, "18th & Vine Jazz District, Kansas City": district}
+    queries = []
+    monkeypatch.setattr(places_module, "geocode", lambda q: queries.append(q) or found.get(q))
+
+    evidence = Evidence()
+    evidence.add_point(kc)
+    evidence.add_point(nelson)
+    evidence.add_place({"name": "Burnt End BBQ", "lat": 39.082431, "lng": -94.59, "source_urls": ["https://www.openstreetmap.org/node/3"]})
+    snapshot = ItinerarySnapshot.model_validate(plan(
+        item("fly", title="Flight from Chicago to Kansas City", category="Flights", costUsd=200),
+        item("bbq", title="Lunch at Burnt End BBQ", category="Food", sourceUrls=["https://www.openstreetmap.org/node/3"],
+             location={"name": "Burnt End BBQ", "lat": 39.082431, "lng": -94.59}),
+        item("nelson", title="Nelson-Atkins Museum of Art", sourceUrls=[nelson["source_url"]],
+             location={"name": "Nelson-Atkins Museum of Art", "lat": 39.0449664, "lng": -94.5809582}),
+        item("jazz", title="Jazz in the 18th & Vine District", location={"name": "18th & Vine Jazz District"}),
+        item("lunch", title="Lunch in Kansas City", category="Food"),
+        item("home", title="Return Flight to Chicago", category="Flights", costUsd=0),
+    ))
+    cleaned, notes = validate_snapshot(snapshot, evidence, pinner=pin_stops)
+    by_id = {i.id: i for i in cleaned.items}
+
+    # The museum keeps the source link the AI copied from locate: no false "removed" note.
+    assert by_id["nelson"].sourceUrls == [nelson["source_url"]]
+    assert not any("Removed map pins" in n for n in notes)
+    # Both flights are pinned at the airport, looked up once.
+    for flight in ("fly", "home"):
+        assert (by_id[flight].location.lat, by_id[flight].location.name) == (39.3022673, "Kansas City International Airport")
+    assert queries.count("Kansas City International Airport") == 1
+    # A named district gets its pin; a generic lunch stays off the map.
+    assert by_id["jazz"].location.lat == 39.0915
+    assert by_id["lunch"].location is None
+    pinned = [i for i in cleaned.items if i.location and i.location.lat is not None]
+    assert len(pinned) == 5 and len({(i.location.lat, i.location.lng) for i in pinned}) == 4  # two flights share the airport
+
+
+def test_town_anchor_comes_from_find_places_when_locate_was_never_called(fake_map, monkeypatch):
+    import tools.places as places_module
+    from evidence import recording_tools
+    from tools.places import GeoPoint
+
+    monkeypatch.setattr(places_module, "geocode", lambda q: GeoPoint(name="Polignano a Mare, Bari, Italy", lat=41.0, lng=17.21, kind="town") if q == "Polignano a Mare" else None)
+    evidence = Evidence()
+    {t.tool_name: t for t in recording_tools(evidence)}["find_places"]("Polignano a Mare", "Food")
+    assert [t.name for t in evidence.towns()] == ["Polignano a Mare, Bari, Italy"]
+
+
+def test_a_landmark_is_not_mistaken_for_the_town():
+    """Two stops at one real museum keep their pin; only town-center stand-ins are removed."""
+    evidence = Evidence()
+    evidence.add_point({"name": "Kansas City, Missouri", "lat": 39.1, "lng": -94.578, "kind": "city"})
+    evidence.add_point({"name": "Nelson-Atkins Museum of Art, Oak Street", "lat": 39.045, "lng": -94.581, "kind": "museum"})
+    museum = {"name": "Nelson-Atkins Museum of Art", "lat": 39.045, "lng": -94.581}
+    snapshot = ItinerarySnapshot.model_validate(plan(item("tour", title="Museum tour", location=museum), item("cafe", title="Museum cafe", location=museum)))
+    cleaned, notes = validate_snapshot(snapshot, evidence)
+    assert all(i.location.lat == 39.045 for i in cleaned.items)
+
+
+def test_district_next_to_the_town_center_is_still_pinned(monkeypatch):
+    import tools.places as places_module
+    from pins import pin_stops
+    from tools.places import GeoPoint
+
+    pl = GeoPoint(name="Power & Light District, Downtown Kansas City", lat=39.0987, lng=-94.5811, kind="neighbourhood")
+    monkeypatch.setattr(places_module, "geocode", lambda q: pl if q.startswith("Power & Light") else None)
+    evidence = Evidence()
+    evidence.add_point({"name": "Kansas City, Missouri", "lat": 39.100105, "lng": -94.5781416, "kind": "city"})
+    snapshot = ItinerarySnapshot.model_validate(plan(item("pl", title="Night out", location={"name": "Power & Light District"})))
+    cleaned, _ = validate_snapshot(snapshot, evidence, pinner=pin_stops)
+    assert cleaned.items[0].location.lat == 39.0987
