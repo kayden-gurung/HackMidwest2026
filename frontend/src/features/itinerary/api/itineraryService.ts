@@ -1,18 +1,11 @@
-import { config } from "../../../config/env";
 import { ApiError, api } from "../../../lib/apiClient";
-import { mockResponse } from "../../../lib/mock";
 import type { Itinerary } from "../types";
-import { mockItineraries } from "./mockData";
 import { itineraryStore } from "./itineraryStore";
 
 export interface ItineraryService {
   /** Resolves with null when the trip has no plan yet (a new journey, for example). */
   getItinerary(tripId: string): Promise<Itinerary | null>;
 }
-
-export const mockItineraryService: ItineraryService = {
-  getItinerary: (tripId) => mockResponse(mockItineraries[tripId] ?? null),
-};
 
 /** PROPOSED endpoint: not implemented in backend/ yet. */
 export const httpItineraryService: ItineraryService = {
@@ -26,7 +19,7 @@ export const httpItineraryService: ItineraryService = {
   },
 };
 
-// Live plans arrive with chat replies, and are stored per journey in browser memory.
-export const itineraryService: ItineraryService = config.useMocks ? mockItineraryService : {
+// Plans are kept per journey in itineraryStore: the Explore sample trips start with one, and chat replies add the rest.
+export const itineraryService: ItineraryService = {
   getItinerary: async (tripId) => itineraryStore.get(tripId),
 };

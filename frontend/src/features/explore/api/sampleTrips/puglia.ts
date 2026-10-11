@@ -1,14 +1,43 @@
-import type { Itinerary } from "../types";
+import { defineSampleTrip } from "./build";
 
-// MOCK DATA: example itinerary based on the Figma design. Prices are invented and coordinates are
+// MOCK DATA: the Puglia example from the Figma design. Prices are invented and coordinates are
 // approximate. Costs are totals for both travelers and add up to the design's $3,080.
+// Flights: $648 per person round trip, so each leg is $648 for the two of them.
 
-export const mockItineraries: Record<string, Itinerary> = {
-  puglia: {
-    tripId: "puglia",
+export const puglia = defineSampleTrip({
+  id: "puglia",
+  title: "A slow week in Puglia",
+  theme: "A slow week",
+  place: "Puglia, Italy",
+  country: "Italy",
+  tags: ["Beach", "Food", "Outdoors"],
+  photo: "photo-1770493967117-6ae3927c0d05",
+  imageAlt: "Clifftop homes along the turquoise coast of Polignano a Mare, Puglia",
+  origin: "New York",
+  travelers: 2,
+  plannedUsd: 3200,
+  prompt: "I want a relaxing beach trip somewhere in Europe with great food and a little hiking. Around $3,200 for two, including flights from NYC.",
+  reply: {
+    text: "Puglia feels just right. You’ll get Adriatic coves, incredible cucina povera, and coastal trails—without the Amalfi crowds or prices.",
+    headline: "A little coast. A lot of calm.",
+    description: "Adriatic coves, incredible food, and room to slow down.",
+    stops: ["Bari", "Polignano a Mare", "Alberobello"],
+    pace: "Relaxed",
+    suggestions: ["Swap the boat tour", "Show hotel options", "Make it more relaxing"],
+  },
+  flight: {
+    departTime: "6:10 PM",
+    departAirport: "JFK",
+    arriveTime: "12:35 PM",
+    arriveAirport: "BRI",
+    arriveDayOffset: 1,
+    duration: "12h 25m",
+    stops: 1,
+    pricePerPersonUsd: 648,
+  },
+  itinerary: {
     startDate: "2029-06-18",
     endDate: "2029-06-25",
-    budget: { plannedUsd: 3200 },
     days: [
       { date: "2029-06-18", title: "Arrive in Bari", detail: "Check in · Old Town walk", accent: "blue" },
       { date: "2029-06-19", title: "Polignano coast", detail: "Beach · Cave boat tour", accent: "yellow" },
@@ -25,7 +54,7 @@ export const mockItineraries: Record<string, Itinerary> = {
         date: "2029-06-18",
         time: "12:35",
         title: "Flight JFK → BRI",
-        description: "Leaves JFK 6:10 PM the day before, 1 stop, 10h 25m. 2 travelers.",
+        description: "Leaves JFK 6:10 PM the day before, 1 stop, 12h 25m. 2 travelers.",
         category: "Flights",
         costUsd: 648,
         location: { name: "Bari Karol Wojtyła Airport", lat: 41.1389, lng: 16.7606 },
@@ -185,4 +214,4 @@ export const mockItineraries: Record<string, Itinerary> = {
       { id: "grotta-palazzese", kind: "restaurant", name: "Grotta Palazzese", cuisine: "Seafood", rating: 4.7 },
     ],
   },
-};
+});

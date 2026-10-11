@@ -7,7 +7,10 @@ import { describeJourney } from "../src/features/journey/describeJourney";
 import { itineraryStore, validateItinerary } from "../src/features/itinerary/api/itineraryStore";
 import { budgetTotals, googleMapsUrl, hasCoordinates, itemCostLabel, websiteLabel } from "../src/features/itinerary/lib/itinerary";
 import type { ItinerarySnapshot } from "../src/features/itinerary/types";
-import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
+import { sampleTrips } from "../src/features/explore/api/sampleTrips";
+import { destinationIdeas } from "../src/features/explore/api/mockData";
+import { formatDateRange } from "../src/lib/format";
+import { totalCost, tripDates, visibleBudgetCategories } from "../src/features/itinerary/lib/itinerary";
 import { postcardFromItinerary } from "../src/features/chat/lib/tripPostcard";
 import { travelModeStore } from "../src/features/trips/api/travelModeStore";
 import { tripTypesStore } from "../src/features/journey/api/tripTypesStore";
@@ -114,14 +117,89 @@ test("a proposal cannot overwrite trip settings or a plan changed during review"
   assert.equal(itineraryStore.get(tripId)!.items[0].title, "Park picnic");
 });
 
-test("the example journey has matching seeded chat and itinerary while new journeys stay empty", async () => {
-  assert.ok((await localTripsService.listTrips()).some((trip) => trip.id === EXAMPLE_TRIP_ID));
-  assert.ok(conversationStore.getMessages(EXAMPLE_TRIP_ID).length > 0);
-  assert.ok(itineraryStore.get(EXAMPLE_TRIP_ID)!.items.length > 0);
+test("sample trips are not journeys, but open with their own chat, plan and header while new journeys stay empty", async () => {
+  const listed = (await localTripsService.listTrips()).map((trip) => trip.id);
+  for (const sample of sampleTrips) {
+    assert.equal(listed.includes(sample.id), false, `${sample.id} must not be under Recent journeys`);
+    assert.equal(conversationStore.getMessages(sample.id).length, 2);
+    assert.ok(itineraryStore.get(sample.id)!.items.length > 0);
+    const header = await localTripsService.getTrip(sample.id);
+    assert.equal(header.title, sample.summary.title);
+    assert.equal(header.travelers, sample.details.travelers);
+    assert.equal((await localTripsService.listTripCards()).some((card) => card.id === sample.id), false);
+  }
   const draft = await localTripsService.createTrip();
   assert.deepEqual(conversationStore.getMessages(draft.id), []);
   assert.equal(itineraryStore.get(draft.id), null);
   await localTripsService.deleteTrip(draft.id);
+});
+
+test("each sample trip is internally consistent and backs its Explore card", () => {
+  assert.deepEqual(destinationIdeas.map((idea) => idea.id), sampleTrips.map((trip) => trip.id));
+  assert.equal(new Set(sampleTrips.map((trip) => trip.id)).size, sampleTrips.length);
+  for (const { id, idea, itinerary, conversation, details, summary } of sampleTrips) {
+    const { tripId, ...snapshot } = itinerary;
+    assert.equal(tripId, id);
+    // The plan is valid for the panels and for the backend, and fits its own budget.
+    validateItinerary(snapshot);
+    const { spentUsd, remainingUsd, unknownCosts } = budgetTotals(itinerary);
+    assert.ok(remainingUsd! >= 0, `${id} is over budget`);
+    assert.equal(unknownCosts, 0);
+    assert.ok(itinerary.items.every((item) => item.costUsd !== null && item.location), `${id} has a stop without a cost or place`);
+    // Every day has a headline and something planned; headlines match the plan's dates.
+    const dates = tripDates(itinerary.startDate, itinerary.endDate);
+    assert.deepEqual(itinerary.days!.map((day) => day.date), dates);
+    for (const date of dates) assert.ok(itinerary.items.some((item) => item.date === date), `${id} has nothing on ${date}`);
+    // The card's price, length and group size are the plan's.
+    assert.equal(idea.fromPriceUsd, spentUsd);
+    assert.equal(idea.days, dates.length);
+    assert.equal(idea.travelers, details.travelers);
+    assert.equal(summary.budgetUsd, itinerary.budget.plannedUsd);
+    // Flights: one out, one home, together the per-person round trip for everyone traveling.
+    const flights = itinerary.items.filter((item) => item.category === "Flights");
+    assert.equal(flights.length, 2);
+    const reply = conversation[1];
+    assert.equal(reply.role, "assistant");
+    if (reply.role !== "assistant") continue;
+    assert.equal(totalCost(flights), reply.flight!.pricePerPersonUsd * details.travelers);
+    assert.equal(reply.recommendation!.flightPricePerPersonUsd, reply.flight!.pricePerPersonUsd);
+    // The chat postcard repeats what the Plan and Budget tabs say.
+    assert.equal(reply.recommendation!.estimatedTotalUsd, spentUsd);
+    assert.equal(reply.recommendation!.budgetUsd, itinerary.budget.plannedUsd);
+    assert.equal(reply.recommendation!.dateLabel, formatDateRange(itinerary.startDate, itinerary.endDate));
+    assert.equal(reply.recommendation!.durationDays, dates.length);
+    assert.equal(reply.flight!.withinBudget, spentUsd <= itinerary.budget.plannedUsd!);
+    // A flown trip may still hire a car for some days; its Budget sections are all shown.
+    assert.ok(visibleBudgetCategories(itinerary.items).includes("Flights"));
+    // The stay is booked for every night of the trip.
+    const nights = dates.length - 1;
+    const stays = itinerary.items.filter((item) => item.category === "Stays");
+    assert.equal(stays.map((stay) => Number(/(\d+) nights?/.exec(stay.title)?.[1])).reduce((sum, count) => sum + count, 0), nights, `${id} stays do not cover ${nights} nights`);
+    // The highlighted stay and table are real stops in the plan.
+    for (const place of itinerary.places!) assert.ok(itinerary.items.some((item) => item.title.includes(place.name) || item.location?.name === place.name), `${place.name} is not in ${id}'s plan`);
+  }
+});
+
+test("every mapped stop of a sample trip is near where the trip is based", () => {
+  const km = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const rad = Math.PI / 180;
+    const x = Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lng - a.lng) * rad) / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(x));
+  };
+  for (const { id, itinerary } of sampleTrips) {
+    const base = itinerary.items.find((item) => item.category === "Stays" && hasCoordinates(item))!.location as { lat: number; lng: number };
+    for (const item of itinerary.items.filter(hasCoordinates)) {
+      const distance = km(base, item.location);
+      assert.ok(distance < 120, `${id}: "${item.title}" is ${Math.round(distance)} km from the stay`);
+    }
+  }
+});
+
+test("Explore filters still split the sample trips by interest and budget", () => {
+  const withTag = (tag: string) => destinationIdeas.filter((idea) => (idea.tags as string[]).includes(tag)).map((idea) => idea.id);
+  for (const tag of ["Beach", "Food", "Outdoors", "Culture"]) assert.ok(withTag(tag).length > 0 && withTag(tag).length < destinationIdeas.length, tag);
+  const under = destinationIdeas.filter((idea) => idea.fromPriceUsd < 2500).map((idea) => idea.id);
+  assert.deepEqual(under, ["madeira", "busan", "naples"]);
 });
 
 test("live chat sends journey history, preferences and mode; retry preserves one user message", async () => {

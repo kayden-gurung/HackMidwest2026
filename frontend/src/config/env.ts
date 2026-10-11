@@ -4,6 +4,4 @@ export const config = {
   apiBaseUrl: (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, ""),
   /** Opt into the design demo; live Strands chat is the default. */
   useMocks: import.meta.env.VITE_USE_MOCKS === "true",
-  /** Keep the Puglia example journey visible; real journeys still use live Strands. */
-  showExample: import.meta.env.VITE_SHOW_EXAMPLE !== "false",
 };
