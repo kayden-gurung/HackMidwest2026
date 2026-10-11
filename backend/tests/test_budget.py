@@ -51,17 +51,21 @@ def test_decimal_costs_have_exact_cent_totals():
 def test_every_published_draft_requires_its_own_budget_check():
     updates = ItineraryUpdates()
     plan = draft()
-    assert updates.update_itinerary(itinerary=plan)["status"] == "budget_check_required"
+    with pytest.raises(ValueError, match="Budget check required"):
+        updates.update_itinerary(itinerary=plan)
     assert updates.latest is None
     updates.check_budget(itinerary=plan)
     plan["items"][2]["costUsd"] = 0
-    assert updates.update_itinerary(itinerary=plan)["status"] == "budget_check_required"
+    with pytest.raises(ValueError, match="Budget check required"):
+        updates.update_itinerary(itinerary=plan)
     assert updates.latest is None
     updates.check_budget(itinerary=plan)
     assert updates.update_itinerary(itinerary=plan)["status"] == "updated"
     assert updates.latest.items[2].costUsd == 0
-    assert updates.update_itinerary(itinerary=plan)["status"] == "budget_check_required"
-    assert ItineraryUpdates().update_itinerary(itinerary=plan)["status"] == "budget_check_required"
+    with pytest.raises(ValueError, match="Budget check required"):
+        updates.update_itinerary(itinerary=plan)
+    with pytest.raises(ValueError, match="Budget check required"):
+        ItineraryUpdates().update_itinerary(itinerary=plan)
 
 
 def test_nested_budget_tool_input_works_through_strands():

@@ -61,6 +61,8 @@ HOW TO HELP
 - Respect the total trip budget for all travelers. Label costs as estimates and explain
   excluded costs. Keep USD estimates separate from any requested display currency.
 - You MUST call check_budget with the complete draft BEFORE every update_itinerary call.
+  Publish it by calling update_itinerary with the returned draft_id only. Do not regenerate
+  the full draft for publication. After any edit, check the revised draft and use its new ID.
   Python does the arithmetic; use its total, remaining/over-budget amount and unknown costs.
   If over budget, use cut_candidates to choose cheaper alternatives or skip optional activities,
   preserving must-do stops and essential meals, lodging and transport. Recheck every changed
@@ -70,6 +72,8 @@ HOW TO HELP
   Budget panels match the chat. Do not only describe the plan in text. If update_itinerary
   returns notes about removed or unverified details, fix them (look the place up, or drop it)
   and do not repeat the removed details in your reply.
+  Only say a change was applied after update_itinerary returns status "updated". If a tool
+  rejects the change, resolve the error or explain that the previous plan remains unchanged.
 - When plans change, preserve unaffected activities and explain the changes. Treat the current
   itinerary as the latest plan; older chat may describe superseded plans. If dates are flexible,
   choose explicitly stated example dates and label them as assumptions.

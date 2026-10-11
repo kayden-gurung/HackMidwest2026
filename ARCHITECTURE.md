@@ -91,8 +91,11 @@ are explicit statuses, never sample weather. Forecast data is fetched on each ca
 `update_itinerary`. `backend/budget.py` uses decimal arithmetic to return the known estimated
 total, remaining/over-budget amount, unknown-cost items and ranked cut candidates. Candidates
 prioritize optional activities, then cheaper meals/stays/transport; the model chooses changes.
-Unknown costs never establish affordability. Every changed draft must be checked again:
-`update_itinerary` rejects an unchecked or different snapshot without changing the plan.
+Unknown costs never establish affordability. `check_budget` stores the draft and returns a
+request-local `draft_id`; `update_itinerary(draft_id=...)` publishes that stored draft without
+asking the model to reproduce it. Every changed draft must be checked again. IDs are invalidated
+by a new check or successful publication. An exact snapshot remains a legacy alternative;
+unchecked, different, stale or cross-request drafts produce a Strands tool error.
 Over-budget drafts may still be published with the existing warning so infeasible requests can
 be explained honestly; the check itself never silently deletes costs or changes the budget.
 
@@ -101,6 +104,13 @@ check before every itinerary update. SSE emits actual tool calls during both ini
 and the one-shot recovery pass. Chat displays their progress labels and retains “Forecast
 lookup” / “Budget check” labels with the reply; these indicate tool calls, not a promise that
 the weather service succeeded or that the trip is affordable.
+
+An unfinished budget check or rejected update triggers recovery independently of the reply's
+wording. Wording heuristics remain a fallback for replies that claim an edit without attempting
+any tools. After recovery, the router checks publication state: an unapplied edit returns an
+explicit failure message and no itinerary, preserving the previous plan in the browser.
+The existing car-mode fallback still removes flights from the previous plan; the failure
+message explicitly distinguishes that cleanup from the edit that could not be applied.
 
 ## Traveler preferences
 

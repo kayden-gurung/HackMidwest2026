@@ -68,7 +68,7 @@ def max_miles(body: AskRequest) -> int | None:
 def final_itinerary(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence) -> ItinerarySnapshot | None:
     """The plan to send back. If car mode was switched on but the model left the old plan alone,
     the old plan's flights are still removed so the panels never show one."""
-    if updates.latest is not None:
+    if updates.latest is not None and not updates.update_pending:
         return updates.latest
     current = body.current_itinerary
     if body.car_mode and current is not None and any(is_air_travel(item.title, item.category) for item in current.items):
@@ -104,15 +104,18 @@ NUDGE = (
     "You described a plan or a change to the plan but did not call update_itinerary, so the "
     "traveler's Plan, Map and Budget panels still show the old plan. Call check_budget with the "
     "complete draft, review the result and revise if needed, then call update_itinerary with the "
-    "checked itinerary, including every unchanged stop. Do not write anything else."
+    "returned draft_id only. Retain every unchanged stop in the checked draft. "
+    "Only confirm a change after the tool returns status updated."
 )
-_CHANGED = re.compile(r"\b(swapp|replac|updat|chang|added|adding|remov|moved|moving|switch|instead of|now (has|includes|starts|ends))", re.IGNORECASE)
+_CHANGED = re.compile(r"\b(swapp|replac|updat|chang|adjust|reschedul|shift|added|adding|remov|moved|moving|switch|instead of|now (has|includes|starts|ends))", re.IGNORECASE)
 _NEW_PLAN = re.compile(r"\bday\s*(1|one)\b", re.IGNORECASE)
 _ASKING = re.compile(r"(would you like|do you want|should i|shall i|which (one|option)|let me know)", re.IGNORECASE)
 
 
 def needs_panel_update(body: AskRequest, updates: ItineraryUpdates, reply: str) -> bool:
     """True when the reply says the plan changed (or lays out a new plan) but the panels were not updated."""
+    if updates.update_pending:
+        return True  # Tool state takes precedence over wording, even if the reply is empty or a question.
     if updates.latest is not None or not reply:
         return False
     if reply.rstrip().endswith("?") and _ASKING.search(reply):
@@ -121,17 +124,29 @@ def needs_panel_update(body: AskRequest, updates: ItineraryUpdates, reply: str) 
     return bool(pattern.search(reply))
 
 
+def confirmed_reply(reply: str, updates: ItineraryUpdates, recovery_needed: bool, *, car_mode_cleanup: bool = False) -> str:
+    """Never report a rejected or unfinished panel update as a successful edit."""
+    if updates.update_pending or (recovery_needed and updates.latest is None):
+        if car_mode_cleanup:
+            return ("I couldn't apply the requested itinerary changes. Car mode removed flights from your "
+                    "previous plan; the rest is unchanged. Please try again.")
+        return "I couldn't apply the itinerary changes. Your previous plan is unchanged. Please try again."
+    return reply or updates.confirmation()
+
+
 @router.post("/ask", response_model=AskResponse, response_model_exclude_unset=True)
 def ask(body: AskRequest):
     try:
         updates, evidence = checked_updates(body)
         agent = agent_for_request(body, updates, evidence)
         reply = str(agent(body.prompt)).strip()
-        if needs_panel_update(body, updates, reply):
-            agent(NUDGE)
-        reply = reply or updates.confirmation()
-        result = {"reply": reply}
+        recovery_needed = needs_panel_update(body, updates, reply)
+        if recovery_needed:
+            reply = str(agent(NUDGE)).strip() or reply
         plan = final_itinerary(body, updates, evidence)
+        reply = confirmed_reply(reply, updates, recovery_needed, car_mode_cleanup=plan is not None and
+                                (updates.latest is None or updates.update_pending))
+        result = {"reply": reply}
         if plan is not None:
             result["itinerary"] = plan.model_dump(mode="json")
         return result
@@ -161,18 +176,22 @@ async def ask_stream(body: AskRequest):
                 elif "result" in ev:
                     result = ev["result"]
             reply = str(result).strip() if result is not None else ""
-            if needs_panel_update(body, updates, reply):
+            recovery_needed = needs_panel_update(body, updates, reply)
+            if recovery_needed:
                 async for ev in agent.stream_async(NUDGE):
                     if "current_tool_use" in ev and ev["current_tool_use"].get("name"):
                         tool_use = ev["current_tool_use"]
                         if tool_use.get("toolUseId", tool_use["name"]) != last_tool:
                             last_tool = tool_use.get("toolUseId", tool_use["name"])
                             yield f"data: {json.dumps({'tool': tool_use['name']})}\n\n"
+                    elif "result" in ev:
+                        reply = str(ev["result"]).strip() or reply
             # The final answer, exactly as POST /ask returns it. The text chunks above also include
             # what the model said between tool calls, so clients replace them with this.
-            reply = reply or updates.confirmation()
-            yield f"data: {json.dumps({'reply': reply})}\n\n"
             plan = final_itinerary(body, updates, evidence)
+            reply = confirmed_reply(reply, updates, recovery_needed, car_mode_cleanup=plan is not None and
+                                    (updates.latest is None or updates.update_pending))
+            yield f"data: {json.dumps({'reply': reply})}\n\n"
             if plan is not None:
                 yield f"data: {json.dumps({'itinerary': plan.model_dump(mode='json')})}\n\n"
         except Exception as error:

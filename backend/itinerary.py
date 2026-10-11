@@ -2,6 +2,7 @@
 
 from datetime import date
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from strands import tool
@@ -82,6 +83,8 @@ class ItineraryUpdates:
         # Optional accuracy check (validation.validate_snapshot): returns a cleaned plan plus notes.
         self.check = check
         self._budget_draft: ItinerarySnapshot | None = None
+        self._draft_id: str | None = None
+        self.update_pending = False
 
     @tool
     def check_budget(self, itinerary: ItinerarySnapshot) -> dict:
@@ -91,14 +94,19 @@ class ItineraryUpdates:
         ranked cut candidates when over budget; you decide which alternatives preserve the
         traveler's priorities. Never treat unknown costs as free or remove essential costs to
         pretend a trip is affordable. After any draft change, call check_budget again, then
-        update_itinerary with that exact draft. This check does not publish or edit the plan.
+        update_itinerary with the returned draft_id only. This check does not publish or edit the plan.
 
         Args:
             itinerary: Complete draft itinerary, including costs for all travelers and budget.
         """
+        self.update_pending = True
+        self._budget_draft = None
+        self._draft_id = None
         draft = ItinerarySnapshot.model_validate(itinerary)
         result = analyze_budget(draft)
         self._budget_draft = draft.model_copy(deep=True)
+        self._draft_id = uuid4().hex
+        result["draft_id"] = self._draft_id
         return result
 
     def confirmation(self) -> str:
@@ -114,13 +122,14 @@ class ItineraryUpdates:
         return f"Updated your plan for {dates}: {len(plan.items)} stops, with an estimated total of ${total:,.2f}{budget}.{missing}"
 
     @tool
-    def update_itinerary(self, itinerary: ItinerarySnapshot) -> dict:
+    def update_itinerary(self, draft_id: str = "", itinerary: ItinerarySnapshot | None = None) -> dict:
         """Update the traveler's Plan, Map and Budget panels with a complete itinerary.
 
         Call whenever you propose or revise a concrete trip plan, even a short draft.
-        You MUST call check_budget with this exact draft first. If you change the draft,
-        check it again before calling update_itinerary. An unchecked draft will be rejected.
-        Send the FULL replacement snapshot, retaining unaffected stops and stable IDs.
+        You MUST call check_budget with the complete revised draft first, retaining
+        unaffected stops and stable IDs. Then pass its returned draft_id only here;
+        Python publishes the stored draft, so do not regenerate the itinerary a second time.
+        If you change the draft, check it again and use the new draft_id.
         Give every specific stop a location so it shows on the map: coordinates and source
         URL from the find_places result for that exact place, or from locate for a named
         landmark, district or airport. A flight's location is its airport. Never reuse a
@@ -135,18 +144,28 @@ class ItineraryUpdates:
         when a tool or the traveler supplied a photo URL; otherwise omit it.
 
         Args:
-            itinerary: Complete revised plan matching the schema, not just changed stops.
+            draft_id: ID returned by the most recent check_budget in this request.
+            itinerary: Legacy alternative: the exact complete budget-checked snapshot.
         """
         # Strands validates tool input, then passes nested models as dictionaries.
-        validated = ItinerarySnapshot.model_validate(itinerary)
-        if self._budget_draft != validated:
-            return {"status": "budget_check_required",
-                    "message": "Call check_budget with this exact complete draft, review its result, then call update_itinerary. No plan was changed."}
+        self.update_pending = True
+        supplied = ItinerarySnapshot.model_validate(itinerary) if itinerary is not None else None
+        valid_id = bool(draft_id) and draft_id == self._draft_id
+        if (self._budget_draft is None or (draft_id and not valid_id)
+                or (supplied is not None and supplied != self._budget_draft)
+                or (not valid_id and supplied is None)):
+            # ValueError becomes a Strands tool error, rather than a successful tool
+            # result containing a rejection that the model can mistake for publication.
+            raise ValueError("Budget check required. Call check_budget with the complete revised draft, "
+                             "review its result, then call update_itinerary with its draft_id only. No plan was changed.")
+        validated = self._budget_draft.model_copy(deep=True)
         notes: list[str] = []
         if self.check is not None:
             validated, notes = self.check(validated)
         self.latest = validated
         self._budget_draft = None
+        self._draft_id = None
+        self.update_pending = False
         budget = analyze_budget(validated)
         result = {"status": "updated", "stops": len(validated.items),
                   "estimated_total_usd": budget["estimated_total_usd"],
