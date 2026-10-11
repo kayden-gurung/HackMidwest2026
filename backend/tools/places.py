@@ -96,6 +96,8 @@ class Place(BaseModel):
     cuisine: str | None = None
     opening_hours: str | None = None
     phone: str | None = None
+    # The chain it belongs to, when the map says so ("Subway"). None for independent places.
+    brand: str | None = None
     # Straight-line distance from the searched location.
     distance_m: int
     # Where this record came from, so the UI can show a source link.
@@ -433,6 +435,7 @@ def _to_place(element: dict, category: str, origin: GeoPoint) -> Place | None:
         cuisine=tags.get("cuisine", "").replace(";", ", ").replace("_", " ") or None,
         opening_hours=tags.get("opening_hours"),
         phone=tags.get("phone") or tags.get("contact:phone"),
+        brand=tags.get("brand") or None,
         distance_m=_distance_m(origin.lat, origin.lng, lat, lng),
         source_urls=[f"https://www.openstreetmap.org/{element.get('type', 'node')}/{element.get('id')}"],
     )
@@ -555,7 +558,26 @@ def search_places(
     origin = geocode(near)
     if origin is None:
         return []
+    places = _search_at(origin, category, keyword, radius_m, limit)
+    _search_cache[cache_key] = places
+    return places
 
+
+def search_around(lat: float, lng: float, category: PlaceCategory, keyword: str | None = None,
+                  radius_m: int = 3000, limit: int = 8) -> list[Place]:
+    """Like search_places, around a point instead of a place name (e.g. a stop already on the map).
+
+    Raises PlacesUnavailable when the map services cannot be reached.
+    """
+    if category not in CATEGORY_FILTERS:
+        raise ValueError(f"category must be one of {', '.join(CATEGORY_FILTERS)}")
+    radius_m = max(100, min(int(radius_m), MAX_RADIUS_M))
+    limit = max(1, min(int(limit), MAX_LIMIT))
+    keyword = " ".join(keyword.split()) if keyword else None
+    return _search_at(GeoPoint(name=f"{lat:.5f},{lng:.5f}", lat=lat, lng=lng), category, keyword, radius_m, limit)
+
+
+def _search_at(origin: GeoPoint, category: str, keyword: str | None, radius_m: int, limit: int) -> list[Place]:
     # Fast path first. Overpass (slow when busy) is only the backup for when Nominatim fails or finds nothing.
     try:
         elements = _nominatim_elements(category, origin, radius_m, keyword) or None
@@ -592,9 +614,7 @@ def search_places(
         ranked.append((_notability(element), place))
     ranked.sort(key=lambda pair: (-pair[0], pair[1].distance_m))
 
-    places = [place for _, place in ranked[:limit]]
-    _search_cache[cache_key] = places
-    return places
+    return [place for _, place in ranked[:limit]]
 
 
 def clear_caches() -> None:

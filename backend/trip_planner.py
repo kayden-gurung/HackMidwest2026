@@ -26,7 +26,7 @@ from roadtrip import RoadTripPlanner
 from schemas import RoadTripPreferences
 from tools import places
 from tools.driving import DriveDay, DriveEstimate, estimate_drive, route_path
-from tools.route_search import INTEREST_TAGS, RoutePlaces, RouteStop, notability, rank_stops, search_route, source_url
+from tools.route_search import DEFAULT_INTERESTS, INTEREST_TAGS, RoutePlaces, RouteStop, notability, rank_stops, search_route, source_url
 
 log = logging.getLogger("roam.planner")
 
@@ -51,6 +51,7 @@ LUXURY = re.compile(r"ritz|four seasons|st\.? regis|waldorf|mandarin oriental|pe
 MEAL_USD = {"restaurant": 18, "cafe": 12}
 STAY_USD = {"motel": 80, "guest_house": 110, "hotel": 130}
 LUXURY_STAY_USD = 250
+INTERESTS_NOTE = "Stops were picked for:"
 # Extra candidates shown for swapping, beyond the chosen stops.
 MORE_STOPS = 8
 
@@ -402,9 +403,11 @@ def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteS
                                          "Stays", picks[f"stay-{outbound}"], f"Near {_short(leg.end)}. Book ahead: Roam has no availability."))
 
     total_days = days * (2 if request.round_trip else 1)
-    interests = ", ".join(i for i in request.interests if i in INTEREST_TAGS) or "history, nature and quirky stops"
+    interests = ", ".join(i for i in request.interests if i in INTEREST_TAGS) or ", ".join(DEFAULT_INTERESTS)
     assumptions = [
         *estimate.assumptions,
+        # quick_edits.py reads this line, so "a different town" searches for the same interests.
+        f"{INTERESTS_NOTE} {interests}.",
         "Each day starts at 8:00 am. Times and visit lengths are rough planning estimates.",
         "Detour times are from OSRM routing, without traffic.",
         "Stops, meals and stays come from OpenStreetMap, which has no prices, ratings or live opening hours.",

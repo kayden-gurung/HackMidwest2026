@@ -15,6 +15,7 @@ from agent_runs import AgentRun, runs
 from aws_errors import aws_error_response
 from evidence import Evidence, evidence_from_snapshot, recording_tools
 from pins import pin_stops
+from quick_edits import QUICK_EDIT_PROMPT, QuickEdits
 from itinerary import ItinerarySnapshot, ItineraryUpdates
 from prompts.travel import TRIP_TYPES, car_mode_instruction, trip_types_instruction
 from schemas import Preferences, RoadTripPreferences, describe_preferences
@@ -87,7 +88,11 @@ def final_itinerary(body: AskRequest, updates: ItineraryUpdates, evidence: Evide
 
 def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence):
     messages = [{"role": message.role, "content": [{"text": message.content}]} for message in body.history]
-    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget], travel_tools=recording_tools(evidence, max_miles(body), getattr(updates, "roadtrip_planner", None)),
+    # Small changes to an existing drive are made in code (quick_edits.py), not rewritten by the model.
+    planner = getattr(updates, "roadtrip_planner", None)
+    quick = (QuickEdits(planner, updates, evidence, body.current_itinerary, body.preferences.interests if body.preferences else None)
+             if planner is not None and body.current_itinerary is not None else None)
+    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget, *(quick.tools() if quick else [])], travel_tools=recording_tools(evidence, max_miles(body), getattr(updates, "roadtrip_planner", None)),
                         checked_draft=lambda: updates.review_draft)
     mode = body.mode or (body.preferences.planning_style if body.preferences else None) or "Co-pilot"
     mode_instruction = {
@@ -140,6 +145,9 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evi
         context_start = agent.system_prompt.index("\nToday is ")
         for specialist in specialists.values():
             specialist.system_prompt += agent.system_prompt[context_start:]
+    if quick is not None:
+        # Last, and for the orchestrator only: the specialists do not hold these tools.
+        agent.system_prompt += QUICK_EDIT_PROMPT
     return agent
 
 
@@ -147,7 +155,8 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evi
 # without calling update_itinerary, so the panels keep the old plan. Then it is asked once more.
 NUDGE = (
     "You described a plan or a change to the plan but did not call update_itinerary, so the "
-    "traveler's Plan, Map and Budget panels still show the old plan. Call check_budget with the "
+    "traveler's Plan, Map and Budget panels still show the old plan. If edit_stops already answered "
+    "\"checked\", just call update_itinerary with no arguments. Otherwise call check_budget with the "
     "complete draft, including every unchanged stop, review the result and revise if needed, then "
     "call update_itinerary with no arguments to publish it. Do not write anything else."
 )

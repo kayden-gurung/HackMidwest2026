@@ -15,6 +15,8 @@ const toolStatus: Record<string, string> = {
   locate: "Looking up locations…",
   plan_drive: "Checking driving routes…",
   find_route_towns: "Looking for towns along your route…",
+  find_options: "Finding real places for your change…",
+  edit_stops: "Changing that stop and checking the whole route…",
   find_airports: "Finding airports…",
   flight_links: "Getting flight search links…",
   get_forecast: "Checking the live forecast…",
