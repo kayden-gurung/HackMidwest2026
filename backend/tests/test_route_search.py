@@ -147,7 +147,7 @@ def test_corridor_search_finds_towns_and_landmarks_with_real_detours(world):
     assert len(world["queries"]) == 1
     assert "(around:" not in query and '["place"~"^(town|village)$"]["name"](' in query
     # Node coordinates kept; ways and relations as tags and a centre only.
-    assert "node.found out qt" in query and "out tags center qt" in query
+    assert "node.found;out qt" in query and ");out tags center qt" in query
 
 
 def test_local_food_skips_chains_and_small_towns_favours_villages(world):
@@ -488,3 +488,26 @@ def test_warming_retries_routes_when_the_map_services_were_down(world):
     finally:
         warm._warm_one = real
     assert len(calls) == 2  # failed once (no stops), then planned when the service was back
+
+
+def test_compressed_answers_pass_through_the_disk_cache(tmp_path):
+    """Real servers send gzip. The cache hands on the already-decompressed body, so it must not keep
+    the Content-Encoding header, or httpx decompresses twice (DecodingError)."""
+    import gzip
+
+    body = json.dumps({"code": "Ok", "routes": []}).encode()
+    transport = places.DiskCacheTransport(httpx.MockTransport(
+        lambda r: httpx.Response(200, content=gzip.compress(body), headers={"content-encoding": "gzip", "content-type": "application/json"})),
+        tmp_path)
+    client = httpx.Client(transport=transport)
+    assert client.get("https://router.project-osrm.org/route/x").json() == {"code": "Ok", "routes": []}  # fresh
+    assert client.get("https://router.project-osrm.org/route/x").json() == {"code": "Ok", "routes": []}  # saved
+
+
+def test_overpass_queries_use_valid_output_statements(world):
+    """`node.found out ...` is a syntax error (Overpass answers 400): each output is its own statement."""
+    plan(detour_budget_minutes=60)
+    assert len(world["queries"]) == 2
+    for query in world["queries"]:
+        assert "found out" not in query
+        assert query.count(";out ") == 2 and "node.found;out qt" in query and ");out tags center qt" in query

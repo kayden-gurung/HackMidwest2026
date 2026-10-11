@@ -115,6 +115,12 @@ def overpass_failed(body: str | bytes) -> bool:
     return '"remark"' in head and ("runtime error" in head or "timed out" in head or "out of memory" in head)
 
 
+def _decoded_headers(response: httpx.Response) -> list[tuple[str, str]]:
+    """The answer's headers for its already-decompressed body: without Content-Encoding (or the
+    compressed length), or httpx would try to decompress it a second time (DecodingError)."""
+    return [(k, v) for k, v in response.headers.multi_items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+
+
 class DiskCacheTransport(httpx.BaseTransport):
     """Keeps successful map-service answers on disk, so a route planned once is instant afterwards,
     even after a restart, and works on bad venue wifi. OpenStreetMap data changes slowly; delete
@@ -154,7 +160,7 @@ class DiskCacheTransport(httpx.BaseTransport):
             return response
         body = response.read()
         if overpass_failed(body):
-            return httpx.Response(200, headers=response.headers, content=body, request=request)
+            return httpx.Response(200, headers=_decoded_headers(response), content=body, request=request)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_suffix(".tmp")
@@ -163,7 +169,7 @@ class DiskCacheTransport(httpx.BaseTransport):
             temporary.replace(path)  # never leave a half-written file behind
         except (OSError, UnicodeDecodeError):
             pass
-        return httpx.Response(200, headers=response.headers, content=body, request=request)
+        return httpx.Response(200, headers=_decoded_headers(response), content=body, request=request)
 
 
 # Next to the backend code, which Docker mounts from the host, so it survives rebuilds.

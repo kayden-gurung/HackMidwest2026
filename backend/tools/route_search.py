@@ -261,7 +261,7 @@ def _route_query(boxes: list[tuple[float, float, float, float]], with_food: list
         f"[out:json][timeout:{int(OVERPASS_TIMEOUT_S) - 3}];({''.join(statements)})->.found;"
         # Nodes with their coordinates; ways and relations with tags and a centre point only (no
         # member lists), which keeps the answer small. "out tags" alone would drop node coordinates.
-        f"node.found out qt {MAX_ELEMENTS};(way.found;relation.found;);out tags center qt {MAX_ELEMENTS};"
+        f"node.found;out qt {MAX_ELEMENTS};(way.found;relation.found;);out tags center qt {MAX_ELEMENTS};"
     )
 
 

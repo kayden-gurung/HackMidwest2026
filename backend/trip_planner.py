@@ -186,7 +186,7 @@ def _anchor_places(anchors: list[_Anchor]) -> tuple[dict[str, dict], bool]:
     try:
         elements = places.overpass(
             f"[out:json][timeout:{int(ANCHOR_TIMEOUT_S) - 2}];({statements})->.found;"
-            "node.found out qt 1500;(way.found;relation.found;);out tags center qt 1500;",
+            "node.found;out qt 1500;(way.found;relation.found;);out tags center qt 1500;",
             timeout_s=ANCHOR_TIMEOUT_S, budget_s=ANCHOR_BUDGET_S,
         )
     except places.PlacesUnavailable:
