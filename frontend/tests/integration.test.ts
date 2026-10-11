@@ -548,6 +548,8 @@ test("route planner request sends the setup form and only a real departure date"
   assert.equal(planRequest({ ...plannerDraft, departureDate: " 2026-10-17 " }).departure_date, "2026-10-17");
   assert.equal(body.include_places, true);
   assert.equal(planRequest(plannerDraft, false).include_places, false);
+  assert.equal(body.mpg, 28);
+  assert.equal("mpg" in planRequest({ ...plannerDraft, mpg: 0 }), false);
 });
 
 test("route planner answer becomes the drive tab's plan, chosen stops first in route order", () => {

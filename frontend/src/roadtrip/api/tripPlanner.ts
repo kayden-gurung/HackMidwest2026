@@ -64,8 +64,9 @@ export function planRequest(draft: DriveDraft, includePlaces = true) {
     // The form allows "Flexible"; only a real date is sent.
     departure_date: ISO_DATE.test(draft.departureDate.trim()) ? draft.departureDate.trim() : null,
     max_miles_per_day: draft.maxMilesPerDay,
-    mpg: draft.mpg,
-    gas_price: draft.gasPrice,
+    // Left out when not filled in (0), so the backend uses its default instead of refusing.
+    ...(draft.mpg > 0 ? { mpg: draft.mpg } : {}),
+    ...(draft.gasPrice > 0 ? { gas_price: draft.gasPrice } : {}),
   }
 }
 
