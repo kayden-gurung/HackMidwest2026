@@ -93,7 +93,7 @@ def world(monkeypatch):
             state["queries"].append(query)
             if not state["overpass_up"]:
                 return httpx.Response(504)
-            if ".towns" in query:
+            if '"place"~"^(town|village)$"' in query:  # the search along the route line
                 return httpx.Response(200, json={"elements": CORRIDOR})
             # Meals and beds: a local diner, a chain and a hotel at every anchor.
             elements = []
@@ -134,7 +134,10 @@ def test_corridor_search_finds_towns_and_landmarks_with_real_detours(world):
     assert 320 <= fort.miles_from_start <= 340  # 55% of 600 miles, to the nearest route point (about 3 miles apart)
     # One Overpass request per piece of the route, searching around the line and around the towns.
     query = world["queries"][0]
-    assert "(around:15000," in query and "around.towns:3000" in query and "out center" in query and "out tags center" not in query
+    # One pass along the route line: towns within 10 km and places within 5 km, in a single request.
+    assert len(world["queries"]) == 1
+    assert "(around:10000," in query and "(around:5000," in query and "around.towns" not in query
+    assert "out center" in query and "out tags center" not in query
 
 
 def test_local_food_skips_chains_and_small_towns_favours_villages(world):
@@ -292,3 +295,26 @@ def test_search_endpoints(client, world):
     places.clear_caches()
     driving.clear_cache()
     assert client.get("/api/trips/towns", params={"origin": "Kansas City, MO", "destination": "Denver, CO"}).status_code == 503
+
+
+def test_long_drive_is_searched_in_pieces_at_the_same_time_and_merged(world, monkeypatch):
+    monkeypatch.setattr(route_search, "CHUNK_POINTS", 40)
+    stops = stops_for(["History", "Nature"])
+    assert len(world["queries"]) > 1
+    # Each piece returns the same fake places: they are merged, not repeated.
+    assert len([s for s in stops if s.name == "Fort Hays"]) == 1
+
+
+def test_one_piece_failing_keeps_the_rest(world, monkeypatch):
+    monkeypatch.setattr(route_search, "CHUNK_POINTS", 40)
+    calls = {"n": 0}
+    real = places.overpass
+
+    def flaky(query, timeout_s=10.0):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise places.PlacesUnavailable("busy")
+        return real(query, timeout_s)
+
+    monkeypatch.setattr(places, "overpass", flaky)
+    assert stops_for(["History"])  # the other pieces still found stops

@@ -11,6 +11,8 @@ planning estimates and are labeled as such.
 
 from __future__ import annotations
 
+import logging
+import time
 from datetime import date, timedelta
 
 from pydantic import BaseModel, Field
@@ -19,6 +21,8 @@ from itinerary import ItinerarySnapshot, Location, PlanBudget, PlanItem, TripOve
 from tools import places
 from tools.driving import DriveDay, DriveEstimate, estimate_drive, route_path
 from tools.route_search import INTEREST_TAGS, RouteStop, corridor_stops
+
+log = logging.getLogger("roam.planner")
 
 DAY_START_MINUTES = 8 * 60
 LUNCH_MINUTES = 45
@@ -182,11 +186,13 @@ def build_first_plan(request: TripRequest) -> TripPlan | None:
     Raises PlacesUnavailable only when the route itself cannot be fetched; if the place search is
     down, the plan still comes back with the driving and a note.
     """
+    started = time.monotonic()
     estimate = estimate_drive(request.start, request.destination, request.round_trip, request.max_miles_per_day,
                               request.route_index, request.mpg, request.gas_price)
     coordinates = route_path(request.start, request.destination, request.route_index)
     if estimate is None or coordinates is None:
         return None
+    log.info("plan %s -> %s: route and overnight towns in %.1f s", request.start, request.destination, time.monotonic() - started)
 
     notes: list[str] = []
     days = estimate.driving_days_each_way
@@ -204,8 +210,11 @@ def build_first_plan(request: TripRequest) -> TripPlan | None:
     if any(s.detour_estimated for s in stops):
         notes.append("Some detour times are estimated from distance because the routing service did not answer.")
 
+    meals_started = time.monotonic()
     itinerary, meal_notes = _itinerary(request, estimate, stops)
     notes += meal_notes
+    log.info("plan %s -> %s: meals and stays in %.1f s; %.1f s in total, %d stops",
+             request.start, request.destination, time.monotonic() - meals_started, time.monotonic() - started, len(stops))
     return TripPlan(
         itinerary=itinerary,
         route=RouteSummary(

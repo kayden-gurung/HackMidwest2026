@@ -14,14 +14,19 @@ Nothing here writes descriptions or opinions: `reason` only states what the map 
 
 from __future__ import annotations
 
+import logging
 import math
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 from pydantic import BaseModel
 
 from tools import places
 from tools.driving import OSRM_URL, ROUTE_TIMEOUT_S, METERS_PER_MILE, _osrm_routes, estimate_drive, route_path
+
+log = logging.getLogger("roam.route_search")
 
 OSRM_TABLE_URL = OSRM_URL.replace("/route/", "/table/")
 
@@ -55,19 +60,19 @@ INTEREST_TAGS: dict[str, list[tuple[str, str | None]]] = {
 }
 DEFAULT_INTERESTS = ["History", "Nature", "Quirky stops"]
 
-# Search widths. A town 15 km off the highway is usually a 20-25 minute detour there and back.
-TOWN_CORRIDOR_M = 15_000
-# Stand-alone landmarks (a fort or a waterfall outside any town) must be closer, and well documented.
-LANDMARK_CORRIDOR_M = 8_000
-# Places within this distance of a town count as being in it.
+# One search along the route line finds both, in a narrow band either side of the road:
+# towns and villages within 10 km (a 10-20 minute detour there and back)...
+TOWN_CORRIDOR_M = 10_000
+# ...and places within 5 km. Each place then belongs to a town within TOWN_RADIUS_M, or stands alone.
+PLACE_CORRIDOR_M = 5_000
 TOWN_RADIUS_M = 3_000
 # Towns this close to the start or the end are part of those cities, not stops on the way.
 ENDPOINT_GAP_M = 30_000
 # The route line sent to Overpass keeps one point every this many metres...
-PATH_STEP_M = 5_000
-# ...and is searched in pieces of this many points (about 400 km), so one slow piece does not sink the rest.
-CHUNK_POINTS = 80
-OVERPASS_TIMEOUT_S = 45.0
+PATH_STEP_M = 8_000
+# ...so one request covers about 1,600 km. Longer drives are split, and the pieces run at the same time.
+CHUNK_POINTS = 200
+OVERPASS_TIMEOUT_S = 30.0
 MAX_ELEMENTS_PER_CHUNK = 3000
 # Candidates whose detour is measured (one OSRM table request). The public demo server allows 100 points.
 MAX_DETOUR_CHECKS = 25
@@ -184,19 +189,14 @@ def _interest_filters(interests: list[str]) -> list[str]:
 
 
 def _corridor_query(points: list[tuple[float, float]], interests: list[str]) -> str:
-    line = ",".join(f"{lat:.5f},{lng:.5f}" for lat, lng in points)
-    filters = _interest_filters(interests)
-    in_towns = "".join(f"nwr{f}[\"name\"](around.towns:{TOWN_RADIUS_M});" for f in filters)
-    # Outside towns, only well-documented places: a mapped fort or waterfall, not every roadside plaque.
-    landmarks = "".join(f"nwr{f}[\"name\"][\"wikidata\"](around:{LANDMARK_CORRIDOR_M},{line});"
-                        for f in filters if "amenity" not in f and "craft" not in f)
+    """One pass along the route line: towns and matching places in a narrow band either side of the road."""
+    line = ",".join(f"{lat:.4f},{lng:.4f}" for lat, lng in points)
+    statements = "".join(f'nwr{f}["name"](around:{PLACE_CORRIDOR_M},{line});' for f in _interest_filters(interests))
     return (
         f"[out:json][timeout:{int(OVERPASS_TIMEOUT_S) - 5}];"
-        f'node["place"~"^(town|village)$"]["name"](around:{TOWN_CORRIDOR_M},{line})->.towns;'
-        ".towns out body;"
-        f"({in_towns}{landmarks})->.pois;"
+        f'(node["place"~"^(town|village)$"]["name"](around:{TOWN_CORRIDOR_M},{line});{statements});'
         # "out center", not "out tags center": tags-only output has no node coordinates.
-        f".pois out center {MAX_ELEMENTS_PER_CHUNK};"
+        f"out center {MAX_ELEMENTS_PER_CHUNK};"
     )
 
 
@@ -242,6 +242,10 @@ def _notability(tags: dict) -> float:
         + 0.5 * ("heritage" in tags)
         + 0.5 * ("opening_hours" in tags)
     )
+
+
+def _documented(tags: dict) -> bool:
+    return any(key in tags for key in ("wikidata", "wikipedia", "heritage", "website", "contact:website"))
 
 
 def _population(tags: dict) -> int | None:
@@ -320,7 +324,9 @@ def _candidates(elements: list[dict], interests: list[str], points: list[tuple[f
         nearest = min(around, key=lambda tp: _distance_m(lat, lng, *tp[1]), default=None)
         if nearest and _distance_m(lat, lng, *nearest[1]) <= TOWN_RADIUS_M:
             by_town.setdefault(id(nearest[0]), []).append(poi)
-        elif "wikidata" in (poi.get("tags") or {}):
+        elif _documented(poi.get("tags") or {}):
+            # Outside towns, only places with a Wikipedia/Wikidata entry, a website or heritage
+            # status: a mapped fort or waterfall, not every roadside plaque.
             alone.append(poi)
 
     excluded = {" ".join(x.split()).lower() for x in exclude or [] if x}
@@ -474,16 +480,23 @@ def corridor_stops(coordinates: list, interests: list[str] | None = None, exclud
     points = _simplify(coordinates)
     cumulative = _cumulative(points)
 
-    elements: list[dict] = []
-    failures = 0
+    started = time.monotonic()
     chunks = [points[i:i + CHUNK_POINTS + 1] for i in range(0, max(1, len(points) - 1), CHUNK_POINTS)]
-    for chunk in chunks:
+
+    def search(chunk: list[tuple[float, float]]) -> list[dict] | None:
         try:
-            elements += places.overpass(_corridor_query(chunk, interests), timeout_s=OVERPASS_TIMEOUT_S)
+            return places.overpass(_corridor_query(chunk, interests), timeout_s=OVERPASS_TIMEOUT_S)
         except places.PlacesUnavailable:
-            failures += 1
-    if failures == len(chunks):
+            return None
+
+    # Pieces of a long drive are searched at the same time (Overpass allows a couple per visitor).
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(search, chunks))
+    if all(result is None for result in results):
         raise places.PlacesUnavailable("The place search service is not responding. Try again in a moment.")
+    elements = [element for result in results if result for element in result]
+    log.info("route search: %d place records along %d km in %.1f s (%d request%s)", len(elements),
+             round(cumulative[-1] / 1000), time.monotonic() - started, len(chunks), "s" if len(chunks) > 1 else "")
     unique = list({(e.get("type"), e.get("id")): e for e in elements}.values())
 
     if route_miles and cumulative[-1] > 0:
@@ -493,7 +506,9 @@ def corridor_stops(coordinates: list, interests: list[str] | None = None, exclud
         cumulative_miles = cumulative
     found = _candidates(unique, interests, points, cumulative_miles, exclude)
     candidates = _spread(found, cumulative_miles[-1] / METERS_PER_MILE, min(limit, MAX_DETOUR_CHECKS))
+    started = time.monotonic()
     _measure_detours(candidates, points, cumulative, mpg, gas_price)
+    log.info("route search: measured %d detours in %.1f s", len(candidates), time.monotonic() - started)
     stops = [c.stop for c in candidates if c.stop.detour_minutes <= max_detour_minutes]
     return sorted(stops, key=lambda s: -s.score)
 
