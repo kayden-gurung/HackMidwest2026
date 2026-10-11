@@ -5,6 +5,7 @@ import type { AskRequest, AskResponse, AssistantMessage, ChatMessage, TravelPref
 import { conversationStore } from "./conversationStore";
 import { mockReply } from "./mockData";
 import { itineraryStore, validateItinerary } from "../../itinerary/api/itineraryStore";
+import { travelModeStore } from "../../trips/api/travelModeStore";
 
 export interface ChatService {
   /** Earlier messages for a trip. */
@@ -51,7 +52,16 @@ function historyFor(tripId: string): NonNullable<AskRequest["history"]> {
 }
 
 const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) => {
-  const body: AskRequest = { prompt, history: historyFor(tripId), mode, preferences: preferences && toRequestPreferences(preferences), current_itinerary: itineraryStore.snapshot(tripId) };
+  const { carMode, maxMilesPerDay } = travelModeStore.get(tripId);
+  const body: AskRequest = {
+    prompt,
+    history: historyFor(tripId),
+    mode,
+    preferences: preferences && toRequestPreferences(preferences),
+    current_itinerary: itineraryStore.snapshot(tripId),
+    car_mode: carMode,
+    max_drive_miles_per_day: carMode ? maxMilesPerDay : undefined,
+  };
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 180000);
   try {

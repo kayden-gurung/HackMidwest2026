@@ -5,9 +5,10 @@ import { conversationStore } from "../src/features/chat/api/conversationStore";
 import { localTripsService } from "../src/features/trips/api/tripsService";
 import { describeJourney } from "../src/features/journey/describeJourney";
 import { itineraryStore, validateItinerary } from "../src/features/itinerary/api/itineraryStore";
-import { budgetTotals, hasCoordinates, itemCostLabel } from "../src/features/itinerary/lib/itinerary";
+import { budgetTotals, googleMapsUrl, hasCoordinates, itemCostLabel } from "../src/features/itinerary/lib/itinerary";
 import type { ItinerarySnapshot } from "../src/features/itinerary/types";
 import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
+import { travelModeStore } from "../src/features/trips/api/travelModeStore";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
 globalThis.window = globalThis as unknown as Window & typeof globalThis;
@@ -152,4 +153,43 @@ test("unknown budgets/costs stay distinct from free items; invalid dates, IDs an
     { items: [{ ...plan.items[0], costUsd: -1 }] },
     { items: [{ ...plan.items[0], location: { name: "Park", lat: 100, lng: 0 } }] },
   ]) assert.throws(() => validateItinerary({ ...plan, ...patch }), /invalid/);
+});
+
+test("car mode is sent with each message, takes flights off the plan, and accepts Driving stops", async () => {
+  const requests: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ reply: "ok" }), { status: 200 });
+  });
+  const tripId = "car-trip";
+  itineraryStore.set(tripId, {
+    startDate: "2026-10-17", endDate: "2026-10-18", budget: { plannedUsd: 900 }, assumptions: [],
+    items: [
+      { id: "f", date: "2026-10-17", title: "Flight MCI to DEN", category: "Flights", costUsd: 400 },
+      { id: "d", date: "2026-10-17", title: "Drive to Salina", category: "Driving", costUsd: 40 },
+    ],
+  });
+
+  await chatService.sendMessage(tripId, "Plan Denver");
+  assert.equal(requests[0].car_mode, false);
+  assert.equal(requests[0].max_drive_miles_per_day, undefined);
+
+  travelModeStore.set(tripId, { carMode: true });
+  assert.deepEqual(itineraryStore.get(tripId)!.items.map((item) => item.id), ["d"]);
+  travelModeStore.set(tripId, { maxMilesPerDay: 300 });
+  await chatService.sendMessage(tripId, "Drive instead");
+  assert.equal(requests[1].car_mode, true);
+  assert.equal(requests[1].max_drive_miles_per_day, 300);
+  assert.equal(travelModeStore.get("another-trip").carMode, false);
+
+  assert.doesNotThrow(() => validateItinerary(itineraryStore.snapshot(tripId)));
+});
+
+test("Google Maps links use the address, else exact coordinates, never a bare name when a pin is known", () => {
+  const base = { id: "x", date: "2026-10-17", title: "Dinner", category: "Food" as const, costUsd: 20 };
+  const query = (url?: string) => decodeURIComponent(new URL(url!).searchParams.get("query")!);
+  assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate", address: "Main St 1, Kansas City" } })), "Blue Plate, Main St 1, Kansas City");
+  assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate", lat: 39.05, lng: -94.59 } })), "39.05,-94.59");
+  assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate" } })), "Blue Plate");
+  assert.equal(googleMapsUrl(base), undefined);
 });

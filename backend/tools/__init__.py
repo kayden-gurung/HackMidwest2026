@@ -9,6 +9,7 @@ reason about: either results with sources, or a clear "unavailable" message.
 
 from __future__ import annotations
 
+from tools.driving import estimate_drive
 from tools.places import PlacesUnavailable, geocode, search_places
 
 
@@ -51,9 +52,32 @@ def locate(place: str) -> dict:
     return {"status": "ok", "source": "OpenStreetMap", **point.model_dump()}
 
 
+def plan_drive(origin: str, destination: str, round_trip: bool = True, max_miles_per_day: int = 0) -> dict:
+    """Get the real road distance, driving time and estimated fuel cost between two places.
+
+    Use this for any road trip, and whenever the traveler's budget looks too small for flights:
+    compare the fuel cost here with what flights for the whole party would cost, and plan the
+    cheaper option that still fits the trip. Fuel cost is for one car, not per person.
+    The fuel figure is an estimate: always show the listed assumptions with it.
+
+    Args:
+        origin: Where the drive starts, e.g. "Kansas City, MO".
+        destination: Where the drive ends, e.g. "Denver, CO".
+        round_trip: True to cost the drive there and back, False for one way.
+        max_miles_per_day: The traveler's limit on miles of driving per day, or 0 for none.
+    """
+    try:
+        estimate = estimate_drive(origin, destination, round_trip, max_miles_per_day or None)
+    except PlacesUnavailable as error:
+        return {"status": "unavailable", "message": str(error)}
+    if estimate is None:
+        return {"status": "no_route", "message": f'No driving route found from "{origin}" to "{destination}". One of the places may be unknown, or there is no road between them.'}
+    return {"status": "ok", "source": "OpenStreetMap and OSRM", **estimate.model_dump()}
+
+
 def get_travel_tools() -> list:
     """The tools to hand to the Strands agent: `Agent(tools=get_travel_tools())`."""
     # Imported here so the lookup code and its tests work without Strands installed.
     from strands import tool
 
-    return [tool(find_places), tool(locate)]
+    return [tool(find_places), tool(locate), tool(plan_drive)]

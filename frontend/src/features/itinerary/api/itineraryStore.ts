@@ -7,7 +7,7 @@ import { EXAMPLE_TRIP_ID } from "../../trips/api/mockData";
 const seed = config.useMocks ? mockItineraries : config.showExample ? { [EXAMPLE_TRIP_ID]: mockItineraries[EXAMPLE_TRIP_ID] } : {};
 const plans = new Map<string, Itinerary>(Object.entries(structuredClone(seed)));
 const listeners = new Set<() => void>();
-const categories = ["Flights", "Stays", "Food", "Activities"];
+const categories = ["Flights", "Driving", "Stays", "Food", "Activities"];
 const money = (value: unknown): boolean => value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0);
 const isoDate = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;

@@ -30,7 +30,7 @@ class PlanItem(PlanModel):
     time: str | None = Field(default=None, pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     title: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=1200)
-    category: Literal["Flights", "Stays", "Food", "Activities"]
+    category: Literal["Flights", "Driving", "Stays", "Food", "Activities"]
     costUsd: float | None = Field(default=None, ge=0, le=1000000,
                                  description="Estimated total USD for all travelers. Null means unknown; 0 means free.")
     location: Location | None = None
@@ -88,8 +88,10 @@ class ItineraryUpdates:
 
         Call whenever you propose or revise a concrete trip plan, even a short draft.
         Send the FULL replacement snapshot, retaining unaffected stops and stable IDs.
-        Use only coordinates and source URLs returned by locate/find_places or supplied
-        by the traveler. Omit coordinates if lookup fails; the stop still appears.
+        Give a stop coordinates only from the find_places result for that exact place
+        (or locate, when the stop IS that landmark). Never reuse a town's coordinates as a
+        stand-in for stops you did not look up: omit coordinates instead; the stop still
+        appears. Copy source URLs exactly from the tool result.
         Costs are estimates for ALL travelers, never booking quotes. Use null for unknown
         costs, 0 only for free stops. Include transport, lodging and meals when relevant;
         explain omitted costs in assumptions. State assumed dates explicitly if flexible.

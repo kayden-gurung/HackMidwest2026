@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
+from tools.driving import DriveEstimate, estimate_drive
 from tools.places import GeoPoint, Place, PlaceCategory, PlacesUnavailable, geocode, search_places
 
 router = APIRouter(prefix="/api/places", tags=["places"])
@@ -31,3 +32,18 @@ def locate(q: str = Query(min_length=2, max_length=120, description="A town, add
     if point is None:
         raise HTTPException(status_code=404, detail=f'Could not find "{q}".')
     return point
+
+
+@router.get("/drive", response_model=DriveEstimate)
+def drive(
+    origin: str = Query(min_length=2, max_length=120, description='Where the drive starts, e.g. "Kansas City, MO"'),
+    destination: str = Query(min_length=2, max_length=120, description='Where it ends, e.g. "Denver, CO"'),
+    round_trip: bool = Query(default=True, description="Cost the drive there and back"),
+):
+    try:
+        estimate = estimate_drive(origin, destination, round_trip)
+    except PlacesUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    if estimate is None:
+        raise HTTPException(status_code=404, detail=f'No driving route found from "{origin}" to "{destination}".')
+    return estimate
