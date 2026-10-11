@@ -4,17 +4,21 @@ import { formatDateRange } from "../../../lib/format";
 import { useTrip } from "../hooks/useTrips";
 import { useItinerary } from "../../itinerary/hooks/useItinerary";
 import { MILES_PER_DAY_OPTIONS, useTravelMode } from "../api/travelModeStore";
+import { useTripTypes } from "../../journey/api/tripTypesStore";
 
 /** Top bar: current trip title and summary, a "New trip" button on small screens, and the car mode switch. */
 export function TripHeader({ tripId, title, leading, onNewJourney }: { tripId: string; title: string; leading?: ReactNode; onNewJourney?: () => void }) {
   // The title comes from the sidebar's list so it updates the moment a journey is named.
   const trip = useTrip(tripId, title);
+  const tripTypes = useTripTypes(tripId);
   const plan = useItinerary(tripId).data;
   const details = trip.status === "success" ? trip.data : undefined;
   const summary = [
     plan ? formatDateRange(plan.startDate, plan.endDate) : details?.startDate && details.endDate ? formatDateRange(details.startDate, details.endDate) : undefined,
     details?.travelers ? `${details.travelers} ${details.travelers === 1 ? "traveler" : "travelers"}` : undefined,
     details?.origin ? `From ${details.origin}` : undefined,
+    // The trip types Roam is following for this journey, so it's clear they still apply.
+    tripTypes.length > 0 ? tripTypes.join(", ") : undefined,
   ].filter(Boolean);
 
   return (

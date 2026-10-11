@@ -3,7 +3,7 @@ import { Action, BrandMark, EmptyState, ErrorState, Icon, LoadingState, type Ico
 import { ChatPanel, chatService } from "../features/chat";
 import { ExploreView } from "../features/explore";
 import { TripPanel } from "../features/itinerary";
-import { describeJourney, NewJourneyView, type JourneyRequest } from "../features/journey";
+import { describeJourney, NewJourneyView, tripTypesStore, type JourneyRequest } from "../features/journey";
 import { ProfilePanel } from "../features/profile";
 import { SettingsView, useTravelPreferences } from "../features/settings";
 import { MyTripsView, TripHeader, TripNavigation, useTrips } from "../features/trips";
@@ -52,6 +52,8 @@ export function PlannerPage() {
       origin: request.origin.trim() || undefined,
     }).then((trip) => {
       openTrip(trip.id);
+      // Remembered for the whole journey, so every later message keeps the chosen trip types.
+      tripTypesStore.set(trip.id, request.vibes);
       // Failures show up in the chat panel as its error state.
       chatService.sendMessage(trip.id, message, preferences).catch(() => undefined);
     }, () => undefined);
