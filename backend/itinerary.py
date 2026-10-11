@@ -154,6 +154,18 @@ class ItineraryUpdates:
         self._budget_draft = draft.model_copy(deep=True)
         return result
 
+    def stage(self, draft: ItinerarySnapshot) -> tuple[ItinerarySnapshot, list[str]]:
+        """Accept a draft made in code (quick_edits.py), as check_budget accepts one the model wrote:
+        it is checked and frozen, and update_itinerary with no arguments then publishes it.
+        Raises what the checks raise, and then no draft is kept."""
+        self._budget_draft = draft.model_copy(deep=True)
+        self._prepared.pop(draft.model_dump_json(), None)
+        try:
+            return self.prepare(draft, freeze=True)
+        except Exception:
+            self._budget_draft = None
+            raise
+
     @property
     def checked_draft(self) -> ItinerarySnapshot | None:
         """The draft check_budget last accepted and update_itinerary has not yet published."""

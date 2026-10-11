@@ -25,6 +25,25 @@ The four actions request a different road route, different small towns along the
 - `find_places`, `locate`, `get_forecast` and `plan_drive` reuse the existing providers. `find_places(exclude_current=True)` omits already-selected source records. `find_route_towns` samples five positions on the route and verifies towns/villages through the existing location provider.
 - `backend/roadtrip.py` supplies request-local route caching and complete-route validation. `plan_drive(via=[...], alternative=True)` previews provider-supplied alternatives. The form endpoints, detour budget and daily mileage limit remain authoritative. The current form preserves main's removal of the fuel-entry card; live planning uses disclosed assumptions of 28 MPG and $3.25/gallon from `defaultFuelAssumptions` in `roadTripStore.ts`. The API can accept explicit different fuel assumptions.
 
+## Quick changes to one stop
+
+Changing one stop used to mean a specialist agent's lookups and then the orchestrator writing the
+whole itinerary out again for `check_budget`. For a road trip with a current plan, the orchestrator
+now also holds two tools from `backend/quick_edits.py` and is told to use them first:
+
+- `find_options(kind, stop_id | city, keyword, interests)` returns real places with an `option_id`:
+  `"town"` for other towns and stops along the route (the route search in `tools/route_search.py`),
+  or `"attraction"`, `"restaurant"`, `"stay"` near a stop or in a town. Places already in the plan
+  are left out, and every option is recorded as evidence.
+- `edit_stops(remove_ids, add_option_ids)` changes only those items in code: a new item gets its day
+  and time from its position on the road, a lunch picked for a stop that moves away is re-picked
+  near the new stop, and the draft goes through the same accuracy check and whole-route detour check
+  as any other (`ItineraryUpdates.stage`). Over budget means "rejected" and nothing changes.
+
+`update_itinerary` with no arguments then raises the usual approval card. That is three short model
+calls and no model-written itinerary. A different road, new cities or dates, or a rebuilt plan still
+go through the specialists and `check_budget`.
+
 ## API additions
 
 `POST /api/ask` and `/api/ask/stream` accept an optional `road_trip` object:
