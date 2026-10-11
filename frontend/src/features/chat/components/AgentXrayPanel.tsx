@@ -2,13 +2,14 @@ import { config } from "../../../config/env";
 import type { XrayEvent } from "../types";
 
 const roles: { id: XrayEvent["agent"]; name: string; detail: string }[] = [
-  { id: "orchestrator", name: "Roam", detail: "Orchestrator" },
+  { id: "orchestrator", name: "Roam", detail: "Planner" },
   { id: "places", name: "Places", detail: "Verified stops" },
   { id: "transport", name: "Transport", detail: "Routes & travel" },
   { id: "budget", name: "Budget", detail: "Costs & tradeoffs" },
 ];
 
 export const toolLabels: Record<string, string> = {
+  research_stops: "Find stops along the drive", create_road_trip: "Build and check the drive", edit_stops: "Check requested stop changes", find_route_towns: "Find towns along the route",
   research_places: "Delegate to Places", plan_transport: "Delegate to Transport", review_trip_budget: "Delegate to Budget",
   find_places: "Search real places", locate: "Locate a stop", plan_drive: "Calculate a route", find_airports: "Find airports", flight_links: "Build flight search links", get_forecast: "Check the forecast", check_budget: "Check the budget", calculate_budget: "Check estimated costs", update_itinerary: "Propose itinerary update",
 };
@@ -25,6 +26,7 @@ function eventLabel(event: XrayEvent): string {
 /** Displays execution facts from SDK hooks; model reasoning is never displayed. */
 export function AgentXrayPanel({ events, running, awaiting, failed }: { events: XrayEvent[]; running: boolean; awaiting: boolean; failed: boolean }) {
   const activity = events.filter((event) => event.kind !== "model_started" && event.kind !== "model_finished").slice(-12);
+  const visibleRoles = events.length ? roles.filter((role) => events.some((event) => event.agent === role.id)) : roles;
   return (
     <details open={running || awaiting || undefined} className="rounded-2xl border border-line bg-panel/70 text-xs">
       <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 font-semibold">
@@ -32,8 +34,8 @@ export function AgentXrayPanel({ events, running, awaiting, failed }: { events: 
         <span role="status" className={awaiting || failed ? "text-amber-700" : "text-sea"}>{config.useMocks ? "Example mode" : awaiting ? "Awaiting consent" : running ? "Live" : failed ? "Run stopped" : events.length ? "Run complete" : "Ready"}</span>
       </summary>
       <div className="border-t border-line px-4 pb-4 pt-3">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {roles.map((role) => {
+        <div className={`grid gap-2 ${visibleRoles.length === 1 ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-4"}`}>
+          {visibleRoles.map((role) => {
             const last = events.filter((event) => event.agent === role.id).at(-1);
             const active = running && last && last.kind !== "agent_finished";
             const status = awaiting && role.id === "orchestrator" ? "Paused" : failed && role.id === "orchestrator" ? "Stopped" : active ? "Working" : last?.status === "error" ? "Error" : last ? "Done" : "Standby";
@@ -49,7 +51,7 @@ export function AgentXrayPanel({ events, running, awaiting, failed }: { events: 
             <span><span className="mr-2 font-semibold text-sea">{roles.find((role) => role.id === event.agent)?.name ?? event.agent}</span><span className="text-muted">{eventLabel(event)}</span></span>
             {event.duration_ms != null && <span className="shrink-0 tabular-nums text-muted">{(event.duration_ms / 1000).toFixed(1)}s</span>}
           </li>)}
-        </ol> : <p className="mt-3 leading-5 text-muted">{config.useMocks ? "Example conversations do not run live agents. Switch off mock mode to see execution." : "See which specialist Roam calls, the tools it uses, and where it pauses for your approval."}</p>}
+        </ol> : <p className="mt-3 leading-5 text-muted">{config.useMocks ? "Example conversations do not run live agents. Switch off mock mode to see execution." : "See the place lookups, route checks, and where Roam pauses for your approval."}</p>}
       </div>
     </details>
   );

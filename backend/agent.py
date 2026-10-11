@@ -6,6 +6,7 @@ from strands.models import BedrockModel
 from strands.tools.executors import SequentialToolExecutor
 from orchestration import ORCHESTRATOR_PROMPT, specialist_tools
 from prompts.travel import CHAT_PROMPT
+from prompts.roadtrip import ROADTRIP_PROMPT
 from tools import get_travel_tools
 
 DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
@@ -51,9 +52,16 @@ def _max_tokens() -> int:
         return DEFAULT_MAX_TOKENS
 
 
-def build_agent(messages: list | None = None, extra_tools: list | None = None, travel_tools: list | None = None, checked_draft=None) -> Agent:
+def build_agent(messages: list | None = None, extra_tools: list | None = None, travel_tools: list | None = None, checked_draft=None, direct_roadtrip: bool = False) -> Agent:
     """`travel_tools` replaces the default place tools, e.g. with recording versions (see evidence.py)."""
     model = build_model()
+    if direct_roadtrip:
+        agent = Agent(model=model, messages=messages, agent_id="orchestrator", name="Roam",
+                      system_prompt=os.getenv("AGENT_SYSTEM_PROMPT", "").strip() or ROADTRIP_PROMPT,
+                      tools=[*(travel_tools or []), *(extra_tools or [])],
+                      callback_handler=None, retry_strategy=None, tool_executor=SequentialToolExecutor())
+        agent.roam_specialists = {}
+        return agent
     # Let botocore retry transient failures once. Strands' default six attempts
     # otherwise keep requests waiting for minutes when account quotas are zero.
     delegations, specialists = specialist_tools(model, get_travel_tools() if travel_tools is None else travel_tools, checked_draft)

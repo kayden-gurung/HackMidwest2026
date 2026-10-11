@@ -18,8 +18,8 @@ from strands.hooks import (AfterInvocationEvent, AfterModelCallEvent, AfterToolC
 
 from budget import analyze_budget
 
-# One traveler message: the orchestrator plus three specialists, each looping over its own tools.
-# A long road trip with a budget review and one repair can pass 24 calls, so leave headroom.
+# Safety ceiling shared with the legacy multi-agent planner. The direct road-trip path
+# normally needs only a few calls and cancels inference after publication or denial.
 MAX_MODEL_CALLS = 40
 
 
@@ -92,6 +92,7 @@ class AgentRun:
 class XrayHooks(HookProvider):
     def __init__(self, run, role):
         self.run, self.role = run, role
+        self.skipped_model = False
 
     def register_hooks(self, registry, **kwargs):
         registry.add_callback(BeforeInvocationEvent, self.before_invocation)
@@ -109,6 +110,12 @@ class XrayHooks(HookProvider):
         self.run.trace(self.role, "agent_finished", status=reason)
 
     def before_model(self, event):
+        if self.run.body.road_trip and (self.run.updates.latest is not None or self.run.denied):
+            # Strands supports cancelling this call without an exception or another inference.
+            # Road-trip confirmation is already calculated by Python; keep consent/resume intact.
+            self.skipped_model = True
+            event.cancel = True
+            return
         if getattr(self.run.updates, "failed_checks", 0) >= 3:
             raise HTTPException(422, "Roam could not verify a complete route within your driving limits after three drafts. Try fewer stops or a larger detour allowance. Your current plan has been kept.")
         with self.run._lock:
@@ -119,6 +126,9 @@ class XrayHooks(HookProvider):
         self.run.trace(self.role, "model_started")
 
     def after_model(self, event):
+        if self.skipped_model:
+            self.skipped_model = False
+            return
         self.run.trace(self.role, "model_finished", status="error" if event.exception else event.stop_response.stop_reason if event.stop_response else "done")
 
     def before_tool(self, event):
@@ -141,6 +151,9 @@ class ConsentHook(HookProvider):
         registry.add_callback(BeforeToolCallEvent, self.before_tool)
 
     async def before_tool(self, event):
+        if self.run.body.road_trip and (self.run.updates.latest is not None or self.run.denied):
+            event.cancel_tool = "This road-trip update is finished. Keep the published or declined plan and end this turn."
+            return
         if event.tool_use["name"] != "update_itinerary":
             return
         if self.run.denied:

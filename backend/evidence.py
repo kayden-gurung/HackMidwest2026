@@ -34,6 +34,7 @@ class KnownPlace:
     address: str | None = None
     # From Nominatim for `locate` results: "city", "town"... or "attraction", "museum"...
     kind: str | None = None
+    category: str | None = None
 
     @property
     def is_area(self) -> bool:
@@ -81,6 +82,7 @@ class Evidence:
                 website_url=place.get("website_url"),
                 source_urls=[str(url) for url in place.get("source_urls", [])],
                 address=place.get("address"),
+                category=place.get("category"),
             )
         except (KeyError, TypeError, ValueError):
             return
@@ -97,7 +99,7 @@ class Evidence:
             # "Nelson-Atkins Museum of Art, 4525, Oak Street, ..." -> the part after the name is the address.
             name, _, address = known.name.partition(", ")
             self.located_by_source[str(point["source_url"])] = KnownPlace(
-                name=name, lat=known.lat, lng=known.lng, source_urls=[str(point["source_url"])], address=address or None
+                name=name, lat=known.lat, lng=known.lng, source_urls=[str(point["source_url"])], address=address or None, kind=known.kind
             )
 
     def towns(self) -> list[KnownPlace]:
@@ -133,6 +135,7 @@ def evidence_from_snapshot(snapshot: ItinerarySnapshot | None) -> Evidence:
                 "website_url": item.websiteUrl,
                 "source_urls": item.sourceUrls,
                 "address": item.location.address,
+                "category": item.category,
             })
     return evidence
 
