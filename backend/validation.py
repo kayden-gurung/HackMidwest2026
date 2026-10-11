@@ -17,17 +17,16 @@ from itinerary import ItinerarySnapshot, Location
 MATCH_RADIUS_M = 150
 # The start of every note this file writes (see the end of validate_snapshot).
 OWN_NOTE_PREFIXES = (
-    "Car mode is on, so flights were removed",
+    "Roam plans drives only, so flights were removed",
     "Not found in map data",
     "Removed map pins",
     "Several stops shared one generic map pin",
-    "Flight costs are rough estimates. Roam has no live fare",
     "This plan is estimated at",
     "Trip type ",
 )
 # ItinerarySnapshot allows at most 12 assumptions.
 MAX_ASSUMPTIONS = 12
-# In car mode, a stop whose title looks like air travel is a flight even if the model filed it under another category.
+# Roam plans drives only: a stop whose title looks like air travel is removed, whatever its category.
 AIR_TRAVEL = re.compile(
     r"\b(flights?|airlines?|airfare|layovers?|boarding pass)\b"
     r"|\b(fly|flying|flies)\s+(to|into|from|out|home|back)\b"
@@ -39,7 +38,7 @@ AIRPORT_ROUTE = re.compile(r"\b[A-Z]{3}\s*(→|->|to)\s*[A-Z]{3}\b")
 
 
 def is_air_travel(title: str, category: str) -> bool:
-    return category == "Flights" or bool(AIR_TRAVEL.search(title) or AIRPORT_ROUTE.search(title))
+    return bool(AIR_TRAVEL.search(title) or AIRPORT_ROUTE.search(title))
 
 
 def _distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -153,14 +152,13 @@ def _attach_routes(items: list, route_links: dict[str, str], evidence: Evidence)
 def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode: bool = False, pinner=None, trip_types: list[str] | None = None) -> tuple[ItinerarySnapshot, list[str]]:
     """Returns a cleaned copy plus notes on what was changed (shown to the model and the traveler).
 
-    In car mode every flight is removed, whatever the model sent. `pinner` (pins.pin_stops) may
+    Roam plans drives only: every flight is removed, whatever the model sent. `pinner` (pins.pin_stops) may
     look up stops that have a name but no pin, after the stand-in pins are removed.
     """
     items = []
     removed_flights: list[str] = []
     stripped: list[str] = []
     unverified: list[str] = []
-    flight_times_removed = False
 
     # Driving legs whose directions link came from plan_drive get that leg's route (see _attach_routes).
     route_links: dict[str, str] = {}
@@ -176,11 +174,6 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
             removed_flights.append(item.title)
             continue
 
-        if item.category == "Flights" and item.time is not None:
-            # No flight data source exists, so a departure time would always be made up.
-            item.time = None
-            flight_times_removed = True
-
         claimed_sources = list(item.sourceUrls)
         # Links plan_drive returned (route sources, Google Maps directions) are real too, but have no pin.
         drive_sources = [url for url in claimed_sources if url in evidence.drive_links]
@@ -190,7 +183,7 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
             known = evidence.known_source(item.sourceUrls[0])
             address = known.address or (item.location.address if item.location else None)
             item.location = Location(name=item.location.name if item.location else known.name, address=address, lat=known.lat, lng=known.lng)
-            # A link a tool made for this stop (a flight's ticket search, a drive's directions) beats the place's own website.
+            # A link a tool made for this stop (a drive's directions) beats the place's own website.
             item.websiteUrl = item.websiteUrl if item.websiteUrl in evidence.drive_links else known.website_url
         else:
             had_details = len(drive_sources) < len(claimed_sources) or (item.websiteUrl is not None and item.websiteUrl not in evidence.drive_links)
@@ -227,15 +220,13 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
 
     notes: list[str] = []
     if removed_flights:
-        notes.append("Car mode is on, so flights were removed: " + ", ".join(f'"{t}"' for t in dict.fromkeys(removed_flights)) + ". Plan the whole trip by car.")
+        notes.append("Roam plans drives only, so flights were removed: " + ", ".join(f'"{t}"' for t in dict.fromkeys(removed_flights)) + ". Plan the whole trip by car.")
     if unverified:
         notes.append("Not found in map data, so check these exist before relying on them: " + ", ".join(f'"{n}"' for n in dict.fromkeys(unverified)) + ".")
     if stripped:
         notes.append("Removed map pins, websites or source links that were not from a map lookup for: " + ", ".join(f'"{n}"' for n in dict.fromkeys(stripped)) + ".")
     if shared_pins:
         notes.append("Several stops shared one generic map pin (the town center), so those pins were removed: " + ", ".join(f'"{n}"' for n in dict.fromkeys(shared_pins)) + ". Look each place up with find_places to place it on the map.")
-    if any(item.category == "Flights" for item in items):
-        notes.append("Flight costs are rough estimates. Roam has no live fare or schedule data, so check airlines for real prices" + (" and times." if flight_times_removed else "."))
     notes.extend(trip_type_notes(items, trip_types or []))
     total = sum(item.costUsd or 0 for item in items)
     planned = snapshot.budget.plannedUsd

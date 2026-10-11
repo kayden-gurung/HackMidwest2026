@@ -8,7 +8,7 @@ Roam runs an orchestrator plus three specialist Strands agents on Amazon Bedrock
 | --- | --- | --- |
 | Roam orchestrator | `research_places`, `plan_transport`, `review_trip_budget`, `check_budget`, `update_itinerary` | Delegate research, synthesize a complete plan, request consent and apply approved updates |
 | Places | `find_places`, `locate`, `get_forecast` | Retrieve specific places, coordinates, live forecasts and source links |
-| Transport | `plan_drive`, `locate`, `find_airports`, `flight_links` | Check driving feasibility, routes, times and fuel assumptions; find airports and flight search links |
+| Transport | `plan_drive`, `locate` | Check driving feasibility, routes, day-by-day legs, times and fuel assumptions (Roam plans drives only) |
 | Budget | `calculate_budget` | Review estimates for all travelers, unknown costs and budget overruns |
 
 `backend/orchestration.py` wraps each specialist with an async `@tool` that invokes that agent. All agents receive the same current itinerary, dates, preferences, car constraints, and trip types. Their conversation state and lookup evidence belong to one request; they are never shared between travelers. A sequential tool executor prevents concurrent invocations of the same specialist. Each run allows at most 24 model calls across the team.

@@ -26,22 +26,17 @@ ACCURACY
   them. Never invent a website, phone number, address, coordinates or source link.
 - Each stop's location must be that specific place, so it can be shown on the map. Restaurants,
   hotels and attractions come from find_places. For a named place find_places doesn't return
-  (a museum, landmark, district, park or airport), call locate with its name and the town, e.g.
-  "18th & Vine Jazz District, Kansas City", and copy its coordinates and source_url. Give each
-  flight the airport as its location (the arrival airport for the flight there, the departure
-  airport for the flight home). Leave the location out only for generic stops ("Lunch", "Free
+  (a museum, landmark, district or park), call locate with its name and the town, e.g.
+  "18th & Vine Jazz District, Kansas City", and copy its coordinates and source_url. Leave the
+  location out only for generic stops ("Lunch", "Free
   afternoon"). Never give several stops the town's own coordinates or the town name as their
   location.
 - The tools do NOT provide prices, ratings, reviews, availability, booking status or live
   opening hours. Never state those as facts. Opening hours from map data may be outdated: say so.
-- FLIGHTS: you have no live fare or schedule data. Never give flight numbers, airlines, departure
-  or arrival times, layovers or exact fares. Find airports with find_airports and get ticket
-  search links with flight_links. You may give a rough fare range for the route, clearly labeled
-  as an estimate, and point the traveler to those links for real prices.
+- ROAD TRIPS ONLY: Roam plans trips by car. Never suggest, price or include flights, airports or
+  airlines, even as an alternative.
 - DRIVING: use plan_drive for every driving distance, driving time and fuel cost, and show its
   assumptions. Put driving costs (fuel, tolls, parking, car hire) under the "Driving" category.
-  When the traveler has not chosen how to travel, check that flights for the whole party fit the
-  budget before recommending them; if they don't, propose a road trip and say why.
 - WEATHER: use get_forecast before planning outdoor activities for specific dates, and for any
   weather-related revision. Use the destination and trip dates. Cite its source and retrieval
   time. Only use returned forecast dates; if unavailable or out of range, say so and avoid
@@ -80,7 +75,7 @@ HOW TO HELP
 
 
 def car_mode_instruction(max_miles_per_day: int | None) -> str:
-    """Added to the system prompt on every message while the trip header's travel toggle is on Road."""
+    """Added to the system prompt on every message: Roam plans every trip by car."""
     limit = (
         f" The traveler wants to drive at most {max_miles_per_day} miles per day: no single day may go over"
         f" {max_miles_per_day} miles, and pick destinations that work with that."
@@ -114,27 +109,6 @@ def car_mode_instruction(max_miles_per_day: int | None) -> str:
         " update_itinerary."
     )
 
-
-def plane_mode_instruction() -> str:
-    """Added to the system prompt on every message while the trip header's travel toggle is on Plane."""
-    return (
-        "TRAVEL BY PLANE. The traveler wants to fly to the destination."
-        "\n- Call find_airports for the traveler's home (or starting point) and for the destination."
-        " Pick the best pair, usually the international or nearest airport at each end, and name"
-        " both with their codes, e.g. \"John F. Kennedy International Airport (JFK)\"."
-        "\n- Call flight_links with the two airport codes, the trip dates and the number of travelers."
-        "\n- Add an outbound and a return flight to the itinerary as Flights items, titled like"
-        ' "Flight JFK → BRI". Use the arrival airport as the outbound flight\'s location and the'
-        " departure airport as the return flight's location, copied from find_airports (name,"
-        " coordinates and source link). Set each flight's websiteUrl to the google_flights_url, and"
-        " costUsd to a rough round-trip fare estimate for all travelers, labeled as an estimate."
-        "\n- In your reply, list the airports, the estimated fare range, and both ticket links"
-        " (Google Flights and Kayak) so the traveler can check real prices and times."
-        "\n- Add getting from the arrival airport to the first stay (taxi, train or shuttle) as its own"
-        " Driving item on the arrival day, and keep arrival and departure days light."
-        "\n- Do not plan the main journey by car. If the destination is under about 250 miles away, you"
-        " may mention in one sentence that driving could be easier, but still plan the flights."
-    )
 
 
 # What each trip type chip on the New journey screen asks for. Keep the keys in step with

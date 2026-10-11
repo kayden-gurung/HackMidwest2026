@@ -34,8 +34,8 @@ def model_plan():
              websiteUrl="https://madeup.example", location={"name": "Made Up Bistro", "lat": 10, "lng": 10}),
         # Generic activity without a source: left alone.
         item("beach", title="Free afternoon at the beach", time="15:00"),
-        # Flight with a made-up departure time.
-        item("flight", category="Flights", costUsd=1300, time="18:10"),
+        # An expensive drive: keeps the plan over budget.
+        item("drive", title="Drive to Bari", category="Driving", costUsd=1300),
     )
 
 
@@ -71,11 +71,9 @@ def test_keeps_only_what_the_tools_confirmed():
     assert lunch.location.name == "Made Up Bistro"  # the stop stays, minus the invented details
 
     assert by_id["beach"].time == "15:00"
-    assert by_id["flight"].time is None
 
     text = " ".join(notes)
     assert '"Made Up Bistro"' in text and "check these exist" in text and "Removed map pins" in text
-    assert "Flight costs are rough estimates" in text
     assert "over the $500 budget" in text
     assert cleaned.assumptions[: len(notes)] == notes
 
@@ -112,7 +110,7 @@ def test_assumptions_never_exceed_the_schema_limit():
 def test_recording_tools_keep_their_names_and_record_results(fake_map):
     evidence = Evidence()
     tools = {t.tool_name: t for t in recording_tools(evidence)}
-    assert set(tools) == {"find_places", "locate", "plan_drive", "get_forecast", "find_airports", "flight_links"}
+    assert set(tools) == {"find_places", "locate", "plan_drive", "get_forecast"}
     assert "OpenStreetMap" in tools["find_places"].tool_spec["description"]
     tools["find_places"]("Polignano a Mare", "Food")
     tools["locate"]("Polignano a Mare")
@@ -180,7 +178,7 @@ def test_stream_returns_the_checked_plan(fake_map, monkeypatch):
 def test_prompt_carries_the_accuracy_rules():
     from agent import SYSTEM_PROMPT
 
-    for rule in ("You only help with travel", "Never give flight numbers", "Only recommend specific places that a tool", "update_itinerary"):
+    for rule in ("You only help with travel", "Never suggest, price or include flights", "Only recommend specific places that a tool", "update_itinerary"):
         assert rule in SYSTEM_PROMPT
 
 
@@ -189,7 +187,7 @@ def test_prompt_carries_the_accuracy_rules():
 def car_plan():
     return plan(
         item("fly", title="Fly to Denver", category="Activities", costUsd=500),
-        item("flight", title="Return", category="Flights", costUsd=400, time="09:00"),
+        item("flight", title="Return flight DEN → MCI", category="Activities", costUsd=400, time="09:00"),
         item("drive", title="Drive Kansas City to Salina", category="Driving", costUsd=40,
              sourceUrls=["https://project-osrm.org/"], websiteUrl="https://www.google.com/maps/dir/?api=1&x"),
         item("fishing", title="Fly fishing on the river", costUsd=60),
@@ -209,12 +207,7 @@ def test_car_mode_removes_every_flight_and_keeps_driving():
     assert ids == ["drive", "fishing"]
     drive = cleaned.items[0]
     assert drive.sourceUrls == ["https://project-osrm.org/"] and drive.websiteUrl.startswith("https://www.google.com/maps/dir/")
-    assert "Car mode is on, so flights were removed" in notes[0] and '"Fly to Denver"' in notes[0]
-
-
-def test_flights_stay_when_car_mode_is_off():
-    cleaned, _ = validate_snapshot(ItinerarySnapshot.model_validate(car_plan()), drive_evidence())
-    assert {"fly", "flight"} <= {i.id for i in cleaned.items}
+    assert "Roam plans drives only, so flights were removed" in notes[0] and '"Fly to Denver"' in notes[0]
 
 
 def test_unrecorded_drive_links_are_removed():
@@ -272,10 +265,11 @@ def test_car_mode_prompt_and_limit_reach_the_agent(fake_map, monkeypatch):
     agents[-1].drive("Kansas City, MO", "Denver, CO")
     assert calls[-1] == ("Kansas City, MO", "Denver, CO", True, 300)
 
+    # Roam plans drives only: car mode and the daily limit apply even when a client leaves car_mode out.
     client.post("/api/ask", json={"prompt": "x", "max_drive_miles_per_day": 300})
-    assert "CAR MODE" not in agents[-1].system_prompt
+    assert "CAR MODE IS ON" in agents[-1].system_prompt
     agents[-1].drive("Kansas City, MO", "Denver, CO")
-    assert calls[-1][3] == 0  # the limit only applies in car mode
+    assert calls[-1][3] == 300
 
     assert client.post("/api/ask", json={"prompt": "x", "car_mode": True, "max_drive_miles_per_day": 5}).status_code == 422
 
@@ -407,11 +401,9 @@ def test_real_kansas_city_plan_gets_its_pins_back(monkeypatch):
           "source_url": "https://www.openstreetmap.org/relation/141008", "kind": "city"}
     nelson = {"status": "ok", "name": "Nelson-Atkins Museum of Art, 4525, Oak Street, Westport, Kansas City, Missouri, 64111, United States",
               "lat": 39.0449664, "lng": -94.5809582, "source_url": "https://www.openstreetmap.org/relation/15394221", "kind": "tourism"}
-    airport = GeoPoint(name="Kansas City International Airport, 1, London Avenue, Kansas City, Missouri, 64153, United States",
-                       lat=39.3022673, lng=-94.720996, source_url="https://www.openstreetmap.org/way/209241979", kind="aerodrome")
     district = GeoPoint(name="18th and Vine Jazz District, Kansas City, Missouri, United States", lat=39.0915, lng=-94.5612,
                         source_url="https://www.openstreetmap.org/way/77", kind="neighbourhood")
-    found = {"Kansas City International Airport": airport, "18th & Vine Jazz District, Kansas City": district}
+    found = {"18th & Vine Jazz District, Kansas City": district}
     queries = []
     monkeypatch.setattr(places_module, "geocode", lambda q: queries.append(q) or found.get(q))
 
@@ -420,14 +412,12 @@ def test_real_kansas_city_plan_gets_its_pins_back(monkeypatch):
     evidence.add_point(nelson)
     evidence.add_place({"name": "Burnt End BBQ", "lat": 39.082431, "lng": -94.59, "source_urls": ["https://www.openstreetmap.org/node/3"]})
     snapshot = ItinerarySnapshot.model_validate(plan(
-        item("fly", title="Flight from Chicago to Kansas City", category="Flights", costUsd=200),
         item("bbq", title="Lunch at Burnt End BBQ", category="Food", sourceUrls=["https://www.openstreetmap.org/node/3"],
              location={"name": "Burnt End BBQ", "lat": 39.082431, "lng": -94.59}),
         item("nelson", title="Nelson-Atkins Museum of Art", sourceUrls=[nelson["source_url"]],
              location={"name": "Nelson-Atkins Museum of Art", "lat": 39.0449664, "lng": -94.5809582}),
         item("jazz", title="Jazz in the 18th & Vine District", location={"name": "18th & Vine Jazz District"}),
         item("lunch", title="Lunch in Kansas City", category="Food"),
-        item("home", title="Return Flight to Chicago", category="Flights", costUsd=0),
     ))
     cleaned, notes = validate_snapshot(snapshot, evidence, pinner=pin_stops)
     by_id = {i.id: i for i in cleaned.items}
@@ -435,15 +425,11 @@ def test_real_kansas_city_plan_gets_its_pins_back(monkeypatch):
     # The museum keeps the source link the AI copied from locate: no false "removed" note.
     assert by_id["nelson"].sourceUrls == [nelson["source_url"]]
     assert not any("Removed map pins" in n for n in notes)
-    # Both flights are pinned at the airport, looked up once.
-    for flight in ("fly", "home"):
-        assert (by_id[flight].location.lat, by_id[flight].location.name) == (39.3022673, "Kansas City International Airport")
-    assert queries.count("Kansas City International Airport") == 1
     # A named district gets its pin; a generic lunch stays off the map.
     assert by_id["jazz"].location.lat == 39.0915
     assert by_id["lunch"].location is None
     pinned = [i for i in cleaned.items if i.location and i.location.lat is not None]
-    assert len(pinned) == 5 and len({(i.location.lat, i.location.lng) for i in pinned}) == 4  # two flights share the airport
+    assert len(pinned) == 3 and len({(i.location.lat, i.location.lng) for i in pinned}) == 3
 
 
 def test_town_anchor_comes_from_find_places_when_locate_was_never_called(fake_map, monkeypatch):
@@ -565,13 +551,13 @@ def test_tool_status_is_sent_once_per_tool_call(monkeypatch):
 
 
 def test_old_notes_are_replaced_not_repeated():
-    old = ItinerarySnapshot.model_validate({**plan(item("flight", title="Flight", category="Flights", costUsd=200)), "assumptions": [
-        "Flight costs are rough estimates. Roam has no live fare or schedule data, so check airlines for real prices and times.",
+    old = ItinerarySnapshot.model_validate({**plan(item("flight", title="Flight home", costUsd=200)), "assumptions": [
+        'Roam plans drives only, so flights were removed: "Flight home". Plan the whole trip by car.',
         'Not found in map data, so check these exist before relying on them: "Gone Cafe".',
         "Hotel estimated at $90/night",
     ]})
-    cleaned, _ = validate_snapshot(old, Evidence())
-    assert sum(a.startswith("Flight costs are rough") for a in cleaned.assumptions) == 1
+    cleaned, _ = validate_snapshot(old, Evidence(), car_mode=True)
+    assert sum(a.startswith("Roam plans drives only") for a in cleaned.assumptions) == 1
     assert not any("Gone Cafe" in a for a in cleaned.assumptions)
     assert "Hotel estimated at $90/night" in cleaned.assumptions
 

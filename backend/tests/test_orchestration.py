@@ -166,15 +166,7 @@ def test_real_specialists_use_scoped_tools_and_emit_nested_hooks(install, monkey
     def get_forecast(near: str) -> dict:
         """Get a live forecast for the destination."""
         return {"status": "ok", "source_urls": ["https://open-meteo.com/"]}
-    @tool
-    def find_airports(near: str) -> dict:
-        """Find passenger airports near a town."""
-        return {"status": "ok", "airports": []}
-    @tool
-    def flight_links(from_airport: str, to_airport: str) -> dict:
-        """Ticket search links for a route."""
-        return {"status": "ok"}
-    monkeypatch.setattr(ask, "recording_tools", lambda *args: [find_places, plan_drive, get_forecast, find_airports, flight_links])
+    monkeypatch.setattr(ask, "recording_tools", lambda *args: [find_places, plan_drive, get_forecast])
     candidate = plan()
     model, _ = install([
         call("research_places", {"task": "Research KC"}, "delegate-places"),
@@ -197,8 +189,8 @@ def test_real_specialists_use_scoped_tools_and_emit_nested_hooks(install, monkey
     assert ("places", "get_forecast") in starts and ("orchestrator", "check_budget") in starts
     assert model.seen[0]["tools"] == {"research_places", "plan_transport", "review_trip_budget", "check_budget", "update_itinerary"}
     assert model.seen[1]["tools"] == {"find_places", "get_forecast"}
-    # The transport specialist holds the Plane mode tools too, or no agent could reach them.
-    assert model.seen[4]["tools"] == {"plan_drive", "find_airports", "flight_links"}
+    # Roam plans drives only: the transport specialist has no flight tools.
+    assert model.seen[4]["tools"] == {"plan_drive"}
     assert model.seen[9]["tools"] == {"calculate_budget"}
     transcript = json.dumps(model.seen[-1]["messages"])
     assert "No draft has been checked yet" in transcript

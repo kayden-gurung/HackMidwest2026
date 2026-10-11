@@ -41,7 +41,7 @@ MAX_LIMIT = 25
 # Candidates fetched before ranking; fewer means smaller, faster Overpass responses.
 OVERPASS_FETCH = 80
 
-# Matches the Budget sections in the frontend. Flights are not a place search.
+# Matches the Budget sections in the frontend. Driving is not a place search.
 PlaceCategory = Literal["Food", "Stays", "Activities"]
 
 # OpenStreetMap tag filters for each category: (tag key, regex over its values, or None for any value).
