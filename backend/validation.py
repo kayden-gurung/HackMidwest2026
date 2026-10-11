@@ -8,6 +8,7 @@ map pin or source link as if it were real.
 from __future__ import annotations
 
 import math
+import re
 
 from evidence import Evidence, KnownPlace
 from itinerary import ItinerarySnapshot, Location
@@ -16,6 +17,19 @@ from itinerary import ItinerarySnapshot, Location
 MATCH_RADIUS_M = 150
 # ItinerarySnapshot allows at most 12 assumptions.
 MAX_ASSUMPTIONS = 12
+# In car mode, a stop whose title looks like air travel is a flight even if the model filed it under another category.
+AIR_TRAVEL = re.compile(
+    r"\b(flights?|airlines?|airfare|layovers?|boarding pass)\b"
+    r"|\b(fly|flying|flies)\s+(to|into|from|out|home|back)\b"
+    r"|\b(by|take a|catch a)\s+plane\b|\bplane\s+(ticket|to|from)\b",
+    re.IGNORECASE,
+)
+# Airport codes like "MCI → DEN". Case-sensitive, so "Bus to Zoo" doesn't count.
+AIRPORT_ROUTE = re.compile(r"\b[A-Z]{3}\s*(→|->|to)\s*[A-Z]{3}\b")
+
+
+def is_air_travel(title: str, category: str) -> bool:
+    return category == "Flights" or bool(AIR_TRAVEL.search(title) or AIRPORT_ROUTE.search(title))
 
 
 def _distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -35,9 +49,13 @@ def _nearest(evidence: Evidence, lat: float, lng: float) -> KnownPlace | None:
     return best
 
 
-def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence) -> tuple[ItinerarySnapshot, list[str]]:
-    """Returns a cleaned copy plus notes on what was changed (shown to the model and the traveler)."""
+def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode: bool = False) -> tuple[ItinerarySnapshot, list[str]]:
+    """Returns a cleaned copy plus notes on what was changed (shown to the model and the traveler).
+
+    In car mode every flight is removed, whatever the model sent.
+    """
     items = []
+    removed_flights: list[str] = []
     stripped: list[str] = []
     unverified: list[str] = []
     flight_times_removed = False
@@ -46,12 +64,18 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence) -> tuple[
         item = original.model_copy(deep=True)
         label = item.location.name if item.location else item.title
 
+        if car_mode and is_air_travel(item.title, item.category):
+            removed_flights.append(item.title)
+            continue
+
         if item.category == "Flights" and item.time is not None:
             # No flight data source exists, so a departure time would always be made up.
             item.time = None
             flight_times_removed = True
 
         claimed_sources = list(item.sourceUrls)
+        # Links plan_drive returned (route sources, Google Maps directions) are real too, but have no pin.
+        drive_sources = [url for url in claimed_sources if url in evidence.drive_links]
         item.sourceUrls = [url for url in claimed_sources if url in evidence.places_by_source]
         if item.sourceUrls:
             # Real place: take its facts from the tool result, whatever the model wrote.
@@ -60,8 +84,8 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence) -> tuple[
             item.location = Location(name=item.location.name if item.location else known.name, address=address, lat=known.lat, lng=known.lng)
             item.websiteUrl = known.website_url
         else:
-            had_details = bool(claimed_sources or item.websiteUrl)
-            item.websiteUrl = None
+            had_details = len(drive_sources) < len(claimed_sources) or (item.websiteUrl is not None and item.websiteUrl not in evidence.drive_links)
+            item.websiteUrl = item.websiteUrl if item.websiteUrl in evidence.drive_links else None
             if item.location and item.location.lat is not None and item.location.lng is not None:
                 match = _nearest(evidence, item.location.lat, item.location.lng)
                 if match is None:
@@ -73,6 +97,8 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence) -> tuple[
                     item.websiteUrl = match.website_url
             if had_details and not item.sourceUrls:
                 stripped.append(label)
+            if not item.sourceUrls:
+                item.sourceUrls = drive_sources
 
         names_a_business = item.category in ("Food", "Stays") and item.location is not None
         if names_a_business and not item.sourceUrls:
@@ -81,6 +107,8 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence) -> tuple[
         items.append(item)
 
     notes: list[str] = []
+    if removed_flights:
+        notes.append("Car mode is on, so flights were removed: " + ", ".join(f'"{t}"' for t in dict.fromkeys(removed_flights)) + ". Plan the whole trip by car.")
     if unverified:
         notes.append("Not found in map data, so check these exist before relying on them: " + ", ".join(f'"{n}"' for n in dict.fromkeys(unverified)) + ".")
     if stripped:

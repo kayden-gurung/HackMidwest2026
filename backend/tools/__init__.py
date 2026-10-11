@@ -52,7 +52,7 @@ def locate(place: str) -> dict:
     return {"status": "ok", "source": "OpenStreetMap", **point.model_dump()}
 
 
-def plan_drive(origin: str, destination: str, round_trip: bool = True) -> dict:
+def plan_drive(origin: str, destination: str, round_trip: bool = True, max_miles_per_day: int = 0) -> dict:
     """Get the real road distance, driving time and estimated fuel cost between two places.
 
     Use this for any road trip, and whenever the traveler's budget looks too small for flights:
@@ -64,9 +64,10 @@ def plan_drive(origin: str, destination: str, round_trip: bool = True) -> dict:
         origin: Where the drive starts, e.g. "Kansas City, MO".
         destination: Where the drive ends, e.g. "Denver, CO".
         round_trip: True to cost the drive there and back, False for one way.
+        max_miles_per_day: The traveler's limit on miles of driving per day, or 0 for none.
     """
     try:
-        estimate = estimate_drive(origin, destination, round_trip)
+        estimate = estimate_drive(origin, destination, round_trip, max_miles_per_day or None)
     except PlacesUnavailable as error:
         return {"status": "unavailable", "message": str(error)}
     if estimate is None:

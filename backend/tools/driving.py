@@ -37,8 +37,10 @@ class DriveEstimate(BaseModel):
     # One way, by road.
     distance_miles: int
     drive_hours: float
-    # One-way driving split into comfortable days.
+    # One-way driving split into comfortable days (at most 6 hours, and at most the traveler's miles-per-day limit).
     driving_days_each_way: int
+    # The traveler's limit on driving per day, when they set one in car mode.
+    max_miles_per_day: int | None = None
     round_trip: bool
     # Fuel for the whole drive (both directions when round_trip), for one car.
     fuel_cost_usd: int
@@ -48,16 +50,17 @@ class DriveEstimate(BaseModel):
     source_urls: list[str]
 
 
-_cache: dict[tuple[str, str, bool], DriveEstimate | None] = {}
+_cache: dict[tuple[str, str, bool, int | None], DriveEstimate | None] = {}
 
 
-def estimate_drive(origin: str, destination: str, round_trip: bool = True) -> DriveEstimate | None:
+def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_miles_per_day: int | None = None) -> DriveEstimate | None:
     """Road distance, driving time and estimated fuel cost between two places.
 
     Returns None when either place is unknown or there is no road route (an ocean in the way).
     Raises PlacesUnavailable when the map services cannot be reached.
     """
-    key = (" ".join(origin.split()).lower(), " ".join(destination.split()).lower(), round_trip)
+    max_miles_per_day = max_miles_per_day if max_miles_per_day and max_miles_per_day > 0 else None
+    key = (" ".join(origin.split()).lower(), " ".join(destination.split()).lower(), round_trip, max_miles_per_day)
     if key in _cache:
         return _cache[key]
 
@@ -95,13 +98,15 @@ def estimate_drive(origin: str, destination: str, round_trip: bool = True) -> Dr
         destination=end.name,
         distance_miles=round(miles),
         drive_hours=round(hours, 1),
-        driving_days_each_way=max(1, math.ceil(hours / MAX_DRIVING_HOURS_PER_DAY)),
+        driving_days_each_way=max(1, math.ceil(hours / MAX_DRIVING_HOURS_PER_DAY), math.ceil(miles / max_miles_per_day) if max_miles_per_day else 1),
+        max_miles_per_day=max_miles_per_day,
         round_trip=round_trip,
         fuel_cost_usd=round(total_miles / mpg * gas_price),
         assumptions=[
             f"Fuel estimated at {mpg:g} miles per gallon and ${gas_price:.2f} per gallon, for one car"
             + (", there and back." if round_trip else ", one way."),
             "Driving time is without traffic, fuel or rest stops.",
+            *([f"Driving days keep each day under {max_miles_per_day} miles, as the traveler asked."] if max_miles_per_day else []),
             "Tolls, parking and any car rental are not included.",
         ],
         google_maps_url="https://www.google.com/maps/dir/?"

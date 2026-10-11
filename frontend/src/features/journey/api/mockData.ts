@@ -13,7 +13,6 @@ export const journeyDefaults = {
   budgetUsd: 3000 as number | null,
   /** Used only when the profile has no home airport. */
   origin: "New York · JFK",
-  roadTrip: false,
   adults: 2,
   children: 0,
 };

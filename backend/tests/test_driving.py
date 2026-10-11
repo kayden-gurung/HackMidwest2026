@@ -87,3 +87,13 @@ def test_drive_endpoint(services):
     response = client.get("/api/places/drive", params={"origin": "Kansas City, MO", "destination": "Denver, CO"})
     assert response.status_code == 200 and response.json()["fuel_cost_usd"] == 151
     assert client.get("/api/places/drive", params={"origin": "Kansas City, MO", "destination": "Honolulu, HI"}).status_code == 404
+
+
+def test_miles_per_day_limit_splits_the_drive(services):
+    # 600 miles: 2 days by the 6-hour rule, 3 days with a 250-mile daily limit.
+    estimate = driving.estimate_drive("Kansas City, MO", "Denver, CO", max_miles_per_day=250)
+    assert estimate.driving_days_each_way == 3 and estimate.max_miles_per_day == 250
+    assert any("under 250 miles" in line for line in estimate.assumptions)
+    assert tools.plan_drive("Kansas City, MO", "Denver, CO", max_miles_per_day=250)["driving_days_each_way"] == 3
+    # A generous limit never shortens the 6-hour rule.
+    assert driving.estimate_drive("Kansas City, MO", "Denver, CO", max_miles_per_day=900).driving_days_each_way == 2

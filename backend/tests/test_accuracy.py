@@ -86,7 +86,7 @@ def test_assumptions_never_exceed_the_schema_limit():
 def test_recording_tools_keep_their_names_and_record_results(fake_map):
     evidence = Evidence()
     tools = {t.tool_name: t for t in recording_tools(evidence)}
-    assert set(tools) == {"find_places", "locate"}
+    assert set(tools) == {"find_places", "locate", "plan_drive"}
     assert "OpenStreetMap" in tools["find_places"].tool_spec["description"]
     tools["find_places"]("Polignano a Mare", "Food")
     tools["locate"]("Polignano a Mare")
@@ -154,3 +154,116 @@ def test_prompt_carries_the_accuracy_rules():
 
     for rule in ("You only help with travel", "Never give flight numbers", "Only recommend specific places that a tool", "update_itinerary"):
         assert rule in SYSTEM_PROMPT
+
+
+# ----- Car mode -------------------------------------------------------------------------------
+
+def car_plan():
+    return plan(
+        item("fly", title="Fly to Denver", category="Activities", costUsd=500),
+        item("flight", title="Return", category="Flights", costUsd=400, time="09:00"),
+        item("drive", title="Drive Kansas City to Salina", category="Driving", costUsd=40,
+             sourceUrls=["https://project-osrm.org/"], websiteUrl="https://www.google.com/maps/dir/?api=1&x"),
+        item("fishing", title="Fly fishing on the river", costUsd=60),
+        budget=2000,
+    )
+
+
+def drive_evidence():
+    evidence = Evidence()
+    evidence.drive_links.update({"https://project-osrm.org/", "https://www.google.com/maps/dir/?api=1&x"})
+    return evidence
+
+
+def test_car_mode_removes_every_flight_and_keeps_driving():
+    cleaned, notes = validate_snapshot(ItinerarySnapshot.model_validate(car_plan()), drive_evidence(), car_mode=True)
+    ids = [i.id for i in cleaned.items]
+    assert ids == ["drive", "fishing"]
+    drive = cleaned.items[0]
+    assert drive.sourceUrls == ["https://project-osrm.org/"] and drive.websiteUrl.startswith("https://www.google.com/maps/dir/")
+    assert "Car mode is on, so flights were removed" in notes[0] and '"Fly to Denver"' in notes[0]
+
+
+def test_flights_stay_when_car_mode_is_off():
+    cleaned, _ = validate_snapshot(ItinerarySnapshot.model_validate(car_plan()), drive_evidence())
+    assert {"fly", "flight"} <= {i.id for i in cleaned.items}
+
+
+def test_unrecorded_drive_links_are_removed():
+    cleaned, _ = validate_snapshot(ItinerarySnapshot.model_validate(car_plan()), Evidence(), car_mode=True)
+    drive = next(i for i in cleaned.items if i.id == "drive")
+    assert drive.sourceUrls == [] and drive.websiteUrl is None
+
+
+def test_chat_in_car_mode_never_returns_flights(fake_map, monkeypatch):
+    seen = {}
+
+    class CarAgent:
+        system_prompt = "Roam"
+
+        def __init__(self, kwargs):
+            seen["tools"] = {t.tool_name for t in kwargs["travel_tools"]}
+            self.update = kwargs["extra_tools"][0]
+
+        def __call__(self, prompt):
+            seen["prompt"] = self.system_prompt
+            self.update(itinerary=car_plan())
+            return "Road trip ready."
+
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: CarAgent(kwargs))
+    body = {"prompt": "Plan Denver", "car_mode": True, "max_drive_miles_per_day": 300}
+    response = TestClient(app).post("/api/ask", json=body).json()
+    categories = {i["category"] for i in response["itinerary"]["items"]}
+    assert "Flights" not in categories and not any("Fly to" in i["title"] for i in response["itinerary"]["items"])
+    assert "plan_drive" in seen["tools"]
+
+
+def test_car_mode_prompt_and_limit_reach_the_agent(fake_map, monkeypatch):
+    agents = []
+
+    class Recorder:
+        system_prompt = "Roam"
+
+        def __init__(self, kwargs):
+            self.drive = {t.tool_name: t for t in kwargs["travel_tools"]}["plan_drive"]
+            agents.append(self)
+
+        def __call__(self, prompt):
+            return "ok"
+
+    calls = []
+    monkeypatch.setattr(travel_tools, "plan_drive", lambda *args: calls.append(args) or {"status": "ok", "source_urls": []})
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: Recorder(kwargs))
+    client = TestClient(app)
+
+    client.post("/api/ask", json={"prompt": "x", "car_mode": True, "max_drive_miles_per_day": 300})
+    assert "CAR MODE IS ON" in agents[-1].system_prompt and "at most 300 miles per day" in agents[-1].system_prompt
+    assert "max_miles_per_day" not in agents[-1].drive.tool_spec["inputSchema"]["json"]["properties"]
+    agents[-1].drive("Kansas City, MO", "Denver, CO")
+    assert calls[-1] == ("Kansas City, MO", "Denver, CO", True, 300)
+
+    client.post("/api/ask", json={"prompt": "x", "max_drive_miles_per_day": 300})
+    assert "CAR MODE" not in agents[-1].system_prompt
+    agents[-1].drive("Kansas City, MO", "Denver, CO")
+    assert calls[-1][3] == 0  # the limit only applies in car mode
+
+    assert client.post("/api/ask", json={"prompt": "x", "car_mode": True, "max_drive_miles_per_day": 5}).status_code == 422
+
+
+def test_switching_car_mode_on_clears_flights_from_the_current_plan(fake_map, monkeypatch):
+    class Quiet:
+        system_prompt = "Roam"
+
+        def __init__(self, kwargs):
+            pass
+
+        def __call__(self, prompt):
+            return "Sure, I'll keep that in mind."  # no update_itinerary call
+
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: Quiet(kwargs))
+    client = TestClient(app)
+    current = car_plan()
+    with_car = client.post("/api/ask", json={"prompt": "drive instead", "car_mode": True, "current_itinerary": current}).json()
+    assert {"fly", "flight"}.isdisjoint(i["id"] for i in with_car["itinerary"]["items"])
+    without_car = client.post("/api/ask", json={"prompt": "hi", "current_itinerary": current}).json()
+    assert "itinerary" not in without_car

@@ -30,7 +30,7 @@ class PlanItem(PlanModel):
     time: str | None = Field(default=None, pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     title: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=1200)
-    category: Literal["Flights", "Stays", "Food", "Activities"]
+    category: Literal["Flights", "Driving", "Stays", "Food", "Activities"]
     costUsd: float | None = Field(default=None, ge=0, le=1000000,
                                  description="Estimated total USD for all travelers. Null means unknown; 0 means free.")
     location: Location | None = None
