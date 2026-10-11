@@ -3,6 +3,8 @@ import os
 from botocore.config import Config
 from strands import Agent
 from strands.models import BedrockModel
+from strands.tools.executors import SequentialToolExecutor
+from orchestration import ORCHESTRATOR_PROMPT, specialist_tools
 from prompts.travel import CHAT_PROMPT
 from tools import get_travel_tools
 
@@ -49,10 +51,15 @@ def _max_tokens() -> int:
         return DEFAULT_MAX_TOKENS
 
 
-def build_agent(messages: list | None = None, extra_tools: list | None = None, travel_tools: list | None = None) -> Agent:
+def build_agent(messages: list | None = None, extra_tools: list | None = None, travel_tools: list | None = None, checked_draft=None) -> Agent:
     """`travel_tools` replaces the default place tools, e.g. with recording versions (see evidence.py)."""
     model = build_model()
     # Let botocore retry transient failures once. Strands' default six attempts
     # otherwise keep requests waiting for minutes when account quotas are zero.
-    return Agent(model=model, messages=messages, system_prompt=SYSTEM_PROMPT, tools=[*(get_travel_tools() if travel_tools is None else travel_tools), *(extra_tools or [])],
-                 callback_handler=None, retry_strategy=None)
+    delegations, specialists = specialist_tools(model, get_travel_tools() if travel_tools is None else travel_tools, checked_draft)
+    agent = Agent(model=model, messages=messages, agent_id="orchestrator", name="Roam",
+                  system_prompt=SYSTEM_PROMPT + "\n" + ORCHESTRATOR_PROMPT,
+                  tools=[*delegations, *(extra_tools or [])], callback_handler=None,
+                  retry_strategy=None, tool_executor=SequentialToolExecutor())
+    agent.roam_specialists = specialists
+    return agent

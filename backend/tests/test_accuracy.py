@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import tools as travel_tools
 from evidence import Evidence, recording_tools
-from itinerary import ItinerarySnapshot
+from itinerary import ItinerarySnapshot, ItineraryUpdates
 from main import app
 from routers import ask as ask_router
 from validation import validate_snapshot
@@ -78,6 +78,23 @@ def test_keeps_only_what_the_tools_confirmed():
     assert "Flight costs are rough estimates" in text
     assert "over the $500 budget" in text
     assert cleaned.assumptions[: len(notes)] == notes
+
+
+def test_frozen_preview_is_reused_but_later_lookups_can_repair_the_same_draft():
+    evidence = Evidence()
+    updates = ItineraryUpdates(check=lambda snapshot: validate_snapshot(snapshot, evidence))
+    draft = model_plan()
+    preview, _ = updates.prepare(draft, freeze=True)
+    assert preview.items[0].sourceUrls == []
+    evidence.add_place(REAL_PLACE)
+    updates.check_budget(itinerary=draft)
+    updates.update_itinerary(itinerary=draft)
+    assert updates.latest == preview  # evidence changing while paused cannot change the approved preview
+    updates.prepare(draft, freeze=True)
+    updates.check_budget(itinerary=draft)
+    updates.update_itinerary(itinerary=draft)
+    assert updates.latest.items[0].sourceUrls == [OSM_URL]
+    assert updates.latest.items[0].location.lat == REAL_PLACE["lat"]
 
 
 def test_pin_near_a_looked_up_place_is_snapped_to_it():
@@ -263,7 +280,7 @@ def test_car_mode_prompt_and_limit_reach_the_agent(fake_map, monkeypatch):
     assert client.post("/api/ask", json={"prompt": "x", "car_mode": True, "max_drive_miles_per_day": 5}).status_code == 422
 
 
-def test_switching_car_mode_on_clears_flights_from_the_current_plan(fake_map, monkeypatch):
+def test_car_mode_does_not_publish_an_unproposed_revision(fake_map, monkeypatch):
     class Quiet:
         system_prompt = "Roam"
 
@@ -277,7 +294,7 @@ def test_switching_car_mode_on_clears_flights_from_the_current_plan(fake_map, mo
     client = TestClient(app)
     current = car_plan()
     with_car = client.post("/api/ask", json={"prompt": "drive instead", "car_mode": True, "current_itinerary": current}).json()
-    assert {"fly", "flight"}.isdisjoint(i["id"] for i in with_car["itinerary"]["items"])
+    assert "itinerary" not in with_car  # revisions must pass through the update tool and consent hook
     without_car = client.post("/api/ask", json={"prompt": "hi", "current_itinerary": current}).json()
     assert "itinerary" not in without_car
 

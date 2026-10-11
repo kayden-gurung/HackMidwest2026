@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { chatService } from "../api/chatService";
 import { conversationStore } from "../api/conversationStore";
+import { agentStore } from "../api/agentStore";
 import type { AskRequest, TravelPreferences } from "../types";
 
 export type { SendStatus } from "../api/conversationStore";
@@ -12,11 +13,12 @@ export function useChat(tripId: string, preferences?: TravelPreferences, mode?: 
   const error = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getError(tripId));
   // The reply while it streams in, if one is on its way.
   const draft = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getDraft(tripId));
+  const agentState = useSyncExternalStore(agentStore.subscribe, () => agentStore.get(tripId));
 
   const send = useCallback(
     (text: string) => {
       const prompt = text.trim();
-      if (!prompt || conversationStore.getStatus(tripId) === "sending") return;
+      if (!prompt || ["sending", "awaiting_approval"].includes(conversationStore.getStatus(tripId))) return;
       // Failures are recorded in the store as the "error" status, which the panel renders.
       chatService.sendMessage(tripId, prompt, preferences, mode).catch(() => undefined);
     },
@@ -24,5 +26,8 @@ export function useChat(tripId: string, preferences?: TravelPreferences, mode?: 
   );
 
   const retry = useCallback(() => { chatService.retryMessage(tripId, preferences, mode).catch(() => undefined); }, [tripId, preferences, mode]);
-  return { messages, sendStatus, error, draft, send, retry };
+  const resolveApproval = useCallback((approved: boolean) => {
+    chatService.resolveApproval(tripId, approved).catch(() => undefined);
+  }, [tripId]);
+  return { messages, sendStatus, error, draft, send, retry, agentState, resolveApproval };
 }

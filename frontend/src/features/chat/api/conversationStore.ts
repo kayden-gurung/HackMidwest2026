@@ -1,8 +1,7 @@
-import { config } from "../../../config/env";
 import type { ChatMessage } from "../types";
-import { mockConversations } from "./mockData";
+import { sampleTrips } from "../../explore/api/sampleTrips";
 
-export type SendStatus = "idle" | "sending" | "error";
+export type SendStatus = "idle" | "sending" | "awaiting_approval" | "error";
 
 /** A reply that is still streaming in: the text so far and, while one runs, the tool Roam is using. */
 export interface ReplyDraft {
@@ -14,17 +13,12 @@ export interface ReplyDraft {
 /*
  * LOCAL STORE: every journey's conversation lives in this module's memory, so a chat is still
  * there when the traveler switches away and back, and resets when the page reloads.
- * With mocks on it starts with the Figma sample conversation.
+ * It starts with the conversations of the Explore sample trips.
  *
  * Arrays are replaced, never mutated, so React can tell when a conversation changed.
  */
-// With mocks off, only the Puglia example's conversation is kept (if showExample); new journeys start empty.
-const seed = config.useMocks
-  ? structuredClone(mockConversations)
-  : config.showExample
-    ? { puglia: structuredClone(mockConversations.puglia) }
-    : {};
-const conversations = new Map<string, ChatMessage[]>(Object.entries(seed));
+// New journeys start empty; only the sample trips opened from Explore come with a conversation.
+const conversations = new Map<string, ChatMessage[]>(sampleTrips.map((trip) => [trip.id, structuredClone(trip.conversation)]));
 const statuses = new Map<string, SendStatus>();
 const errors = new Map<string, string>();
 // The reply Roam is writing right now (streamed), and the tool it is using, per journey.

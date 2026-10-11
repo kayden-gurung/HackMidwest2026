@@ -99,7 +99,8 @@ def test_stream_sends_text_tools_then_the_final_reply(monkeypatch):
 
     assert response.headers["content-type"].startswith("text/event-stream")
     events = [json.loads(line[len("data: "):]) for line in response.text.splitlines() if line.startswith("data: ")]
-    assert events == [
+    assert events[0]["run"]["id"]
+    assert events[1:] == [
         {"text": "Let me look that up. "},
         {"tool": "find_places"},
         {"text": "Here is your plan."},
