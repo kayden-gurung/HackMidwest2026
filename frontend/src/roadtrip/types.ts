@@ -22,8 +22,12 @@ export type DriveStop = {
   visitMinutes: number
   image?: string
   interests: string[]
-  x: number
-  y: number
+  // Where the place is. Optional so a stop whose lookup came back without a location still
+  // lists normally; it just isn't drawn on the map.
+  lat?: number
+  lng?: number
+  // Street address or "Town, ST". Used to make the Google Maps link when it's present.
+  address?: string
   lookup: "demo" | "pending" | "failed"
   sourceLabel: string
   sourceUrl?: string
@@ -31,13 +35,41 @@ export type DriveStop = {
   learned: string
 }
 
+// A point on the map, in degrees.
+export type LatLng = [lat: number, lng: number]
+
+export type RoutePlace = {
+  name: string
+  lat: number
+  lng: number
+}
+
+// The base drive before any stops are added.
+export type DriveRoute = {
+  origin: RoutePlace
+  destination: RoutePlace
+  // The road line from origin to destination, in drive order.
+  path: LatLng[]
+  distanceMiles: number
+  // Driving time with no detours.
+  baseMinutes: number
+}
+
+// Everything the drive tab shows for one request. The backend fills this in.
+export type DrivePlan = {
+  route: DriveRoute
+  stops: DriveStop[]
+  discoveries: CommunityDiscovery[]
+}
+
 export type CommunityDiscovery = {
   id: string
   place: string
   caption: string
   image: string
-  x: number
-  y: number
+  lat: number
+  lng: number
+  // How many people have pinned this place. The map shows it as a badge.
   count: number
   sample?: boolean
 }
