@@ -73,6 +73,10 @@ PATH_STEP_M = 2_000
 MAX_SEARCHES = 9
 MAX_PHRASES = 3
 MIN_STRETCHES = 3
+# Failed searches are asked once more after a short pause (see places.wait_before_retry). Each round
+# stops early after this many failures in a row, so a service that is down costs seconds, not a minute.
+SEARCH_ROUNDS = 2
+GIVE_UP_AFTER = 3
 # Results per search: Nominatim returns the most notable first.
 SEARCH_LIMIT = 40
 # The Nominatim search words for each interest chip, most useful first.
@@ -343,15 +347,18 @@ def _counts_phrase(kinds: list[str]) -> str:
 class RoutePlaces:
     """Everything the searches found near the route, already measured against it."""
 
-    def __init__(self, places_found: list[tuple[dict, float]]):
+    def __init__(self, places_found: list[tuple[dict, float]], searches_failed: int = 0):
         # (element, metres along the route). Each element may carry "town": (name, "village"|"town"|...).
         self.places = places_found
+        # Searches that got no answer even on the second try: parts of the route may be missing stops.
+        self.searches_failed = searches_failed
 
 
 def search_route(coordinates: list, interests: list[str] | None = None) -> RoutePlaces:
     """Notable places along a route (GeoJSON [lng, lat] points) for these interests.
 
-    Raises PlacesUnavailable only when every search failed.
+    A search that fails is tried once more after a pause. Raises PlacesUnavailable only when every
+    search failed both times.
     """
     interests = [i for i in (interests or []) if i in INTEREST_TAGS] or DEFAULT_INTERESTS
     points = _simplify(coordinates)
@@ -362,27 +369,44 @@ def search_route(coordinates: list, interests: list[str] | None = None) -> Route
 
     started = time.monotonic()
     found: dict[tuple, dict] = {}
-    failures = 0
-    for box in stretches:
-        for phrase in phrases:
+    searches = [(box, phrase) for box in stretches for phrase in phrases]
+    pending = searches
+    for attempt in range(1, SEARCH_ROUNDS + 1):
+        failed: list[tuple[str, str]] = []
+        failures_in_a_row = 0
+        last_error: Exception | None = None
+        for position, (box, phrase) in enumerate(pending):
+            if failures_in_a_row >= GIVE_UP_AFTER:
+                # The service is not answering at all: stop asking, and try the rest again after a pause.
+                failed += pending[position:]
+                break
             try:
                 results = places.nominatim_request(places.NOMINATIM_URL, {
                     "q": phrase, "format": "jsonv2", "limit": SEARCH_LIMIT, "extratags": 1, "addressdetails": 1,
                     "viewbox": box, "bounded": 1})
             except (httpx.HTTPError, ValueError) as error:
-                failures += 1
+                failed.append((box, phrase))
+                failures_in_a_row += 1
+                last_error = error
                 log.warning("route search: %r failed: %s", phrase, places._why(error))
                 continue
+            failures_in_a_row = 0
             for result in results if isinstance(results, list) else []:
                 element = _element(result)
                 if element is not None:
                     found[(element["type"], element["id"])] = element
-    searches = len(stretches) * len(phrases)
-    if failures == searches:
+        if not failed or attempt == SEARCH_ROUNDS:
+            break
+        # A dropped connection or a "slow down" answer usually clears in seconds. Answers already
+        # received are kept; only the searches that failed are asked again.
+        log.warning("route search: %d of %d searches failed, trying those again", len(failed), len(pending))
+        places.wait_before_retry(last_error)
+        pending = failed
+    if len(failed) == len(searches):
         raise places.PlacesUnavailable("The place search service is not responding. Try again in a moment.")
-    log.info("route search: %d places from %d searches (%s) along %d km in %.1f s%s", len(found), searches,
+    log.info("route search: %d places from %d searches (%s) along %d km in %.1f s%s", len(found), len(searches),
              ", ".join(phrases), round(cumulative[-1] / 1000), time.monotonic() - started,
-             f", {failures} failed" if failures else "")
+             f", {len(failed)} failed" if failed else "")
 
     index = _RouteIndex(points, cumulative, TOWN_CORRIDOR_M)
     kept = []
@@ -395,7 +419,7 @@ def search_route(coordinates: list, interests: list[str] | None = None) -> Route
         located = index.locate(*spot)
         if located is not None and located[0] <= TOWN_CORRIDOR_M:
             kept.append((element, located[1]))
-    return RoutePlaces(kept)
+    return RoutePlaces(kept, len(failed))
 
 
 class _Candidate:

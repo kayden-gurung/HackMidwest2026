@@ -171,13 +171,19 @@ def _best_near(phrases: tuple[str, ...], lat: float, lng: float, radius_m: int, 
     """The best named place of this kind near a point, from Nominatim. Raises _SearchFailed when it cannot answer."""
     wanted = tag_values.split("|")
     for phrase in phrases:
-        try:
-            results = places.nominatim_request(places.NOMINATIM_URL, {
-                "q": phrase, "format": "jsonv2", "limit": 20, "extratags": 1, "addressdetails": 1,
-                "viewbox": _box(lat, lng, radius_m), "bounded": 1})
-        except (httpx.HTTPError, ValueError) as error:
-            log.warning("%s near %.3f,%.3f failed: %s", phrase, lat, lng, places._why(error))
-            raise _SearchFailed() from error
+        params = {"q": phrase, "format": "jsonv2", "limit": 20, "extratags": 1, "addressdetails": 1,
+                  "viewbox": _box(lat, lng, radius_m), "bounded": 1}
+        for attempt in (1, 2):
+            try:
+                results = places.nominatim_request(places.NOMINATIM_URL, params)
+                break
+            except (httpx.HTTPError, ValueError) as error:
+                log.warning("%s near %.3f,%.3f failed: %s", phrase, lat, lng, places._why(error))
+                # A dropped connection or "slow down" usually clears in seconds: one more try.
+                if attempt == 1 and places.is_transient(error):
+                    places.wait_before_retry(error)
+                    continue
+                raise _SearchFailed() from error
         best = None
         for result in results if isinstance(results, list) else []:
             element = places._nominatim_element(result)
@@ -274,6 +280,9 @@ def build_first_plan(request: TripRequest) -> TripPlan | None:
     more = [c for c in candidates if c not in stops][:MORE_STOPS]
     if candidates and not stops:
         notes.append(f"No stop fit a {request.detour_budget_minutes}-minute detour budget. A bigger budget would allow some.")
+    if found is not None and found.searches_failed:
+        notes.append("Part of the route could not be searched just now, so there may be more good stops than these."
+                     " Planning this drive again fills in the rest.")
     if found is not None and not candidates:
         notes.append("No stops matching these interests were found close to this route. Try other interests.")
     if any(s.detour_estimated for s in stops):

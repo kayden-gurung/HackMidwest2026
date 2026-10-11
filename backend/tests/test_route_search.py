@@ -80,6 +80,8 @@ def in_box(spot, viewbox):
 @pytest.fixture
 def world(monkeypatch):
     state = {"nominatim_up": True, "search_up": True, "table_up": True, "searches": [],
+             # A flaky connection: this many place searches / route requests fail before they work again.
+             "searches_to_drop": 0, "refused": 0, "routes_to_drop": 0,
              "routes": [line(), line(bend_km=40)]}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -91,7 +93,11 @@ def world(monkeypatch):
                 return httpx.Response(429)
             if params.get("bounded"):
                 if not state["search_up"]:
+                    state["refused"] += 1
                     return httpx.Response(429)
+                if state["searches_to_drop"] > 0:
+                    state["searches_to_drop"] -= 1
+                    raise httpx.ConnectError("connection dropped", request=request)
                 phrase, box = params["q"], params["viewbox"]
                 state["searches"].append(phrase)
                 west, north, east, south = map(float, box.split(","))
@@ -126,6 +132,9 @@ def world(monkeypatch):
             return httpx.Response(200, json={"code": "Ok", "distances": meters, "durations": [[m / 25 for m in row] for row in meters]})
         if "router.project-osrm.org" in host:
             waypoints = [tuple(map(float, c.split(",")))[::-1] for c in path.split("/driving/")[1].split(";")]
+            if params.get("alternatives") == "false" and state["routes_to_drop"] > 0:  # the whole-route check
+                state["routes_to_drop"] -= 1
+                return httpx.Response(429)
             if len(waypoints) == 2:
                 routes = [{"distance": 965_606 + 30_000 * i, "duration": 30_600 + 1_800 * i,
                            "geometry": {"type": "LineString", "coordinates": c}} for i, c in enumerate(state["routes"])]
@@ -302,6 +311,34 @@ def test_plan_over_budget_leaves_out_extras_first(world):
     # The destination's bed is the first thing to go; no stop goes while a meal or that bed could.
     assert dropped and dropped[0].startswith("stay-")
     assert all(not d.startswith("stop-") for d in dropped) or all(not k.startswith(("lunch-",)) for k in kept)
+
+
+def test_a_dropped_connection_is_retried_and_the_plan_still_gets_its_stops(world):
+    steady = plan()
+    places.clear_caches()
+    driving.clear_cache()
+    # The connection drops for the first stretch of searching, then comes back.
+    world["searches_to_drop"] = 3
+    world["routes_to_drop"] = 1
+    result = plan()
+    assert [s.name for s in result.stops] == [s.name for s in steady.stops] and result.stops
+    assert result.notes == steady.notes
+    assert result.itinerary.roadTrip is not None  # the whole-route check went through on its second try
+
+
+def test_a_search_that_stays_down_gives_up_quickly(world):
+    world["search_up"] = False
+    with pytest.raises(places.PlacesUnavailable):
+        route_search.search_route(line(), ["History"])
+    # Two rounds, each stopping after three failures in a row, instead of walking through all nine twice.
+    assert world["refused"] == 2 * route_search.GIVE_UP_AFTER
+
+
+def test_a_partly_searched_route_says_so(world, monkeypatch):
+    monkeypatch.setattr(route_search, "SEARCH_ROUNDS", 1)
+    world["searches_to_drop"] = 2
+    result = plan()
+    assert any("could not be searched" in note for note in result.notes)
 
 
 def test_route_only_answer_makes_no_searches(world):

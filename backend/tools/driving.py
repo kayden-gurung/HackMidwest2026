@@ -7,6 +7,7 @@ Fuel cost is an estimate from two stated assumptions, never a looked-up price.
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 from urllib.parse import urlencode
@@ -15,6 +16,8 @@ import httpx
 from pydantic import BaseModel
 
 from tools import places
+
+log = logging.getLogger("roam.driving")
 
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 ROUTE_TIMEOUT_S = 15.0
@@ -30,14 +33,21 @@ def road_routes(points: list[tuple[float, float]], alternatives: bool = False) -
     if not 2 <= len(points) <= 12:
         raise ValueError("A route needs two endpoints and at most ten intermediate stops.")
     coordinates = ";".join(f"{lng:.6f},{lat:.6f}" for lat, lng in points)
-    try:
-        response = places._http().get(f"{OSRM_URL}/{coordinates}", params={
-            "overview": "full", "geometries": "geojson", "alternatives": "true" if alternatives else "false",
-        }, timeout=ROUTE_TIMEOUT_S)
-        response.raise_for_status()
-        body = response.json()
-    except (httpx.HTTPError, ValueError) as error:
-        raise places.PlacesUnavailable("Driving directions are unavailable. Your current plan has been kept.") from error
+    for attempt in (1, 2):
+        try:
+            response = places._http().get(f"{OSRM_URL}/{coordinates}", params={
+                "overview": "full", "geometries": "geojson", "alternatives": "true" if alternatives else "false",
+            }, timeout=ROUTE_TIMEOUT_S)
+            response.raise_for_status()
+            body = response.json()
+            break
+        except (httpx.HTTPError, ValueError) as error:
+            log.warning("OSRM route through %d points failed: %s", len(points), places._why(error))
+            # A dropped connection or "slow down" usually clears in seconds: one more try.
+            if attempt == 1 and places.is_transient(error):
+                places.wait_before_retry(error)
+                continue
+            raise places.PlacesUnavailable("Driving directions are unavailable. Your current plan has been kept.") from error
     if not isinstance(body, dict) or body.get("code") != "Ok":
         return []
     routes = []

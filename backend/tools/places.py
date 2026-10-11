@@ -233,6 +233,34 @@ _UNAVAILABLE = object()
 _PHOTON_OSM_TYPES = {"N": "node", "W": "way", "R": "relation"}
 
 
+# A dropped connection or a "slow down" answer usually clears within seconds (venue wifi, or many
+# people behind one address using the same free service), so the important lookups try once more.
+TRANSIENT_STATUS = {429, 502, 503, 504}
+RETRY_WAIT_S = 3.0
+MAX_RETRY_WAIT_S = 8.0
+
+
+def is_transient(error: Exception) -> bool:
+    """True for failures worth one more try: no connection, a timeout, or the server asking to slow down."""
+    response = getattr(error, "response", None)
+    if response is not None:
+        return response.status_code in TRANSIENT_STATUS
+    return isinstance(error, httpx.TransportError)
+
+
+def wait_before_retry(error: Exception | None = None) -> None:
+    """Waits RETRY_WAIT_S, or as long as the server asked (Retry-After), up to MAX_RETRY_WAIT_S."""
+    if RETRY_WAIT_S <= 0:
+        return
+    wait = RETRY_WAIT_S
+    try:
+        asked = float(getattr(error, "response", None).headers.get("retry-after", ""))  # type: ignore[union-attr]
+        wait = max(wait, min(asked, MAX_RETRY_WAIT_S))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    time.sleep(wait)
+
+
 def _why(error: Exception) -> str:
     """A short reason for the logs: the HTTP status ("429 Too Many Requests") or the error type."""
     response = getattr(error, "response", None)
@@ -281,34 +309,6 @@ def _photon_town_at(lat: float, lng: float) -> str | None:
     town = props.get("city") or (props.get("name") if props.get("type") in ("city", "town", "village") else None) or props.get("county")
     region = props.get("state") or props.get("country")
     return ", ".join(str(part) for part in (town, region) if part) or None
-_town_cache: dict[tuple[float, float], str | None] = {}
-
-
-def nominatim_request(url: str, params: dict) -> object:
-    """A Nominatim request, spaced out like geocode()'s: its usage policy allows about one per second.
-
-    httpx and JSON errors reach the caller.
-    """
-    global _last_nominatim_call
-    # A saved answer never reaches Nominatim, so it skips the one-a-second spacing.
-    client = _http()
-    transport = getattr(client, "_transport", None)
-    if isinstance(transport, DiskCacheTransport):
-        saved = transport.saved(client.build_request("GET", url, params=params))
-        if saved is not None:
-            return saved
-    with _nominatim_lock:
-        wait = NOMINATIM_MIN_INTERVAL_S - (time.monotonic() - _last_nominatim_call)
-        if wait > 0:
-            time.sleep(wait)
-        try:
-            response = _http().get(url, params=params, timeout=GEOCODE_TIMEOUT_S)
-            response.raise_for_status()
-            return response.json()
-        finally:
-            _last_nominatim_call = time.monotonic()
-
-
 _town_cache: dict[tuple[float, float], str | None] = {}
 
 

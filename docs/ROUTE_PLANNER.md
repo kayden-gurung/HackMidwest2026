@@ -39,7 +39,10 @@ come from OSRM. Times and visit lengths are planning estimates and are labeled a
   lunch, then lunch at a stop, then the weakest stop) and the traveler is told. The check also adds
   the measured mileage, fuel and driving legs the Drive screen shows.
 
-If the map services are down, the plan still comes back with the driving and a note.
+If a lookup fails (a dropped connection, a timeout, or the service answering "slow down"), it is
+tried once more after 3 seconds: the stop searches that failed, the meal and bed search, and the
+whole-route check. Answers already received are kept. If the map services stay down, the plan still
+comes back with the driving and a note, and a part-searched route says so.
 
 ## Search functions for changes
 
