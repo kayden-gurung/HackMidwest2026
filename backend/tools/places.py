@@ -34,10 +34,18 @@ log = logging.getLogger("roam.places")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Tried in order, so a busy or unreachable server falls through to the next.
+# Each server limits requests per visitor separately, so one that is throttling us (a shared
+# venue network often is) does not stop the search: the next is tried with the time that is left.
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ]
+# Backup for place-name lookups when Nominatim refuses or does not answer: Photon, a separate
+# OpenStreetMap geocoder with its own limits (https://photon.komoot.io).
+PHOTON_URL = "https://photon.komoot.io/api/"
+PHOTON_REVERSE_URL = "https://photon.komoot.io/reverse"
 USER_AGENT = "RoamTravelPlanner/0.1 (HackMidwest 2026 student project; github.com/kayden-gurung/HackMidwest2026)"
 
 GEOCODE_TIMEOUT_S = 8.0
@@ -194,7 +202,12 @@ def geocode(place: str) -> GeoPoint | None:
     try:
         results = nominatim_request(NOMINATIM_URL, {"q": query, "format": "jsonv2", "limit": 1})
     except (httpx.HTTPError, ValueError) as error:
-        raise PlacesUnavailable("The location lookup service is not responding. Try again in a moment.") from error
+        log.warning("Nominatim lookup of %r failed: %s. Trying Photon.", query, _why(error))
+        point = _photon_geocode(query)
+        if point is _UNAVAILABLE:
+            raise PlacesUnavailable("The location lookup service is not responding. Try again in a moment.") from error
+        _geocode_cache[key] = point  # type: ignore[assignment]
+        return point  # type: ignore[return-value]
 
     point = None
     if isinstance(results, list) and results:
@@ -215,6 +228,58 @@ def geocode(place: str) -> GeoPoint | None:
 
 
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
+_UNAVAILABLE = object()
+_PHOTON_OSM_TYPES = {"N": "node", "W": "way", "R": "relation"}
+
+
+def _why(error: Exception) -> str:
+    """A short reason for the logs: the HTTP status ("429 Too Many Requests") or the error type."""
+    response = getattr(error, "response", None)
+    if response is not None:
+        return f"{response.status_code} {response.reason_phrase}"
+    return type(error).__name__
+
+
+def _photon_features(url: str, params: dict) -> list | None:
+    try:
+        response = _http().get(url, params=params, timeout=GEOCODE_TIMEOUT_S)
+        response.raise_for_status()
+        features = response.json().get("features")
+        return features if isinstance(features, list) else []
+    except (httpx.HTTPError, ValueError, AttributeError) as error:
+        log.warning("Photon lookup failed too: %s", _why(error))
+        return None
+
+
+def _photon_geocode(query: str) -> "GeoPoint | None | object":
+    """Like geocode(), from Photon. _UNAVAILABLE when Photon cannot be reached either."""
+    features = _photon_features(PHOTON_URL, {"q": query, "limit": 1, "lang": "en"})
+    if features is None:
+        return _UNAVAILABLE
+    if not features:
+        return None
+    try:
+        props = features[0].get("properties") or {}
+        lng, lat = features[0]["geometry"]["coordinates"][:2]
+        osm_type = _PHOTON_OSM_TYPES.get(str(props.get("osm_type")))
+        name = ", ".join(str(props[k]) for k in ("name", "state", "country") if props.get(k)) or query
+        return GeoPoint(
+            name=name, lat=float(lat), lng=float(lng),
+            source_url=f"https://www.openstreetmap.org/{osm_type}/{props['osm_id']}" if osm_type and props.get("osm_id") else None,
+            kind=props.get("type") or props.get("osm_value"),
+        )
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+
+
+def _photon_town_at(lat: float, lng: float) -> str | None:
+    features = _photon_features(PHOTON_REVERSE_URL, {"lat": f"{lat:.5f}", "lon": f"{lng:.5f}", "limit": 1, "lang": "en"})
+    if not features:
+        return None
+    props = features[0].get("properties") or {}
+    town = props.get("city") or (props.get("name") if props.get("type") in ("city", "town", "village") else None) or props.get("county")
+    region = props.get("state") or props.get("country")
+    return ", ".join(str(part) for part in (town, region) if part) or None
 _town_cache: dict[tuple[float, float], str | None] = {}
 
 
@@ -250,8 +315,12 @@ def town_at(lat: float, lng: float) -> str | None:
         return _town_cache[key]
     try:
         result = nominatim_request(NOMINATIM_REVERSE_URL, {"lat": f"{lat:.5f}", "lon": f"{lng:.5f}", "format": "jsonv2", "zoom": 10, "addressdetails": 1})
-    except (httpx.HTTPError, ValueError):
-        return None  # Not cached: a later call may succeed.
+    except (httpx.HTTPError, ValueError) as error:
+        log.warning("Nominatim reverse lookup failed: %s. Trying Photon.", _why(error))
+        name = _photon_town_at(lat, lng)
+        if name:
+            _town_cache[key] = name
+        return name  # None is not cached: a later call may succeed.
     address = result.get("address", {}) if isinstance(result, dict) else {}
     town = address.get("city") or address.get("town") or address.get("village") or address.get("county")
     region = address.get("state") or address.get("country")
@@ -502,8 +571,7 @@ def overpass(query: str, timeout_s: float = SEARCH_TIMEOUT_S, budget_s: float | 
                 elements = response.json().get("elements", [])
                 return elements if isinstance(elements, list) else []
             except (httpx.HTTPError, ValueError, AttributeError) as error:
-                log.warning("Overpass %s failed after %.1f s: %s", urlsplit(url).hostname, time.monotonic() - started,
-                            getattr(getattr(error, "response", None), "status_code", None) or type(error).__name__)
+                log.warning("Overpass %s failed after %.1f s: %s", urlsplit(url).hostname, time.monotonic() - started, _why(error))
                 continue
     raise PlacesUnavailable("The place search service is not responding. Try again in a moment.")
 

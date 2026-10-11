@@ -401,7 +401,7 @@ def test_an_overpass_answer_that_ran_out_of_time_is_never_trusted_or_saved(tmp_p
 
     monkeypatch.setattr(places, "_client", httpx.Client(transport=places.DiskCacheTransport(httpx.MockTransport(handler), tmp_path)))
     assert places.overpass("q") == [{"type": "node", "id": 2}]  # the backup server's full answer
-    assert tried == ["overpass-api.de", "overpass.kumi.systems"]
+    assert tried == ["overpass-api.de", "overpass.private.coffee"]
     saved = [p.read_text() for p in tmp_path.rglob("*.json")]
     assert len(saved) == 1 and "timed out" not in saved[0]
     # An incomplete answer saved by an older version is not reused either.
@@ -435,3 +435,56 @@ def test_route_search_leaves_out_the_start_and_end_cities(world):
     boxes = [tuple(map(float, b)) for b in re.findall(r'\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\);', world["queries"][0])]
     # No box covers downtown Kansas City or Denver.
     assert boxes and not any(s <= lat <= n and w <= lng <= e for s, w, n, e in boxes for lat, lng in (KC, DENVER))
+
+
+def test_city_lookup_falls_back_to_photon_when_nominatim_refuses(monkeypatch):
+    state = {"photon_up": True}
+
+    def handler(request):
+        if "nominatim" in request.url.host:
+            return httpx.Response(429, text="Too Many Requests")  # a throttled shared network
+        if not state["photon_up"]:
+            return httpx.Response(503)
+        if request.url.path.endswith("/reverse"):
+            return httpx.Response(200, json={"features": [{"geometry": {"coordinates": [-97.6, 38.84]},
+                                                          "properties": {"type": "city", "name": "Salina", "state": "Kansas"}}]})
+        return httpx.Response(200, json={"features": [{"geometry": {"coordinates": [-97.6114, 38.8403]},
+                                                       "properties": {"osm_type": "R", "osm_id": 128123, "name": "Salina",
+                                                                      "state": "Kansas", "country": "United States", "type": "city"}}]})
+
+    monkeypatch.setattr(places, "_client", httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(places, "NOMINATIM_MIN_INTERVAL_S", 0)
+    places.clear_caches()
+    point = places.geocode("Salina, KS")
+    assert (point.lat, point.lng, point.kind) == (38.8403, -97.6114, "city")
+    assert point.source_url == "https://www.openstreetmap.org/relation/128123"
+    assert places.town_at(38.84, -97.6) == "Salina, Kansas"
+    # Both down: say the service is unavailable, never "unknown city".
+    places.clear_caches()
+    state["photon_up"] = False
+    with pytest.raises(places.PlacesUnavailable):
+        places.geocode("Salina, KS")
+    places.clear_caches()
+
+
+def test_warming_retries_routes_when_the_map_services_were_down(world):
+    import warm
+
+    world["overpass_up"] = False
+    calls = []
+    real = warm._warm_one
+
+    def counting(start, destination):
+        calls.append(start)
+        if len(calls) == 2:
+            world["overpass_up"] = True  # the network came back
+            places.clear_caches()
+            driving.clear_cache()
+        return real(start, destination)
+
+    warm._warm_one = counting
+    try:
+        warm.warm([("Kansas City, MO", "Denver, CO")], rounds=3, wait_s=0)
+    finally:
+        warm._warm_one = real
+    assert len(calls) == 2  # failed once (no stops), then planned when the service was back

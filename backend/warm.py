@@ -46,25 +46,47 @@ def demo_routes() -> list[tuple[str, str]]:
     return routes
 
 
-def warm(routes: list[tuple[str, str]] | None = None) -> None:
-    for start, destination in routes if routes is not None else demo_routes():
-        # A traveler's request comes first: wait until it is done.
-        while places.traveler_waiting():
-            time.sleep(1)
-        began = time.monotonic()
-        try:
-            plan = build_first_plan(TripRequest(start=start, destination=destination, **DEFAULT_SETTINGS))
-        except places.PlacesUnavailable as error:
-            log.warning("warm %s -> %s: map services unavailable (%s)", start, destination, error)
-            continue
-        except Exception:  # never let warming take the backend down
-            log.exception("warm %s -> %s failed", start, destination)
-            continue
-        if plan is None:
-            log.warning("warm %s -> %s: no route found", start, destination)
-        else:
-            log.info("warm %s -> %s: ready in %.1f s, %d stops%s", start, destination, time.monotonic() - began,
-                     len(plan.stops), f" ({'; '.join(plan.notes)})" if plan.notes else "")
+# Routes that could not be warmed (the map services were down or refusing) are tried again later.
+RETRY_ROUNDS = 5
+RETRY_WAIT_S = 120
+
+
+def _warm_one(start: str, destination: str) -> bool:
+    """True when the route is done (planned, or has no road); False to try again later."""
+    # A traveler's request comes first: wait until it is done.
+    while places.traveler_waiting():
+        time.sleep(1)
+    began = time.monotonic()
+    try:
+        plan = build_first_plan(TripRequest(start=start, destination=destination, **DEFAULT_SETTINGS))
+    except places.PlacesUnavailable as error:
+        log.warning("warm %s -> %s: map services unavailable (%s)", start, destination, error)
+        return False
+    except Exception:  # never let warming take the backend down
+        log.exception("warm %s -> %s failed", start, destination)
+        return True
+    if plan is None:
+        log.warning("warm %s -> %s: no route found", start, destination)
+        return True
+    if not plan.stops and plan.notes:
+        # The route worked but the place search did not: try again later for the stops.
+        log.warning("warm %s -> %s: route ready, stops not yet (%s)", start, destination, "; ".join(plan.notes))
+        return False
+    log.info("warm %s -> %s: ready in %.1f s, %d stops", start, destination, time.monotonic() - began, len(plan.stops))
+    return True
+
+
+def warm(routes: list[tuple[str, str]] | None = None, rounds: int = RETRY_ROUNDS, wait_s: float = RETRY_WAIT_S) -> None:
+    pending = list(routes if routes is not None else demo_routes())
+    for round_number in range(rounds):
+        pending = [route for route in pending if not _warm_one(*route)]
+        if not pending or round_number == rounds - 1:
+            break
+        log.info("warm: %d route(s) will be tried again in %d s", len(pending), wait_s)
+        time.sleep(wait_s)
+    if pending:
+        log.warning("warm: gave up on %s for now; they will be planned live when asked for",
+                    ", ".join(f"{a} -> {b}" for a, b in pending))
 
 
 def start_warming() -> None:

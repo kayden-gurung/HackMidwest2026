@@ -114,7 +114,7 @@ def test_search_tries_the_backup_server_then_reports_unavailable(services):
     with pytest.raises(places.PlacesUnavailable):
         places.search_places("Polignano a Mare", "Activities")
     overpass_hosts = [call.url.host for call in services["calls"] if "nominatim" not in call.url.host]
-    assert overpass_hosts == ["overpass-api.de", "overpass.kumi.systems"]
+    assert overpass_hosts == [httpx.URL(url).host for url in places.OVERPASS_URLS]
 
 
 def test_agent_tool_never_raises(services):
