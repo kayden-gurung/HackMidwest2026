@@ -93,4 +93,34 @@ export interface AskRequest {
 export interface AskResponse {
   reply: string;
   itinerary?: ItinerarySnapshot;
+  approval?: PlanApproval;
+}
+
+export interface XrayEvent {
+  id: string;
+  agent: "orchestrator" | "places" | "transport" | "budget";
+  kind: "agent_started" | "agent_finished" | "model_started" | "model_finished" | "tool_started" | "tool_finished" | "consent_resolved";
+  timestamp: string;
+  tool?: string;
+  call_id?: string;
+  status?: string;
+  duration_ms?: number | null;
+}
+
+export interface PlanProposal {
+  kind: "itinerary_replan";
+  summary: string;
+  changes: { type: "added" | "removed" | "changed"; before?: ItinerarySnapshot["items"][number]; after?: ItinerarySnapshot["items"][number] }[];
+  unchanged_stops: number;
+  before_total_usd: number;
+  after_total_usd: number;
+  unknown_costs: number;
+  accuracy_notes?: string[];
+  itinerary: ItinerarySnapshot;
+}
+
+export interface PlanApproval {
+  run_id: string;
+  interrupts: { id: string; name: string; reason: PlanProposal }[];
+  expires_in_seconds: number;
 }

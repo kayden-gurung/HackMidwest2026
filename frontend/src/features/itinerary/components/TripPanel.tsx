@@ -32,8 +32,9 @@ export function TripPanel({ tripId }: { tripId: string }) {
 
       <div className="flex-1 overflow-y-auto p-5">
         {itinerary.updating && <div role="status" className="mb-4 rounded-xl bg-sea/10 p-3 text-xs font-semibold text-sea">Roam is planning… These panels update with the reply.</div>}
+        {itinerary.awaitingApproval && <div role="status" className="mb-4 rounded-xl bg-sea/10 p-3 text-xs font-semibold text-sea">A proposed plan is waiting for your approval in chat.{itinerary.data && " Your current plan stays here."}</div>}
         {itinerary.failed && <div className="mb-4 text-xs text-muted">Roam couldn’t finish that request. Retry in chat.{itinerary.data && " Your previous plan is still here."}</div>}
-        {!itinerary.data && <EmptyState message={itinerary.updating ? "Building your trip from the conversation…" : "Tell Roam where you want to go. Your itinerary, map stops and estimated budget will appear here."} />}
+        {!itinerary.data && <EmptyState message={itinerary.awaitingApproval ? "Your proposed itinerary will appear here after you approve it in chat." : itinerary.updating ? "Building your trip from the conversation…" : "Tell Roam where you want to go. Your itinerary, map stops and estimated budget will appear here."} />}
         {itinerary.data && (
           <>
             {itinerary.data.summary && <p className="mb-4 text-sm leading-6 text-ink/80">{itinerary.data.summary}</p>}

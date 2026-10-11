@@ -71,8 +71,9 @@ class AWSRouteTests(unittest.TestCase):
         with patch("routers.ask.build_agent", return_value=FailedAgent()):
             response = self.client.post("/api/ask/stream", json={"prompt": "hello"})
         events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
-        self.assertEqual(events[0], {"text": "partial reply"})
-        self.assertEqual(events[1]["status"], 503)
+        self.assertIn("run", events[0])
+        self.assertEqual(events[1], {"text": "partial reply"})
+        self.assertEqual(events[2]["status"], 503)
         self.assertEqual(events[-1], {"done": True})
 
     def test_chat_history_reaches_agent_and_mode_guidance_is_applied(self):
@@ -82,7 +83,7 @@ class AWSRouteTests(unittest.TestCase):
             factory.return_value.return_value = "A Kansas City trip for $300."
             response = self.client.post("/api/ask", json={"prompt": "Kansas City", "history": history, "mode": "Surprise me"})
         self.assertEqual(response.status_code, 200)
-        factory.assert_called_once_with(messages=[{"role": message["role"], "content": [{"text": message["content"]}]} for message in history], extra_tools=ANY, travel_tools=ANY)
+        factory.assert_called_once_with(messages=[{"role": message["role"], "content": [{"text": message["content"]}]} for message in history], extra_tools=ANY, travel_tools=ANY, checked_draft=ANY)
         self.assertIn("explicitly stated assumptions", factory.return_value.system_prompt)
 
     def test_new_journey_has_no_previous_chat_context(self):
@@ -90,7 +91,7 @@ class AWSRouteTests(unittest.TestCase):
             factory.return_value.system_prompt = "Roam"
             factory.return_value.return_value = "Hello"
             self.client.post("/api/ask", json={"prompt": "A new trip"})
-        factory.assert_called_once_with(messages=[], extra_tools=ANY, travel_tools=ANY)
+        factory.assert_called_once_with(messages=[], extra_tools=ANY, travel_tools=ANY, checked_draft=ANY)
 
     def test_invalid_chat_requests_are_rejected_before_aws(self):
         for body in [
@@ -117,12 +118,16 @@ class AWSRouteTests(unittest.TestCase):
         self.assertIsNone(agent.call_args.kwargs["retry_strategy"])
         self.assertEqual(model.call_args.kwargs["temperature"], 0.3)
 
-    def test_agent_has_the_merged_place_tools(self):
+    def test_orchestrator_delegates_to_specialist_tools(self):
         with patch("agent.BedrockModel"), patch("agent.Agent") as factory:
             build_agent()
         tools = factory.call_args.kwargs["tools"]
         names = {tool.tool_name for tool in tools}
-        self.assertEqual(names, {"find_places", "locate", "plan_drive", "get_forecast", "find_airports", "flight_links"})
+        self.assertEqual(names, {"research_places", "plan_transport", "review_trip_budget"})
+        # Every lookup tool main ships must be held by some specialist, or no agent can call it.
+        from tools import get_travel_tools
+        held = {name for specialist in factory.return_value.roam_specialists.values() for name in specialist.tool_names}
+        self.assertEqual(held - {"calculate_budget"}, {tool.tool_name for tool in get_travel_tools()})
 
 
 if __name__ == "__main__":

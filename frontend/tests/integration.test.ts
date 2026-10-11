@@ -11,10 +11,108 @@ import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
 import { postcardFromItinerary } from "../src/features/chat/lib/tripPostcard";
 import { travelModeStore } from "../src/features/trips/api/travelModeStore";
 import { tripTypesStore } from "../src/features/journey/api/tripTypesStore";
+import { agentStore } from "../src/features/chat/api/agentStore";
+import type { PlanApproval } from "../src/features/chat/types";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
 globalThis.window = globalThis as unknown as Window & typeof globalThis;
 afterEach(() => mock.restoreAll());
+
+function eventResponse(events: Record<string, unknown>[]) {
+  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "Content-Type": "text/event-stream" } });
+}
+
+function approvalFixture(): PlanApproval {
+  return { run_id: "opaque-run", expires_in_seconds: 900, interrupts: [{ id: "opaque-sdk-interrupt", name: "roam.itinerary-consent", reason: {
+    kind: "itinerary_replan", summary: "Move lunch indoors", changes: [], unchanged_stops: 1,
+    before_total_usd: 30, after_total_usd: 50, unknown_costs: 1, itinerary: { ...planFixture(), items: [{ ...planFixture().items[0], title: "Indoor lunch", costUsd: 50 }] },
+  } }] };
+}
+
+test("an SDK interrupt holds the plan, isolates the live trace, and resumes without adding another user message", async () => {
+  const tripId = "consent-trip";
+  itineraryStore.set(tripId, planFixture());
+  const before = itineraryStore.snapshot(tripId);
+  const approval = approvalFixture();
+  const requests: { url: string; body: any }[] = [];
+  mock.method(globalThis, "fetch", async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body) });
+    return requests.length === 1 ? eventResponse([
+      { run: { id: approval.run_id } },
+      { xray: { id: "event-1", agent: "places", kind: "tool_started", tool: "find_places", timestamp: "2026-10-10T12:00:00Z" } },
+      { text: "I propose an indoor lunch." }, { approval }, { done: true },
+    ]) : eventResponse([{ reply: "Applied the approved re-plan." }, { itinerary: approval.interrupts[0].reason.itinerary }, { done: true }]);
+  });
+  assert.equal(await chatService.sendMessage(tripId, "Rain tomorrow, move lunch indoors"), undefined);
+  assert.equal(conversationStore.getStatus(tripId), "awaiting_approval");
+  assert.deepEqual(itineraryStore.snapshot(tripId), before);
+  assert.equal(conversationStore.getMessages(tripId).length, 1);
+  assert.equal(conversationStore.getDraft(tripId), undefined);
+  assert.equal(agentStore.get(tripId).events[0].agent, "places");
+  assert.equal(agentStore.get("unrelated-consent-trip").events.length, 0);
+  await assert.rejects(chatService.sendMessage(tripId, "Another change"), /Review the pending plan/);
+  await chatService.resolveApproval(tripId, true);
+  assert.match(requests[1].url, /\/api\/ask\/opaque-run\/resume$/);
+  assert.deepEqual(requests[1].body, { interrupt_ids: ["opaque-sdk-interrupt"], approved: true });
+  assert.equal(conversationStore.getMessages(tripId).length, 2);
+  assert.equal(itineraryStore.get(tripId)!.items[0].title, "Indoor lunch");
+  assert.equal(agentStore.get(tripId).approval, undefined);
+  assert.equal(agentStore.get(tripId).events.length, 1);
+});
+
+test("declining a re-plan preserves the itinerary and duplicate approvals are blocked", async () => {
+  const tripId = "decline-trip";
+  itineraryStore.set(tripId, planFixture());
+  const before = itineraryStore.snapshot(tripId);
+  let finish: (response: Response) => void;
+  let calls = 0;
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    calls++;
+    if (calls === 1) return eventResponse([{ approval: approvalFixture() }, { done: true }]);
+    assert.equal(JSON.parse(init.body).approved, false);
+    return new Promise<Response>((resolve) => { finish = resolve; });
+  });
+  await chatService.sendMessage(tripId, "Move indoors");
+  const pending = chatService.resolveApproval(tripId, false);
+  await assert.rejects(chatService.resolveApproval(tripId, true), /no pending plan/);
+  assert.equal(calls, 2);
+  finish!(eventResponse([{ reply: "Kept your current plan." }, { done: true }]));
+  await pending;
+  assert.deepEqual(itineraryStore.snapshot(tripId), before);
+  assert.equal(conversationStore.getStatus(tripId), "idle");
+});
+
+test("expired reviews and incomplete streams preserve the last good plan and can be retried", async () => {
+  const tripId = "expired-consent-trip";
+  itineraryStore.set(tripId, planFixture());
+  const before = itineraryStore.snapshot(tripId);
+  let calls = 0;
+  mock.method(globalThis, "fetch", async () => {
+    calls++;
+    if (calls === 1) return eventResponse([{ approval: approvalFixture() }, { done: true }]);
+    if (calls === 2) return new Response(JSON.stringify({ detail: "This review expired. Send your change again." }), { status: 410 });
+    return eventResponse([{ reply: "A partial response" }, { itinerary: approvalFixture().interrupts[0].reason.itinerary }]);
+  });
+  await chatService.sendMessage(tripId, "Move indoors");
+  await assert.rejects(chatService.resolveApproval(tripId, true), /expired/);
+  assert.equal(conversationStore.getStatus(tripId), "error");
+  assert.equal(agentStore.get(tripId).approval, undefined);
+  await assert.rejects(chatService.retryMessage(tripId), /connection ended/);
+  assert.deepEqual(itineraryStore.snapshot(tripId), before);
+  assert.equal(conversationStore.getMessages(tripId).length, 1);
+});
+
+test("a proposal cannot overwrite trip settings or a plan changed during review", async () => {
+  const tripId = "stale-consent-trip";
+  itineraryStore.set(tripId, planFixture());
+  let calls = 0;
+  mock.method(globalThis, "fetch", async () => { calls++; return eventResponse([{ approval: approvalFixture() }, { done: true }]); });
+  await chatService.sendMessage(tripId, "Move indoors");
+  travelModeStore.set(tripId, { carMode: true });
+  await assert.rejects(chatService.resolveApproval(tripId, true), /settings or plan changed/);
+  assert.equal(calls, 1);
+  assert.equal(itineraryStore.get(tripId)!.items[0].title, "Park picnic");
+});
 
 test("the example journey has matching seeded chat and itinerary while new journeys stay empty", async () => {
   assert.ok((await localTripsService.listTrips()).some((trip) => trip.id === EXAMPLE_TRIP_ID));

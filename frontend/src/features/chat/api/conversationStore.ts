@@ -2,7 +2,7 @@ import { config } from "../../../config/env";
 import type { ChatMessage } from "../types";
 import { mockConversations } from "./mockData";
 
-export type SendStatus = "idle" | "sending" | "error";
+export type SendStatus = "idle" | "sending" | "awaiting_approval" | "error";
 
 /** A reply that is still streaming in: the text so far and, while one runs, the tool Roam is using. */
 export interface ReplyDraft {

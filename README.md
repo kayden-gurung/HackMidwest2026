@@ -7,7 +7,7 @@ The Roam travel planner UI comes from this Figma Make file: [Travel Planner App]
 
 ## Team coordination
 
-The [Strands implementation guide](docs/STRANDS.md) explains the planning flow, team ownership, and optional Decider integration.
+The [Strands implementation guide](docs/STRANDS.md) explains the orchestrator, specialist agents, live Agent X-ray, and interrupt/approval flow.
 
 The [AWS setup guide](docs/AWS_SETUP.md) explains credential configuration, actual Bedrock checks, and account/quota errors.
 
@@ -102,6 +102,8 @@ docker compose restart frontend          # Vite only reads .env on start
 | `BACKEND_URL`       | `http://backend:8000`    | Where the Vite proxy sends `/api` (use `http://localhost:8000` outside Docker) |
 
 Chat calls `/api/ask` with prompt, successful conversation history, preferences, planning mode, and the latest structured itinerary for that journey. The Strands `update_itinerary` tool returns a validated full plan with the reply, and the panels update automatically. Plan days, map markers and budget totals share the same items. Costs are USD planning estimates; unknown costs are excluded from totals and marked TBD. Coordinates come from place lookups; stops without coordinates remain listed. The last good plan stays visible while a request is pending or fails. The offline demo retains its sample plans.
+
+Live chat uses `/api/ask/stream`. Roam delegates to Places, Transport and Budget agents through Strands tools. The Agent X-ray in chat displays actual SDK hook events, including nested tool calls and durations. Revisions to an existing plan pause through a Strands interrupt before the itinerary tool runs. Review the proposed stop changes and cost estimates, then choose **Approve re-plan** or **Keep current plan**. The browser resumes the same agent through `/api/ask/{run_id}/resume`; the existing panels remain in place until an approved run finishes successfully. Hands-on mode also asks for approval of the first plan. Pending reviews expire after 15 minutes and are kept in the backend process, so run a single API worker for this demo.
 
 | Feature   | Data today | Backend endpoint |
 |-----------|------------|------------------|
