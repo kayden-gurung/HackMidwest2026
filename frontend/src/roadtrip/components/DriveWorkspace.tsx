@@ -6,7 +6,7 @@ import { useItinerary } from "../../features/itinerary/hooks/useItinerary";
 import { MapView } from "../../features/itinerary/components/MapView";
 import { PlanView } from "../../features/itinerary/components/PlanView";
 import { BudgetView } from "../../features/itinerary/components/BudgetView";
-import { driveChangePrompt, type DriveAction } from "../api/roadTripStore";
+import { driveChangePrompt, roadTripConstraints, roadTripStore, type DriveAction } from "../api/roadTripStore";
 import { demoPlan } from "../data/mockData";
 import type { DriveDraft } from "../types";
 import DemoDriveWorkspace from "./DemoDriveWorkspace";
@@ -25,6 +25,7 @@ function LiveDriveWorkspace({ draft, tripId, onEdit }: { draft: DriveDraft; trip
   const chat = useChat(tripId, { interests: draft.interests, currency: "USD" }, "Co-pilot");
   const busy = updating || awaitingApproval;
   const road = itinerary?.roadTrip;
+  const assumptions = roadTripStore.get(tripId) ?? roadTripConstraints(draft);
   const drivingMinutes = road ? Math.round(road.drivingMinutes) : 0;
   const focus = (id: string) => { setFocused(id); setView("Map"); };
   const actions: { id: DriveAction; label: string }[] = [
@@ -38,7 +39,7 @@ function LiveDriveWorkspace({ draft, tripId, onEdit }: { draft: DriveDraft; trip
         <div>
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-school"><Icon name="car" className="size-3.5" /> Drive plan · Live</div>
           <h1 className="mt-1 font-display text-2xl font-semibold">{draft.start} → {draft.destination}</h1>
-          <p className="mt-1 text-xs text-muted">One way · {draft.maxMilesPerDay} miles/day · {draft.mpg} MPG · ${draft.gasPrice.toFixed(2)}/gallon assumed</p>
+          <p className="mt-1 text-xs text-muted">One way · {draft.maxMilesPerDay} miles/day · {assumptions.mpg} MPG and ${assumptions.gas_price.toFixed(2)}/gallon assumed</p>
         </div>
         <button type="button" disabled={busy} onClick={onEdit} className="rounded-md border border-line px-4 py-2 text-xs font-bold disabled:opacity-50">Plan another drive</button>
       </div>

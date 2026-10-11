@@ -10,14 +10,18 @@ export interface RoadTripConstraints {
 
 const constraints = new Map<string, RoadTripConstraints>();
 
-export function roadTripConstraints(draft: DriveDraft): RoadTripConstraints {
+// Main no longer asks for car details. These are disclosed planning assumptions,
+// rather than claims about the traveler's car or today's pump prices.
+export const defaultFuelAssumptions = { mpg: 28, gas_price: 3.25 };
+
+export function roadTripConstraints(draft: DriveDraft, fuel: Pick<RoadTripConstraints, "mpg" | "gas_price"> = defaultFuelAssumptions): RoadTripConstraints {
   if (!draft.start.trim() || !draft.destination.trim()) throw new Error("Enter a starting city and destination.");
-  if (!Number.isFinite(draft.mpg) || draft.mpg <= 0 || draft.mpg > 150
-    || !Number.isFinite(draft.gasPrice) || draft.gasPrice < 0 || draft.gasPrice > 20
+  if (!Number.isFinite(fuel.mpg) || fuel.mpg <= 0 || fuel.mpg > 150
+    || !Number.isFinite(fuel.gas_price) || fuel.gas_price < 0 || fuel.gas_price > 20
     || !Number.isInteger(draft.maxMilesPerDay) || draft.maxMilesPerDay < 50 || draft.maxMilesPerDay > 1500
     || !Number.isInteger(draft.detourBudget) || draft.detourBudget < 0 || draft.detourBudget > 600) throw new Error("Check your driving limits and fuel assumptions.");
   return { origin: draft.start.trim(), destination: draft.destination.trim(), detour_minutes: draft.detourBudget,
-    mpg: draft.mpg, gas_price: draft.gasPrice };
+    mpg: fuel.mpg, gas_price: fuel.gas_price };
 }
 
 export const roadTripStore = {

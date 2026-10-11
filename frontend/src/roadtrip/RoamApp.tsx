@@ -18,9 +18,6 @@ const initialDrive: DriveDraft = {
   detourBudget: 60,
   departureDate: "Flexible",
   maxMilesPerDay: 450,
-  // Preserve the trip form's requirement to enter the traveler's own fuel economy.
-  mpg: 0,
-  gasPrice: 3.25,
 }
 
 function ExploreScreen({ onPlan }: { onPlan: () => void }) {

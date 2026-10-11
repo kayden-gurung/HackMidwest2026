@@ -24,7 +24,7 @@ globalThis.window = globalThis as unknown as Window & typeof globalThis;
 afterEach(() => mock.restoreAll());
 
 const driveDraft: DriveDraft = { start: "Kansas City, MO", destination: "St. Louis, MO", interests: ["History", "Local food"],
-  detourBudget: 60, departureDate: "Flexible", maxMilesPerDay: 450, mpg: 28, gasPrice: 3.25 };
+  detourBudget: 60, departureDate: "Flexible", maxMilesPerDay: 450 };
 
 test("road-trip planning sends structured constraints, preserves measured routes and isolates journeys", async () => {
   const tripId = "live-roadtrip";
@@ -64,7 +64,7 @@ test("changed driving assumptions invalidate an approval without replacing the c
 });
 
 test("driving form validation and route summaries reject invalid or over-limit values", () => {
-  assert.throws(() => roadTripConstraints({ ...driveDraft, mpg: 0 }), /fuel assumptions/);
+  assert.throws(() => roadTripConstraints(driveDraft, { mpg: 0, gas_price: 3.25 }), /fuel assumptions/);
   assert.throws(() => roadTripConstraints({ ...driveDraft, start: " " }), /starting city/);
   assert.match(driveChangePrompt("route", ""), /different road route/);
   assert.match(driveChangePrompt("towns", ""), /different small towns/);
