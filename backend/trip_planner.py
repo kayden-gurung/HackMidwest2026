@@ -12,7 +12,9 @@ planning estimates and are labeled as such.
 from __future__ import annotations
 
 import logging
+import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
 from pydantic import BaseModel, Field
@@ -20,7 +22,7 @@ from pydantic import BaseModel, Field
 from itinerary import ItinerarySnapshot, Location, PlanBudget, PlanItem, TripOverview
 from tools import places
 from tools.driving import DriveDay, DriveEstimate, estimate_drive, route_path
-from tools.route_search import INTEREST_TAGS, RouteStop, corridor_stops
+from tools.route_search import INTEREST_TAGS, RoutePlaces, RouteStop, notability, rank_stops, search_route, source_url
 
 log = logging.getLogger("roam.planner")
 
@@ -30,11 +32,16 @@ MAX_STOPS_PER_DAY = 3
 # Two chosen stops closer than this would feel like the same stop.
 MIN_GAP_MILES = 25
 # Search widths for the day's meals and beds.
-FOOD_RADIUS_M = 2_500
-MIDDAY_FOOD_RADIUS_M = 8_000
+FOOD_RADIUS_M = 3_000
+MIDDAY_FOOD_RADIUS_M = 15_000
 STAY_RADIUS_M = 10_000
 STAY_TAGS = "hotel|motel|guest_house"
 FOOD_TAGS = "restaurant|cafe"
+ANCHOR_TIMEOUT_S = 15.0
+ANCHOR_BUDGET_S = 20.0
+# A road trip wants a clean, ordinary bed: luxury hotels go last when anything else is near.
+LUXURY = re.compile(r"ritz|four seasons|st\.? regis|waldorf|mandarin oriental|peninsula|fairmont|jw marriott|luxury|"
+                    r"resort (&|and) spa|\bspa\b", re.IGNORECASE)
 # Extra candidates shown for swapping, beyond the chosen stops.
 MORE_STOPS = 8
 
@@ -54,6 +61,9 @@ class TripRequest(BaseModel):
     round_trip: bool = False
     # Which road: 0 is the fastest; see route_count in the answer for how many there are.
     route_index: int = Field(default=0, ge=0, le=3)
+    # False: only the route and the driving days, in a few seconds, for the screen to show while
+    # the full plan (stops, meals, stays) is still being searched.
+    include_places: bool = True
 
 
 class RouteSummary(BaseModel):
@@ -79,6 +89,8 @@ class TripPlan(BaseModel):
     more_stops: list[RouteStop]
     detour_minutes_used: int
     notes: list[str]
+    # False for the quick route-only answer (include_places = false).
+    complete: bool = True
 
 
 # ---------------------------------------------------------------------------------------------
@@ -123,7 +135,7 @@ def _hours_text(hours: float) -> str:
 
 
 # ---------------------------------------------------------------------------------------------
-# Meals and beds: one Overpass request for every day's anchors.
+# Meals and beds: one Overpass request for every day's beds and midday meal, run while the route is searched.
 
 
 class _Anchor:
@@ -131,17 +143,53 @@ class _Anchor:
         self.key, self.lat, self.lng, self.radius_m, self.tags, self.tag_key = key, lat, lng, radius_m, tags, tag_key
 
 
-def _best_places(anchors: list[_Anchor]) -> tuple[dict[str, dict], bool]:
+def _anchors(estimate: DriveEstimate, destination: places.GeoPoint | None) -> list[_Anchor]:
+    """Where each day needs a bed (the overnight town, the destination) and a fallback lunch (mid-drive).
+    These depend only on the route, so they can be searched before the stops are known."""
+    legs = estimate.drive_days
+    minutes_per_day = estimate.drive_hours * 60 / len(legs)
+    anchors = []
+    for day, leg in enumerate(legs):
+        if leg.path and minutes_per_day >= 150:
+            lat, lng = leg.path[len(leg.path) // 2]
+            anchors.append(_Anchor(f"lunch-{day}", lat, lng, MIDDAY_FOOD_RADIUS_M, FOOD_TAGS, "amenity"))
+        if day < len(legs) - 1 and leg.end_lat is not None:
+            anchors.append(_Anchor(f"stay-{day}", leg.end_lat, leg.end_lng, STAY_RADIUS_M, STAY_TAGS, "tourism"))  # type: ignore[arg-type]
+    if destination is not None:
+        anchors.append(_Anchor("stay-destination", destination.lat, destination.lng, STAY_RADIUS_M, STAY_TAGS, "tourism"))
+    return anchors
+
+
+def _found(element: dict, lat: float, lng: float) -> dict:
+    return {"tags": element.get("tags") or {}, "lat": lat, "lng": lng, "source": source_url(element)}
+
+
+def _rank(tags: dict, is_bed: bool, distance: float) -> tuple:
+    if is_bed:
+        stars = str(tags.get("stars", ""))[:1]
+        luxury = (stars.isdigit() and int(stars) >= 4) or bool(LUXURY.search(tags.get("name", "")))
+        return (not luxury, notability(tags), -distance)
+    # Local places before chains for meals.
+    return (not tags.get("brand"), notability(tags), -distance)
+
+
+def _anchor_places(anchors: list[_Anchor]) -> tuple[dict[str, dict], bool]:
     """The best named place for each anchor, by key. Second value: False when the search failed."""
     if not anchors:
         return {}, True
     statements = "".join(
         f'nwr["{a.tag_key}"~"^({a.tags})$"]["name"](around:{a.radius_m},{a.lat:.5f},{a.lng:.5f});' for a in anchors
     )
+    started = time.monotonic()
     try:
-        elements = places.overpass(f"[out:json][timeout:25];({statements});out center 800;", timeout_s=30)
+        elements = places.overpass(
+            f"[out:json][timeout:{int(ANCHOR_TIMEOUT_S) - 2}];({statements})->.found;"
+            "node.found out qt 1500;(way.found;relation.found;);out tags center qt 1500;",
+            timeout_s=ANCHOR_TIMEOUT_S, budget_s=ANCHOR_BUDGET_S,
+        )
     except places.PlacesUnavailable:
         return {}, False
+    log.info("meals and stays: %d map records in %.1f s", len(elements), time.monotonic() - started)
 
     best: dict[str, tuple[tuple, dict]] = {}
     for element in elements:
@@ -151,19 +199,31 @@ def _best_places(anchors: list[_Anchor]) -> tuple[dict[str, dict], bool]:
             continue
         lat, lng = float(spot["lat"]), float(spot["lon"])
         for anchor in anchors:
-            value = tags.get(anchor.tag_key, "")
-            if value not in anchor.tags.split("|"):
+            if tags.get(anchor.tag_key, "") not in anchor.tags.split("|"):
                 continue
             distance = places._distance_m(anchor.lat, anchor.lng, lat, lng)
             if distance > anchor.radius_m:
                 continue
-            documented = ("wikidata" in tags) * 2 + bool(tags.get("website") or tags.get("contact:website")) + ("opening_hours" in tags)
-            # Local places before chains for meals; any documented hotel is fine for a bed.
-            local = 0 if anchor.tag_key == "tourism" else -bool(tags.get("brand"))
-            rank = (local, documented, -distance)
+            rank = _rank(tags, anchor.tag_key == "tourism", distance)
             if anchor.key not in best or rank > best[anchor.key][0]:
-                best[anchor.key] = (rank, {"tags": tags, "lat": lat, "lng": lng, "source": f"https://www.openstreetmap.org/{element.get('type', 'node')}/{element.get('id')}"})
+                best[anchor.key] = (rank, _found(element, lat, lng))
     return {key: found for key, (_, found) in best.items()}, True
+
+
+def _food_near(food: list[dict], lat: float, lng: float) -> dict | None:
+    """The best local place to eat within FOOD_RADIUS_M of a stop, from what the route search found."""
+    best = None
+    for element in food:
+        spot = element if "lat" in element else element.get("center") or {}
+        if "lat" not in spot:
+            continue
+        distance = places._distance_m(lat, lng, float(spot["lat"]), float(spot["lon"]))
+        if distance > FOOD_RADIUS_M:
+            continue
+        rank = _rank(element.get("tags") or {}, False, distance)
+        if best is None or rank > best[0]:
+            best = (rank, _found(element, float(spot["lat"]), float(spot["lon"])))
+    return best[1] if best else None
 
 
 def _place_item(item_id: str, day: date, time: str | None, title: str, category: str, found: dict, description: str) -> PlanItem:
@@ -192,17 +252,28 @@ def build_first_plan(request: TripRequest) -> TripPlan | None:
     coordinates = route_path(request.start, request.destination, request.route_index)
     if estimate is None or coordinates is None:
         return None
+    destination = places.geocode(request.destination)
     log.info("plan %s -> %s: route and overnight towns in %.1f s", request.start, request.destination, time.monotonic() - started)
 
     notes: list[str] = []
+    found: RoutePlaces | None = None
+    picks: dict[str, dict] = {}
+    if request.include_places:
+        # The two map searches run at the same time: stops along the route, and beds and meals.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            route_search = pool.submit(search_route, coordinates)
+            anchor_search = pool.submit(_anchor_places, _anchors(estimate, destination))
+            try:
+                found = route_search.result()
+            except places.PlacesUnavailable:
+                notes.append("Live place search was unavailable, so this plan has no stops yet. Try again in a moment to add them.")
+            picks, anchors_ok = anchor_search.result()
+        if not anchors_ok:
+            notes.append("Live place search was unavailable, so lunch and overnight stays are left open.")
+
     days = estimate.driving_days_each_way
-    try:
-        # Measure more candidates than needed: the budget and spacing rules skip some.
-        candidates = corridor_stops(coordinates, request.interests, None, max_detour_minutes=max(request.detour_budget_minutes, 5),
-                                    mpg=request.mpg, gas_price=request.gas_price, route_miles=estimate.distance_miles)
-    except places.PlacesUnavailable:
-        candidates = []
-        notes.append("Live place search was unavailable, so this plan has only the driving. Try again in a moment to add stops.")
+    candidates = rank_stops(coordinates, found, request.interests, None, max_detour_minutes=max(request.detour_budget_minutes, 5),
+                            mpg=request.mpg, gas_price=request.gas_price, route_miles=estimate.distance_miles) if found else []
     stops = choose_stops(candidates, request.detour_budget_minutes, estimate.distance_miles, days)
     more = [c for c in candidates if c not in stops][:MORE_STOPS]
     if candidates and not stops:
@@ -210,11 +281,9 @@ def build_first_plan(request: TripRequest) -> TripPlan | None:
     if any(s.detour_estimated for s in stops):
         notes.append("Some detour times are estimated from distance because the routing service did not answer.")
 
-    meals_started = time.monotonic()
-    itinerary, meal_notes = _itinerary(request, estimate, stops)
-    notes += meal_notes
-    log.info("plan %s -> %s: meals and stays in %.1f s; %.1f s in total, %d stops",
-             request.start, request.destination, time.monotonic() - meals_started, time.monotonic() - started, len(stops))
+    itinerary = _itinerary(request, estimate, stops, picks, found.food if found else [])
+    log.info("plan %s -> %s: %.1f s in total, %d stops%s", request.start, request.destination,
+             time.monotonic() - started, len(stops), "" if request.include_places else " (route only)")
     return TripPlan(
         itinerary=itinerary,
         route=RouteSummary(
@@ -227,39 +296,21 @@ def build_first_plan(request: TripRequest) -> TripPlan | None:
         more_stops=more,
         detour_minutes_used=sum(s.detour_minutes for s in stops),
         notes=notes,
+        complete=request.include_places,
     )
 
 
-def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteStop]) -> tuple[ItinerarySnapshot, list[str]]:
+def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteStop], picks: dict[str, dict],
+               food: list[dict]) -> ItinerarySnapshot:
     legs = estimate.drive_days
     days = len(legs)
     start_date = request.departure_date or date.today()
     miles_per_day = estimate.distance_miles / days
     minutes_per_day = estimate.drive_hours * 60 / days
     fuel_per_leg = estimate.fuel_cost_usd / (days * (2 if request.round_trip else 1))
-    destination = places.geocode(request.destination)
     stops_by_day: dict[int, list[RouteStop]] = {}
     for stop in stops:
         stops_by_day.setdefault(_day_of(stop, estimate.distance_miles, days), []).append(stop)
-
-    # Lunch: near the stop closest to midday that day, else near the middle of the day's drive.
-    lunch_stop: dict[int, RouteStop] = {}
-    anchors: list[_Anchor] = []
-    for day, leg in enumerate(legs):
-        day_stops = stops_by_day.get(day, [])
-        if day_stops:
-            midday = day * miles_per_day + miles_per_day / 2
-            lunch_stop[day] = min(day_stops, key=lambda s: abs(s.miles_from_start - midday))
-            anchors.append(_Anchor(f"lunch-{day}", lunch_stop[day].lat, lunch_stop[day].lng, FOOD_RADIUS_M, FOOD_TAGS, "amenity"))
-        elif leg.path and minutes_per_day >= 180:
-            lat, lng = leg.path[len(leg.path) // 2]
-            anchors.append(_Anchor(f"lunch-{day}", lat, lng, MIDDAY_FOOD_RADIUS_M, FOOD_TAGS, "amenity"))
-        if day < days - 1 and leg.end_lat is not None:
-            anchors.append(_Anchor(f"stay-{day}", leg.end_lat, leg.end_lng, STAY_RADIUS_M, STAY_TAGS, "tourism"))  # type: ignore[arg-type]
-    if destination is not None:
-        anchors.append(_Anchor("stay-destination", destination.lat, destination.lng, STAY_RADIUS_M, STAY_TAGS, "tourism"))
-    found, search_ok = _best_places(anchors)
-    notes = [] if search_ok else ["Live place search was unavailable, so lunch and overnight stays are left open."]
 
     items: list[PlanItem] = []
     for day, leg in enumerate(legs):
@@ -268,31 +319,36 @@ def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteS
         clock = DAY_START_MINUTES
         driven_minutes = 0.0
         lunch_done = False
-        for stop in stops_by_day.get(day, []):
+        day_stops = stops_by_day.get(day, [])
+        # Lunch near the stop closest to midday, when there is a local place to eat there.
+        midday = day * miles_per_day + miles_per_day / 2
+        lunch_stop = min(day_stops, key=lambda s: abs(s.miles_from_start - midday)) if day_stops else None
+        for stop in day_stops:
             to_here = (stop.miles_from_start - day * miles_per_day) / miles_per_day * minutes_per_day
             clock += max(0.0, to_here - driven_minutes)
             driven_minutes = max(driven_minutes, to_here)
             clock += stop.detour_minutes / 2  # half the detour is getting there
             items.append(_stop_item(stop, when, _clock(clock)))
             clock += stop.visit_minutes + stop.detour_minutes / 2
-            if lunch_stop.get(day) is stop and f"lunch-{day}" in found:
-                items.append(_place_item(f"lunch-{day + 1}", when, _clock(clock), f"Lunch: {found[f'lunch-{day}']['tags']['name']}",
-                                         "Food", found[f"lunch-{day}"], f"Near {stop.name}. From OpenStreetMap: check it is open before you go."))
+            lunch = _food_near(food, stop.lat, stop.lng) if stop is lunch_stop else None
+            if lunch:
+                items.append(_place_item(f"lunch-{day + 1}", when, _clock(clock), f"Lunch: {lunch['tags']['name']}", "Food", lunch,
+                                         f"Near {stop.name}. From OpenStreetMap: check it is open before you go."))
                 clock += LUNCH_MINUTES
                 lunch_done = True
-        if not lunch_done and f"lunch-{day}" in found:
+        if not lunch_done and f"lunch-{day}" in picks:
             # Halfway through the day's driving.
             clock += max(0.0, minutes_per_day / 2 - driven_minutes)
             driven_minutes = max(driven_minutes, minutes_per_day / 2)
-            items.append(_place_item(f"lunch-{day + 1}", when, _clock(clock), f"Lunch: {found[f'lunch-{day}']['tags']['name']}",
-                                     "Food", found[f"lunch-{day}"],
+            items.append(_place_item(f"lunch-{day + 1}", when, _clock(clock), f"Lunch: {picks[f'lunch-{day}']['tags']['name']}",
+                                     "Food", picks[f"lunch-{day}"],
                                      "On the way, about halfway through the day's drive. From OpenStreetMap: check it is open before you go."))
             clock += LUNCH_MINUTES
         clock += max(0.0, minutes_per_day - driven_minutes)
         stay_key = f"stay-{day}" if day < days - 1 else "stay-destination"
-        if stay_key in found:
-            items.append(_place_item(f"stay-{day + 1}", when, _clock(clock), f"Overnight: {found[stay_key]['tags']['name']}",
-                                     "Stays", found[stay_key], f"Near {_short(leg.end)}. Book ahead: Roam has no prices or availability."))
+        if stay_key in picks:
+            items.append(_place_item(f"stay-{day + 1}", when, _clock(clock), f"Overnight: {picks[stay_key]['tags']['name']}",
+                                     "Stays", picks[stay_key], f"Near {_short(leg.end)}. Book ahead: Roam has no prices or availability."))
 
     if request.round_trip:
         for home_day, leg in enumerate(estimate.drive_days_home):
@@ -301,10 +357,10 @@ def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteS
             items.append(_drive_item(f"drive-home-{home_day + 1}", when, leg, fuel_per_leg))
             # Home day j ends where the way out's day (days - 2 - j) ended: reuse that night's stay.
             outbound = days - 2 - home_day
-            if outbound >= 0 and f"stay-{outbound}" in found:
+            if outbound >= 0 and f"stay-{outbound}" in picks:
                 arrive = DAY_START_MINUTES + minutes_per_day
-                items.append(_place_item(f"stay-home-{home_day + 1}", when, _clock(arrive), f"Overnight: {found[f'stay-{outbound}']['tags']['name']}",
-                                         "Stays", found[f"stay-{outbound}"], f"Near {_short(leg.end)}. Book ahead: Roam has no prices or availability."))
+                items.append(_place_item(f"stay-home-{home_day + 1}", when, _clock(arrive), f"Overnight: {picks[f'stay-{outbound}']['tags']['name']}",
+                                         "Stays", picks[f"stay-{outbound}"], f"Near {_short(leg.end)}. Book ahead: Roam has no prices or availability."))
 
     total_days = days * (2 if request.round_trip else 1)
     interests = ", ".join(i for i in request.interests if i in INTEREST_TAGS) or "history, nature and quirky stops"
@@ -316,7 +372,7 @@ def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteS
     ]
     if request.departure_date is None:
         assumptions.append("No departure date was given, so the plan starts today.")
-    snapshot = ItinerarySnapshot(
+    return ItinerarySnapshot(
         startDate=start_date,
         endDate=start_date + timedelta(days=total_days - 1),
         items=items[:100],
@@ -326,7 +382,6 @@ def _itinerary(request: TripRequest, estimate: DriveEstimate, stops: list[RouteS
         overview=TripOverview(destination=_short(estimate.destination)[:200],
                               headline=f"{_short(request.start)} to {_short(request.destination)}, the interesting way"[:120]),
     )
-    return snapshot, notes
 
 
 def _drive_item(item_id: str, when: date, leg: DriveDay, fuel_usd: float) -> PlanItem:

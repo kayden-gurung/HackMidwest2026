@@ -214,18 +214,43 @@ export default function App() {
 
   const submit = async () => {
     const id = ++request.current
+    const current = () => id === request.current
     setLoading(true)
     setPlanError(null)
+    let fullDone = false
+    let routeShown = false
+    // The route alone comes back in seconds: show it while the stops are still being searched.
+    planTrip(driveDraft, fetch, false)
+      .then((routeOnly) => {
+        if (!current() || fullDone) return
+        routeShown = true
+        setLive(routeOnly)
+        setScreen("drive")
+        setLoading(false)
+      })
+      .catch(() => {
+        // The full request reports any problem.
+      })
     try {
       const plan = await planTrip(driveDraft)
-      if (id !== request.current) return
+      fullDone = true
+      if (!current()) return
       setLive(plan)
       setScreen("drive")
     } catch (error) {
-      if (id !== request.current) return
-      setPlanError((error as Error).message)
+      fullDone = true
+      if (!current()) return
+      const message = (error as Error).message
+      if (routeShown) {
+        // Keep the route on screen and say why the stops did not arrive.
+        setLive((shown) =>
+          shown ? { ...shown, pending: false, notes: [...shown.notes, `Couldn’t find stops: ${message}`] } : shown,
+        )
+      } else {
+        setPlanError(message)
+      }
     } finally {
-      if (id === request.current) setLoading(false)
+      if (current()) setLoading(false)
     }
   }
 
@@ -270,7 +295,7 @@ export default function App() {
     content = (
       <DriveWorkspace
         // A new plan starts the workspace fresh (selected and added stops).
-        key={live?.id ?? "demo"}
+        key={live ? `${live.id}${live.pending ? "-pending" : ""}` : "demo"}
         draft={driveDraft}
         live={live}
         onEdit={() => setScreen("setup")}

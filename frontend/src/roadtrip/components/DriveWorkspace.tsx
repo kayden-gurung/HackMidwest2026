@@ -780,10 +780,19 @@ export default function DriveWorkspace({
               </div>
             </div>
             <StatusTag>
-              {driveStops.length} {live ? "found" : "demo"}
+              {live?.pending ? "searching" : `${driveStops.length} ${live ? "found" : "demo"}`}
             </StatusTag>
           </div>
-          {live && driveStops.length === 0 && (
+          {live?.pending && (
+            <div className="mb-3 flex items-center gap-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
+              <div className="size-4 shrink-0 animate-spin rounded-full border-2 border-line border-t-school" />
+              <span>
+                Finding stops, lunch and places to stay along your route. The
+                first search of a route can take up to 30 seconds.
+              </span>
+            </div>
+          )}
+          {live && !live.pending && driveStops.length === 0 && (
             <div className="mb-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
               No stops matched these interests within the detour budget. Try
               more interests or a bigger budget.

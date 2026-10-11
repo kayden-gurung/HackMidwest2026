@@ -57,6 +57,8 @@ export type TripPlanResponse = {
   more_stops: PlannedStop[]
   detour_minutes_used: number
   notes: string[]
+  /** False for the quick route-only answer. */
+  complete?: boolean
 }
 
 export type MapPoint = { x: number; y: number; label: string }
@@ -74,6 +76,8 @@ export type LiveDrive = {
   route: TripPlanResponse["route"]
   itinerary: TripPlanResponse["itinerary"]
   notes: string[]
+  /** True while only the route is known and the stops are still being searched. */
+  pending: boolean
   /** The full response, kept to hand to the chat as current_itinerary later. */
   response: TripPlanResponse
 }
@@ -84,8 +88,9 @@ const TIMEOUT_MS = 90_000
 const MAP_PADDING = 8
 const MAX_PATH_POINTS = 200
 
-export function planRequest(draft: DriveDraft) {
+export function planRequest(draft: DriveDraft, includePlaces = true) {
   return {
+    include_places: includePlaces,
     start: draft.start.trim(),
     destination: draft.destination.trim(),
     interests: draft.interests,
@@ -164,6 +169,7 @@ export function toLiveDrive(response: TripPlanResponse, draft: DriveDraft): Live
     route: response.route,
     itinerary: response.itinerary,
     notes: response.notes,
+    pending: response.complete === false,
     response,
   }
 }
@@ -186,7 +192,11 @@ async function errorMessage(response: Response) {
   return detail || `The planner had a problem (error ${response.status}). Try again.`
 }
 
-export async function planTrip(draft: DriveDraft, fetcher: typeof fetch = fetch): Promise<LiveDrive> {
+/**
+ * `includePlaces: false` asks for the route and driving days only, which comes back in a few
+ * seconds, to show while the full plan (stops, meals, stays) is still being searched.
+ */
+export async function planTrip(draft: DriveDraft, fetcher: typeof fetch = fetch, includePlaces = true): Promise<LiveDrive> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   let response: Response
@@ -194,7 +204,7 @@ export async function planTrip(draft: DriveDraft, fetcher: typeof fetch = fetch)
     response = await fetcher("/api/trips/plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(planRequest(draft)),
+      body: JSON.stringify(planRequest(draft, includePlaces)),
       signal: controller.signal,
     })
   } catch (error) {

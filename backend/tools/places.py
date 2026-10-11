@@ -14,10 +14,14 @@ requires an identifying User-Agent, so calls are spaced out and results are cach
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -91,6 +95,56 @@ class Place(BaseModel):
     source_urls: list[str]
 
 
+class DiskCacheTransport(httpx.BaseTransport):
+    """Keeps successful map-service answers on disk, so a route planned once is instant afterwards,
+    even after a restart, and works on bad venue wifi. OpenStreetMap data changes slowly; delete
+    the folder to refresh it.
+
+    Only 200 answers are kept, keyed by method, URL and body. Set ROAM_HTTP_CACHE_DIR to "" to turn it off.
+    """
+
+    def __init__(self, inner: httpx.BaseTransport, directory: Path):
+        self.inner = inner
+        self.directory = directory
+
+    def _path(self, request: httpx.Request) -> Path:
+        key = hashlib.sha256(request.method.encode() + b" " + str(request.url).encode() + b"\n" + request.content).hexdigest()
+        return self.directory / key[:2] / f"{key}.json"
+
+    def saved(self, request: httpx.Request) -> object | None:
+        """The saved JSON answer for this request, or None."""
+        try:
+            return json.loads(json.loads(self._path(request).read_text(encoding="utf-8"))["body"])
+        except (OSError, ValueError, KeyError):
+            return None
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        request.read()
+        path = self._path(request)
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            return httpx.Response(saved["status"], headers={"content-type": saved["type"], "x-roam-cache": "hit"},
+                                  content=saved["body"].encode("utf-8"), request=request)
+        except (OSError, ValueError, KeyError):
+            pass
+        response = self.inner.handle_request(request)
+        if response.status_code != 200:
+            return response
+        body = response.read()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"status": 200, "type": response.headers.get("content-type", "application/json"),
+                                             "body": body.decode("utf-8")}), encoding="utf-8")
+            temporary.replace(path)  # never leave a half-written file behind
+        except (OSError, UnicodeDecodeError):
+            pass
+        return httpx.Response(200, headers=response.headers, content=body, request=request)
+
+
+# Next to the backend code, which Docker mounts from the host, so it survives rebuilds.
+DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent / ".roam_cache" / "http"
+
 _client: httpx.Client | None = None
 _geocode_cache: dict[str, GeoPoint | None] = {}
 _search_cache: dict[tuple, list[Place]] = {}
@@ -101,7 +155,14 @@ _last_nominatim_call = 0.0
 def _http() -> httpx.Client:
     global _client
     if _client is None:
-        _client = httpx.Client(headers={"User-Agent": USER_AGENT, "Accept-Language": "en"}, follow_redirects=True)
+        setting = os.getenv("ROAM_HTTP_CACHE_DIR")
+        directory = DEFAULT_CACHE_DIR if setting is None else (Path(setting) if setting.strip() else None)
+        transport = httpx.HTTPTransport(retries=1)
+        _client = httpx.Client(
+            headers={"User-Agent": USER_AGENT, "Accept-Language": "en"},
+            follow_redirects=True,
+            transport=DiskCacheTransport(transport, directory) if directory else transport,
+        )
     return _client
 
 
@@ -147,6 +208,13 @@ def nominatim_request(url: str, params: dict) -> object:
     httpx and JSON errors reach the caller.
     """
     global _last_nominatim_call
+    # A saved answer never reaches Nominatim, so it skips the one-a-second spacing.
+    client = _http()
+    transport = getattr(client, "_transport", None)
+    if isinstance(transport, DiskCacheTransport):
+        saved = transport.saved(client.build_request("GET", url, params=params))
+        if saved is not None:
+            return saved
     with _nominatim_lock:
         wait = NOMINATIM_MIN_INTERVAL_S - (time.monotonic() - _last_nominatim_call)
         if wait > 0:
@@ -348,11 +416,18 @@ def _nominatim_elements(category: str, origin: GeoPoint, radius_m: int, keyword:
     return elements
 
 
-def overpass(query: str, timeout_s: float = SEARCH_TIMEOUT_S) -> list[dict]:
-    """Runs an Overpass query on the first server that answers. Raises PlacesUnavailable when none does."""
+def overpass(query: str, timeout_s: float = SEARCH_TIMEOUT_S, budget_s: float | None = None) -> list[dict]:
+    """Runs an Overpass query on the first server that answers. Raises PlacesUnavailable when none does.
+
+    `budget_s` caps the total wait across servers: the backup server only gets the time that is left.
+    """
+    started = time.monotonic()
     for url in OVERPASS_URLS:
+        remaining = timeout_s if budget_s is None else min(timeout_s, budget_s - (time.monotonic() - started))
+        if remaining < 3:
+            break
         try:
-            response = _http().post(url, data={"data": query}, timeout=timeout_s)
+            response = _http().post(url, data={"data": query}, timeout=remaining)
             response.raise_for_status()
             elements = response.json().get("elements", [])
             return elements if isinstance(elements, list) else []

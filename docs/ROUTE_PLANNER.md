@@ -51,19 +51,36 @@ It returns:
 - `more_stops`: other good stops, for "swap this one".
 - `notes`: anything the traveler should know, such as live place data being unavailable.
 
-How it picks: one Overpass request searches along the route line itself for small towns and
-villages within 10 km of the road and places matching the interests within 5 km (drives over
-~1,600 km are split, and the pieces run at the same time). Each place belongs to a town within
-3 km, or stands alone if it is well documented (Wikipedia/Wikidata, a website or heritage status).
-Towns score higher for more and better-documented matching places (OpenStreetMap has no ratings).
-Places next to the start or end city are skipped. One OSRM table request measures the real detour
-for the top 25. Then stops are chosen, best value for detour first, until the detour budget is
-used, at least 25 miles apart and at most 3 per driving day. One more Overpass request finds a
-local (non-chain) lunch spot and a hotel for each day.
+How it picks: one Overpass request covers the route with small boxes (about 60 km each, widened
+by 10 km), which Overpass answers quickly from its spatial index; searching "around the route line"
+took 30+ seconds on the public server. The backend then measures each result's distance to the road
+and keeps small towns and villages within 10 km, and places within 5 km of the road or 3 km of one of
+those towns. The search fetches every interest's places at once, so the same saved answer serves
+any choice of interests. Places outside towns must be well documented (Wikipedia/Wikidata, a website
+or heritage status). Towns score higher for more and better-documented matching places
+(OpenStreetMap has no ratings). Places next to the start or end city are skipped. One OSRM table
+request measures the real detour for the top 25. Then stops are chosen, best value for detour first,
+until the detour budget is used, at least 25 miles apart and at most 3 per driving day.
 
-`docker compose logs backend` shows how long each step took (`roam.planner`, `roam.route_search`).
+At the same time, a second Overpass request finds a bed for each night (ordinary hotels and motels
+before luxury ones) and a fallback lunch halfway through each day. Lunch near a stop comes from the
+local (non-chain) places the route search already found.
 
-If the place search is down, the plan still comes back with the driving and a note.
+If the place search is down, the plan still comes back with the driving and a note. Searches give up
+after about 25 seconds in total, across the main and backup Overpass servers.
+
+## Speed
+
+- **Saved answers.** Every successful map answer (Nominatim, OSRM, Overpass) is saved in
+  `backend/.roam_cache/http/` (git-ignored). A route planned once comes back in about a second, even
+  after a restart and on bad wifi. Delete the folder to refresh the data.
+- **Demo routes are planned at startup** in the background (`backend/warm.py`): Kansas City to
+  Denver, St. Louis, Omaha and Wichita by default. Change them with `ROAM_WARM_ROUTES` in
+  `backend/.env`. To warm by hand and watch: `docker compose exec backend python warm.py`.
+- **The route shows first.** The Drive screen asks for the route alone (`include_places: false`,
+  a few seconds) and the full plan at the same time, and shows the route until the stops arrive.
+- `docker compose logs backend` shows how long each step took (`roam.planner`, `roam.route_search`,
+  `roam.warm`).
 
 ## Search functions for changes (to wire into Strands)
 

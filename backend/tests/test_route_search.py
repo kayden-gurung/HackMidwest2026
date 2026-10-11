@@ -54,6 +54,9 @@ CORRIDOR = [
     node(31, (OAKLEY[0] + 0.003, OAKLEY[1]), amenity="restaurant", name="Burger Chain", brand="Burger Chain"),
     # A documented viewpoint outside any town.
     node(4, on_route(0.85, 3), tourism="viewpoint", name="High Plains Overlook", wikidata="Q4"),
+    # Far from the road (25 km): the box search returns them, the distance check drops them.
+    node(6, on_route(0.40, 25), place="town", name="Faraway", wikipedia="en:Faraway"),
+    node(61, on_route(0.40, 25.2), tourism="museum", name="Faraway Museum", wikidata="Q6"),
     # A tiny village with a historic church.
     node(5, on_route(0.30, 2), place="village", name="Wilson", population="780"),
     node(51, on_route(0.30, 2.2), historic="church", name="St. Wenceslaus Church", heritage="2"),
@@ -101,6 +104,9 @@ def world(monkeypatch):
                 lat, lng = float(lat), float(lng)
                 if key == "tourism":
                     elements.append(node(1000 + n, (lat + 0.01, lng), tourism="motel", name=f"Prairie Motel {n}", website="https://example.org/motel"))
+                    # Better documented, but not what a road trip wants.
+                    elements.append(node(4000 + n, (lat + 0.002, lng), tourism="hotel", name=f"The Ritz-Carlton {n}", stars="5",
+                                         wikidata="Q9", website="https://example.org/ritz"))
                 else:
                     elements.append(node(2000 + n, (lat + 0.005, lng), amenity="restaurant", name=f"Big Chain {n}", brand="Big Chain", website="https://example.org/chain"))
                     elements.append(node(3000 + n, (lat + 0.006, lng), amenity="cafe", name=f"Main Street Diner {n}"))
@@ -134,10 +140,11 @@ def test_corridor_search_finds_towns_and_landmarks_with_real_detours(world):
     assert 320 <= fort.miles_from_start <= 340  # 55% of 600 miles, to the nearest route point (about 3 miles apart)
     # One Overpass request per piece of the route, searching around the line and around the towns.
     query = world["queries"][0]
-    # One pass along the route line: towns within 10 km and places within 5 km, in a single request.
+    # One request of small boxes along the route (fast for Overpass), not "around this line" (slow).
     assert len(world["queries"]) == 1
-    assert "(around:10000," in query and "(around:5000," in query and "around.towns" not in query
-    assert "out center" in query and "out tags center" not in query
+    assert "(around:" not in query and '["place"~"^(town|village)$"]["name"](' in query
+    # Node coordinates kept; ways and relations as tags and a centre only.
+    assert "node.found out qt" in query and "out tags center qt" in query
 
 
 def test_local_food_skips_chains_and_small_towns_favours_villages(world):
@@ -298,7 +305,7 @@ def test_search_endpoints(client, world):
 
 
 def test_long_drive_is_searched_in_pieces_at_the_same_time_and_merged(world, monkeypatch):
-    monkeypatch.setattr(route_search, "CHUNK_POINTS", 40)
+    monkeypatch.setattr(route_search, "BOXES_PER_REQUEST", 3)
     stops = stops_for(["History", "Nature"])
     assert len(world["queries"]) > 1
     # Each piece returns the same fake places: they are merged, not repeated.
@@ -306,15 +313,68 @@ def test_long_drive_is_searched_in_pieces_at_the_same_time_and_merged(world, mon
 
 
 def test_one_piece_failing_keeps_the_rest(world, monkeypatch):
-    monkeypatch.setattr(route_search, "CHUNK_POINTS", 40)
+    monkeypatch.setattr(route_search, "BOXES_PER_REQUEST", 3)
     calls = {"n": 0}
     real = places.overpass
 
-    def flaky(query, timeout_s=10.0):
+    def flaky(query, timeout_s=10.0, budget_s=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise places.PlacesUnavailable("busy")
-        return real(query, timeout_s)
+        return real(query, timeout_s, budget_s)
 
     monkeypatch.setattr(places, "overpass", flaky)
     assert stops_for(["History"])  # the other pieces still found stops
+
+
+
+def test_places_far_from_the_road_are_left_out(world):
+    stops = stops_for(["History", "Small towns"])
+    assert not any(s.town == "Faraway" or s.name == "Faraway Museum" for s in stops)
+
+
+def test_plan_makes_two_map_requests_at_the_same_time_and_skips_luxury_hotels(world):
+    result = plan(detour_budget_minutes=120)
+    assert len(world["queries"]) == 2  # stops along the route, and beds and meals
+    stays = [i.title for i in result.itinerary.items if i.category == "Stays"]
+    assert stays and all("Prairie Motel" in title for title in stays)
+
+
+def test_route_only_answer_is_quick_and_marked_incomplete(world):
+    result = build_first_plan(TripRequest(start="Kansas City, MO", destination="Denver, CO", include_places=False))
+    assert world["queries"] == []  # no place search at all
+    assert result.complete is False and result.stops == []
+    assert [i.category for i in result.itinerary.items] == ["Driving", "Driving"]
+
+
+def test_disk_cache_answers_repeats_without_the_network(tmp_path):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"elements": [{"type": "node", "id": 1}]})
+
+    client = httpx.Client(transport=places.DiskCacheTransport(httpx.MockTransport(handler), tmp_path))
+    first = client.post("https://overpass-api.de/api/interpreter", data={"data": "query"})
+    again = client.post("https://overpass-api.de/api/interpreter", data={"data": "query"})
+    other = client.post("https://overpass-api.de/api/interpreter", data={"data": "another query"})
+    assert first.json() == again.json() and again.headers["x-roam-cache"] == "hit"
+    assert len(calls) == 2 and other.status_code == 200
+    # Failures are never saved.
+    failing = httpx.Client(transport=places.DiskCacheTransport(httpx.MockTransport(lambda r: httpx.Response(504)), tmp_path / "f"))
+    assert failing.get("https://example.org/x").status_code == 504 and not list((tmp_path / "f").rglob("*.json"))
+
+
+def test_overpass_gives_up_within_its_time_budget(monkeypatch):
+    tried = []
+
+    def handler(request):
+        tried.append(request.url.host)
+        raise httpx.ReadTimeout("slow", request=request)
+
+    monkeypatch.setattr(places, "_client", httpx.Client(transport=httpx.MockTransport(handler)))
+    clock = iter([0.0, 0.0, 19.0, 19.0])  # the first server used up the budget
+    monkeypatch.setattr(places.time, "monotonic", lambda: next(clock, 19.0))
+    with pytest.raises(places.PlacesUnavailable):
+        places.overpass("q", timeout_s=20, budget_s=20)
+    assert tried == ["overpass-api.de"]  # the backup server was not tried with under 3 s left

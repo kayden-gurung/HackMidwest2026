@@ -546,6 +546,8 @@ test("route planner request sends the setup form and only a real departure date"
   assert.equal(body.detour_budget_minutes, 60);
   assert.deepEqual(body.interests, ["History"]);
   assert.equal(planRequest({ ...plannerDraft, departureDate: " 2026-10-17 " }).departure_date, "2026-10-17");
+  assert.equal(body.include_places, true);
+  assert.equal(planRequest(plannerDraft, false).include_places, false);
 });
 
 test("route planner plan is placed on the map, north up, chosen stops first in route order", () => {
@@ -562,6 +564,8 @@ test("route planner plan is placed on the map, north up, chosen stops first in r
   assert.equal(live.stops[0].lookup, "live");
   assert.equal(live.stops[0].sourceUrl, "https://www.openstreetmap.org/node/1");
   assert.equal(live.stops[2].detourEstimated, true);
+  assert.equal(live.pending, false);
+  assert.equal(toLiveDrive({ ...tripPlanFixture(), stops: [], more_stops: [], complete: false }, plannerDraft).pending, true);
 });
 
 test("route planner explains failures in plain words", async () => {
