@@ -20,23 +20,26 @@ def actions(current=None):
     updates, evidence = checked_updates(body)
     evidence.add_place({"name": "Verified Cafe", "category": "Food", "lat": 0, "lng": 1,
                        "source_urls": ["https://www.openstreetmap.org/node/cafe"],
-                       "website_url": "https://cafe.example/", "address": "Main Street"})
+                       "website_url": "https://cafe.example/", "address": "Main Street",
+                       "opening_hours": "Mo-Su 16:00-20:00"})
     tools = recording_tools(evidence, 450, updates.roadtrip_planner)
     by_name = {item.tool_name: item for item in roadtrip_actions(body, updates, evidence, tools)}
     return body, updates, evidence, by_name
 
 
-def test_new_plan_uses_verified_source_facts_unknown_price_and_measured_fuel(providers):
+def test_new_plan_uses_verified_source_facts_planning_price_and_measured_fuel(providers):
     _, updates, _, tools = actions()
     result = tools["create_road_trip"](stops=[{"source_url": "https://www.openstreetmap.org/node/cafe"}], start_date="2026-10-17")
     assert result["road_trip"]["fuelCostUsd"] == 13
-    assert result["unknown_costs"]
+    assert not result["unknown_costs"]
+    assert result["estimated_total_usd"] == 38
     assert updates.latest is None
     draft = updates.review_draft
     cafe = next(item for item in draft.items if item.category == "Food")
-    assert cafe.title == "Verified Cafe" and cafe.costUsd is None
+    assert cafe.title == "Verified Cafe" and cafe.costUsd == 25 and cafe.costBasis == "planning"
     assert cafe.location.lat == 0 and cafe.location.lng == 1
     assert cafe.websiteUrl == "https://cafe.example/"
+    assert cafe.openingHours == "Mo-Su 16:00-20:00"
     assert draft.overview.destination == "End"
     assert updates.update_itinerary()["status"] == "updated"
 
@@ -62,7 +65,7 @@ def test_replacement_preserves_ids_dates_metadata_and_unaffected_stops(providers
     tools["edit_stops"](remove_ids=["stop-2"], replacements=[{"stop_id": "stop-1", "source_url": "https://www.openstreetmap.org/node/cafe"}])
     cafe = next(item for item in updates.review_draft.items if item.category != "Driving")
     assert cafe.id == "stop-1" and cafe.date == current.items[0].date and cafe.time == current.items[0].time
-    assert cafe.category == "Food" and cafe.costUsd is None
+    assert cafe.category == "Food" and cafe.costUsd == 25 and cafe.costBasis == "planning"
     assert current.model_dump() == original
     assert updates.latest is None
 
@@ -89,6 +92,10 @@ def test_invalid_edits_are_atomic_and_clear_a_previous_draft(providers, change):
 
 def test_explicit_date_extension_preserves_existing_stops_and_settings(providers):
     current = plan()
+    current.items[0].costUsd = 20
+    current.items[0].costBasis = "planning"
+    current.items[0].costNote = "Planning allowance for one traveler."
+    current.items[0].openingHours = "Mo-Su 16:00-20:00"
     original = current.model_dump()
     _, updates, _, tools = actions(current)
     tools["edit_stops"](end_date="2026-10-19", additions=[{
@@ -100,7 +107,7 @@ def test_explicit_date_extension_preserves_existing_stops_and_settings(providers
     assert next(item for item in draft.items if item.id == "stop-1") == current.items[0]
     added = next(item for item in draft.items if item.category == "Food")
     assert added.date.isoformat() == "2026-10-19" and added.time == "12:30"
-    assert added.costUsd is None
+    assert added.costUsd == 25 and added.costBasis == "planning"
     assert current.model_dump() == original and updates.latest is None
 
 
@@ -242,6 +249,7 @@ def test_road_trip_recovery_publishes_checked_edit_without_rewriting_it(provider
 def test_hands_on_new_road_trip_still_requires_approval(providers, monkeypatch):
     monkeypatch.setattr("tools.find_places", lambda *args: {"status": "ok", "places": [{
         "name": "Town 1 Museum", "category": "Activities", "lat": 0, "lng": 1,
+        "opening_hours": "Mo-Su 16:00-20:00", "charge": "12 USD/person", "fee": "yes",
         "source_urls": ["https://www.openstreetmap.org/node/1"]}]})
     model = ScriptedModel([{"tools": [
         {"name": "research_stops", "input": {"towns": ["Town 1"], "categories": ["Activities"]}, "id": "lookup"},
@@ -254,6 +262,10 @@ def test_hands_on_new_road_trip_still_requires_approval(providers, monkeypatch):
     approval = next(item["approval"] for item in initial if "approval" in item)
     assert not any("itinerary" in item for item in initial)
     preview = approval["interrupts"][0]["reason"]["itinerary"]
+    museum = next(item for item in preview["items"] if item["category"] == "Activities")
+    assert museum["openingHours"] == "Mo-Su 16:00-20:00"
+    assert museum["costUsd"] == 12 and museum["costBasis"] == "listed"
+    assert approval["interrupts"][0]["reason"]["after_total_usd"] == 25
     resumed = events(client.post(f"/api/ask/{approval['run_id']}/resume", json={"approved": True,
                     "interrupt_ids": [item["id"] for item in approval["interrupts"]]}))
     assert next(item["itinerary"] for item in resumed if "itinerary" in item) == preview

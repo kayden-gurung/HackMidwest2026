@@ -40,6 +40,10 @@ export interface ItineraryItem {
   category: BudgetCategory;
   /** Estimated total for all travelers, in USD. Null means unknown; 0 means free. */
   costUsd: number | null;
+  costBasis?: "planning" | "listed" | null;
+  costNote?: string | null;
+  /** Sourced opening schedule, in the venue's local time. */
+  openingHours?: string | null;
   location?: ItemLocation;
   /** The place's own website. Only http(s) links are shown. */
   websiteUrl?: string;

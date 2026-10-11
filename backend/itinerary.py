@@ -40,6 +40,9 @@ class PlanItem(PlanModel):
     category: Literal["Driving", "Stays", "Food", "Activities"]
     costUsd: float | None = Field(default=None, ge=0, le=1000000,
                                  description="Estimated total USD for all travelers. Null means unknown; 0 means free.")
+    costBasis: Literal["planning", "listed"] | None = Field(default=None, description="Filled by the backend from a planning allowance or sourced fee.")
+    costNote: str | None = Field(default=None, max_length=400)
+    openingHours: str | None = Field(default=None, max_length=2000, description="Source listing's local opening-hours schedule; never invent hours.")
     location: Location | None = None
     websiteUrl: str | None = Field(default=None, max_length=2000)
     sourceUrls: list[str] = Field(default_factory=list, max_length=10)
@@ -209,10 +212,14 @@ class ItineraryUpdates:
             road = plan.roadTrip
             stops = [item.title for item in plan.items if item.category != "Driving"]
             unknown = sum(item.costUsd is None for item in plan.items)
+            total = analyze_budget(plan)["estimated_total_usd"]
+            allowances = any(item.costBasis == "planning" for item in plan.items)
             return (f"Your one-way drive from {road.origin} to {road.destination} is ready: "
                     f"{road.distanceMiles:.1f} miles, about {road.drivingMinutes:.0f} driving minutes, "
                     f"including {road.detourMinutes:.1f} extra minutes within your {road.detourBudgetMinutes}-minute limit. "
                     f"Estimated fuel: ${road.fuelCostUsd:.2f} for one car at {road.mpg:g} MPG and ${road.gasPrice:.2f}/gallon."
+                    + f" Estimated trip total: ${total:,.2f}."
+                    + (" Includes labeled stop allowances for one traveler." if allowances else "")
                     + ("\n\nStops: " + "; ".join(stops) + "." if stops else "")
                     + (f"\n\n{unknown} stop costs are unknown and excluded from the budget total." if unknown else "")
                     + " Driving time excludes traffic and visits. Review the map and planning assumptions for details.")

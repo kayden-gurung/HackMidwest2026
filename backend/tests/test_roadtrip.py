@@ -122,7 +122,7 @@ def test_real_strands_review_uses_measured_cost_and_exact_frozen_route(providers
     initial = events(client.post("/api/ask/stream", json=body))
     approval = next(ev["approval"] for ev in initial if "approval" in ev)
     preview = approval["interrupts"][0]["reason"]
-    assert preview["after_total_usd"] == 13
+    assert preview["after_total_usd"] == 33
     assert preview["itinerary"]["roadTrip"]["detourMinutes"] == 15
     assert not any("itinerary" in ev for ev in initial)
     route_calls = len(providers)
@@ -143,7 +143,7 @@ def test_budget_specialist_reads_measured_draft_and_failures_clear_it(providers)
     for index in (1, 2):
         evidence.add_point(places.geocode(f"Town {index}").model_dump())
     result = updates.check_budget(plan())
-    assert result["estimated_total_usd"] == 13
+    assert result["estimated_total_usd"] == 33
     assert updates.review_draft.roadTrip.fuelCostUsd == 13
     with pytest.raises(ValueError, match="exceeding"):
         updates.check_budget(plan(2))

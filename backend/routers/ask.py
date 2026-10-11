@@ -21,6 +21,7 @@ from schemas import Preferences, RoadTripPreferences, describe_preferences
 from roadtrip import RoadTripPlanner
 from roadtrip_actions import roadtrip_actions
 from validation import validate_snapshot
+from stop_details import apply_stop_details
 
 # Errors reach the traveler as a short message; the full reason goes to the backend log.
 logger = logging.getLogger("roam.ask")
@@ -70,7 +71,8 @@ def checked_updates(body: AskRequest) -> tuple[ItineraryUpdates, Evidence]:
     evidence = evidence_from_snapshot(body.current_itinerary)
     planner = RoadTripPlanner(body.road_trip, body.current_itinerary, max_miles(body)) if body.road_trip else None
     def check(snapshot):
-        cleaned, notes = validate_snapshot(snapshot, evidence, car_mode=body.car_mode, pinner=pin_stops, trip_types=body.trip_types)
+        cleaned, notes = validate_snapshot(snapshot, evidence, car_mode=body.car_mode, pinner=pin_stops,
+                                           trip_types=body.trip_types, enrich=apply_stop_details if planner else None)
         return (planner.validate(cleaned) if planner else cleaned), notes
     updates = ItineraryUpdates(check=check, check_on_budget=planner is not None)
     updates.roadtrip_planner = planner

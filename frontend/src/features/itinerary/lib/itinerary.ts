@@ -62,7 +62,25 @@ export function budgetTotals(itinerary: Itinerary) {
 }
 
 export function itemCostLabel(item: ItineraryItem): string {
-  return item.costUsd == null ? "Cost TBD" : item.costUsd === 0 ? "Free" : `Est. $${item.costUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  return item.costUsd == null ? "Price unavailable" : item.costUsd === 0 ? "Free" : `${item.costBasis === "listed" ? "Listed" : "Est."} $${item.costUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+/** Display the source schedule faithfully, without claiming the venue is open now/on the trip date. */
+export function formatOpeningHours(hours: string | null | undefined): string {
+  if (!hours?.trim()) return "Hours not listed — check with the venue";
+  if (hours.trim() === "24/7") return "Open 24 hours daily";
+  const days: Record<string, string> = { Mo: "Mon", Tu: "Tue", We: "Wed", Th: "Thu", Fr: "Fri", Sa: "Sat", Su: "Sun", PH: "Public holidays", SH: "School holidays" };
+  const clock = (value: string) => {
+    const [hour, minute] = value.split(":").map(Number);
+    return `${hour % 12 || 12}${minute ? `:${String(minute).padStart(2, "0")}` : ""} ${hour < 12 || hour === 24 ? "AM" : "PM"}`;
+  };
+  return hours.trim()
+    .replace(/\b([01]\d:[0-5]\d|2[0-3]:[0-5]\d|24:00)-([01]\d:[0-5]\d|2[0-3]:[0-5]\d|24:00)\b/g, (_, start: string, end: string) =>
+      `${clock(start)} – ${clock(end)}${end < start && end !== "24:00" ? " (next day)" : ""}`)
+    .replace(/\b(Mo|Tu|We|Th|Fr|Sa|Su|PH|SH)\b/g, (day) => days[day])
+    .replace(/\b(off|closed)\b/g, "Closed")
+    .replace(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun)-(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/g, "$1–$2")
+    .replace(/;\s*/g, "; ").replace(/,\s*/g, ", ");
 }
 
 export function hasCoordinates(item: ItineraryItem): item is ItineraryItem & { location: { name: string; lat: number; lng: number } } {

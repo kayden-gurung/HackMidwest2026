@@ -149,7 +149,7 @@ def _attach_routes(items: list, route_links: dict[str, str], evidence: Evidence)
         item.location = Location(name=route.end_name, lat=route.end_lat, lng=route.end_lng)
 
 
-def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode: bool = False, pinner=None, trip_types: list[str] | None = None) -> tuple[ItinerarySnapshot, list[str]]:
+def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode: bool = False, pinner=None, trip_types: list[str] | None = None, enrich=None) -> tuple[ItinerarySnapshot, list[str]]:
     """Returns a cleaned copy plus notes on what was changed (shown to the model and the traveler).
 
     Roam plans drives only: every flight is removed, whatever the model sent. `pinner` (pins.pin_stops) may
@@ -213,6 +213,17 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
     if pinner is not None:
         pinner(items, evidence)
     _attach_routes(items, route_links, evidence)
+    for item in items:
+        # Schedules must come from the exact sourced place, including places pinned above.
+        known = next((evidence.known_source(url) for url in item.sourceUrls if evidence.known_source(url)), None)
+        item.openingHours = ((known.opening_hours or "")[:2000] or None) if known and item.category != "Driving" else None
+        # Models may estimate a generic trip, but cannot label that estimate a published price.
+        accepted = evidence.accepted_items.get(item.id)
+        item.costBasis = item.costNote = None
+        if accepted and accepted.category == item.category and accepted.costUsd == item.costUsd and set(accepted.sourceUrls).intersection(item.sourceUrls):
+            item.costBasis, item.costNote = accepted.costBasis, accepted.costNote
+    if enrich:
+        items = enrich(snapshot.model_copy(update={"items": items}), evidence).items
     # Only mention stops that are still off the map.
     still_unpinned = {i.location.name for i in items if i.location and i.location.lat is None} | {i.title for i in items if i.location is None}
     shared_pins = [name for name in shared_pins if name in still_unpinned]

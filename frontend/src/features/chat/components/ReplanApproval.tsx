@@ -1,9 +1,10 @@
 import type { PlanApproval, PlanProposal } from "../types";
+import { formatOpeningHours, formatTime, itemCostLabel } from "../../itinerary/lib/itinerary";
 
 const usd = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
 
 function stopLabel(item: NonNullable<PlanProposal["changes"][number]["after"]>) {
-  return `${item.date}${item.time ? ` · ${item.time}` : ""} · ${item.category} · ${item.costUsd == null ? "cost TBD" : `${usd(item.costUsd)} estimated`}`;
+  return `${item.date}${item.time ? ` · ${formatTime(item.time)}` : ""} · ${item.category} · ${itemCostLabel(item)}${item.category !== "Driving" && item.category !== "Flights" ? ` · ${formatOpeningHours(item.openingHours)}` : ""}${item.costNote ? ` · ${item.costNote}` : ""}`;
 }
 
 export function ReplanApproval({ approval, busy, onResolve }: { approval: PlanApproval; busy: boolean; onResolve: (approved: boolean) => void }) {

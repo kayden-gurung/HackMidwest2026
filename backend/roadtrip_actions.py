@@ -95,7 +95,7 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
                     if place.get("source_urls"):
                         candidates.append({"source_url": place["source_urls"][0], "name": place["name"],
                                            "category": place["category"], "town": town,
-                                           **{key: place[key] for key in ("lat", "lng", "cuisine") if key in place}})
+                                           **{key: place[key] for key in ("lat", "lng", "cuisine", "opening_hours", "fee", "charge") if key in place}})
         result = {"status": "ok" if candidates else "unavailable" if "unavailable" in statuses else "no_results", "drive": drive,
                   "places": candidates, "notes": notes,
                   "message": "Choose two to four nearby candidates by source_url. Combined detours are checked by create_road_trip; do not invent missing places or costs."}
@@ -141,7 +141,7 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
 
         Args:
             remove_ids: Existing non-driving stop IDs to remove; omit to keep them.
-            replacements: Existing stop_id plus a verified source_url. Keeps that ID, date and time; replaces map facts and sets unknown price to null.
+            replacements: Existing stop_id plus a verified source_url. Keeps that ID, date and time; replaces map facts and uses a sourced entry fee or labeled planning allowance.
             additions: Verified source_url plus optional day (1-based from the original start date) and HH:MM time. For days after the current trip ends, also supply end_date.
             end_date: YYYY-MM-DD to explicitly extend the trip for added days at the destination. Omit/empty to preserve the current dates. Never shorten the trip or exceed 60 days.
         With no edits, recheck retained stops after a successful alternative-route selection.

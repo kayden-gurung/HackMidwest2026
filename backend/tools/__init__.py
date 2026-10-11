@@ -27,7 +27,7 @@ def find_places(near: str, category: str, keyword: str = "", radius_m: int = 300
     """Find real restaurants, places to stay, or things to do around a location, with coordinates and source links.
 
     Use this before recommending any specific place, so recommendations are real and can be shown on the map.
-    Results come from OpenStreetMap. They include no prices, ratings or availability: never invent those.
+    Results come from OpenStreetMap. They may include listed opening_hours, fee and charge tags, but no live quotes, ratings or availability: never invent those. Missing prices remain unpublished; road-trip budgeting supplies labeled planning allowances.
 
     Args:
         near: The town, neighbourhood or landmark to search around, e.g. "Polignano a Mare, Italy".

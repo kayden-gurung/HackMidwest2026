@@ -126,7 +126,8 @@ export function PlanView({
         <div className="flex items-center justify-between text-xs"><span className="font-bold uppercase tracking-widest text-white/60">Estimated cost</span><span className="font-bold">{formatUsd(spentUsd)}{itinerary.budget.plannedUsd != null && ` / ${formatUsd(itinerary.budget.plannedUsd)}`}</span></div>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15"><div className={`h-full rounded-full ${remainingUsd != null && remainingUsd < 0 ? "bg-coral" : "bg-sun"}`} style={{ width: `${Math.min(percentUsed, 100)}%` }} /></div>
         <div className="mt-3 flex justify-between text-[11px] text-white/60"><span>{travelLabel}</span><span>{remainingUsd == null ? "Budget not set" : remainingUsd >= 0 ? `${formatUsd(remainingUsd)} left` : `${formatUsd(-remainingUsd)} over`}</span></div>
-        {unknownCosts > 0 && <div className="mt-2 text-[11px] text-white/70">{unknownCosts} {unknownCosts === 1 ? "cost" : "costs"} still TBD; excluded from total.</div>}
+        {itinerary.items.some((item) => item.costBasis === "planning") && <div className="mt-2 text-[11px] text-white/70">Includes planning allowances for one traveler; see each stop.</div>}
+        {unknownCosts > 0 && <div className="mt-2 text-[11px] text-white/70">{unknownCosts} {unknownCosts === 1 ? "price" : "prices"} unavailable; excluded from total.</div>}
       </Action>
     </>
   );
