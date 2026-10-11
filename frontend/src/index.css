@@ -1,41 +1,25 @@
-/* Roam design system, exported from the Figma Make "Travel Planner App" design. */
-
-/* Fonts: DM Sans for UI text, Newsreader for headings. */
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap");
 @import "tailwindcss";
 
-/*
- * Design tokens. Tailwind v4 turns each variable into utility classes,
- * e.g. --color-sea gives bg-sea / text-sea / border-sea, and
- * --font-display gives font-display. Change a color here to restyle the whole app.
- */
 @theme {
-  --font-sans: "DM Sans", sans-serif;
-  --font-display: "Newsreader", serif;
-
-  /* Surfaces and text */
-  --color-canvas: #f8f7f2;
-  --color-sidebar: #efeee7;
-  --color-panel: #f3f2ec;
-  --color-ink: #173b3a;
-  --color-muted: #77817e;
-  --color-line: #ddded7;
-  --color-surface: #ffffff;
-  /* Solid dark fill (primary buttons, dark cards) that always sits behind white text. */
-  --color-deep: #173b3a;
-
-  /* Brand and accent colors */
-  --color-sea: #126e6b;
-  --color-mint: #dcece6;
-  --color-sun: #f4cc63;
-  --color-coral: #df745d;
-  --color-peach: #f5dfd7;
-
-  /* Itinerary day markers and the route map */
-  --color-blue: #68a9bd;
-  --color-yellow: #e5b847;
-  --color-green: #65a77d;
-  --color-map: #8db5ac;
+  --font-sans: "Manrope", sans-serif;
+  --font-display: "Source Serif 4", serif;
+  --color-canvas: #f7f3e9;
+  --color-sidebar: #ebe4d5;
+  --color-panel: #eee8dc;
+  --color-ink: #26332d;
+  --color-muted: #70786f;
+  --color-line: #d8d0c1;
+  --color-sea: #4f7774;
+  --color-mint: #dfe9df;
+  --color-sun: #d1a454;
+  --color-coral: #be6d4d;
+  --color-peach: #f0ded1;
+  --color-blue: #6e8c92;
+  --color-yellow: #c49a52;
+  --color-green: #778567;
+  --color-map: #879883;
+  --color-school: #31594c;
 }
 
 * {
@@ -47,6 +31,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: var(--color-canvas);
+  letter-spacing: -0.01em;
 }
 
 ::selection {
@@ -54,29 +39,6 @@ body {
   color: var(--color-ink);
 }
 
-.chat-response > * + * { margin-top: 0.85rem; }
-.chat-response h1, .chat-response h2, .chat-response h3 { font-weight: 700; margin-top: 1rem; }
-.chat-response ul, .chat-response ol { padding-left: 1.4rem; }
-.chat-response ul { list-style: disc; }
-.chat-response ol { list-style: decimal; }
-.chat-response li + li { margin-top: 0.35rem; }
-.chat-response a { color: var(--color-sea); text-decoration: underline; overflow-wrap: anywhere; }
-.chat-response pre { overflow-x: auto; padding: 0.75rem; border-radius: 0.75rem; background: var(--color-panel); }
-.chat-response blockquote { border-left: 3px solid var(--color-line); padding-left: 1rem; }
-.chat-response { overflow-wrap: anywhere; }
-
-/* Scenic postcards: the cover is decorative when a trip has no supplied photo. */
-.postcard-cover { aspect-ratio: 3.15; min-height: 120px; max-height: 230px; overflow: hidden; background: var(--color-mint); }
-.postcard-art { position: relative; display: grid; width: 100%; height: 100%; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 85% 15%, color-mix(in srgb, var(--color-sun) 25%, transparent), transparent 65%), linear-gradient(130deg, var(--color-mint), var(--color-panel)); }
-.postcard-orbit { position: absolute; width: 360px; height: 360px; border: 1px solid color-mix(in srgb, var(--color-sea) 18%, transparent); border-radius: 50%; transform: rotate(-30deg) scaleY(.58); }
-.postcard-orbit-one { left: -120px; top: -185px; }
-.postcard-orbit-two { right: -70px; bottom: -215px; width: 450px; height: 450px; }
-.postcard-orbit-three { right: -45px; bottom: -190px; width: 400px; height: 400px; }
-.postcard-flight summary { list-style: none; }
-.postcard-flight summary::-webkit-details-marker { display: none; }
-@media (prefers-reduced-motion: reduce) { .postcard-flight summary svg { transition: none; } }
-
-/* Placeholder text for the contentEditable chat composer, which has no native placeholder. */
 .composer:empty::before {
   content: attr(data-placeholder);
   color: var(--color-muted);
@@ -94,19 +56,16 @@ body {
   background-clip: padding-box;
 }
 
-/* Dark mode: same tokens, darker values. Applied via <html data-theme="dark">. */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --color-canvas: #0f1b1a;
-  --color-sidebar: #0b1413;
-  --color-panel: #172726;
-  --color-surface: #162625;
-  --color-ink: #e7efec;
-  --color-deep: #1d4a47;
-  --color-muted: #94a6a2;
-  --color-line: #274240;
+[role="button"]:focus-visible,
+[role="switch"]:focus-visible,
+[role="textbox"]:focus-visible {
+  outline: 2px solid var(--color-sea);
+  outline-offset: 2px;
+}
 
-  --color-sea: #2a9690;
-  --color-mint: #173532;
-  --color-peach: #3b2b26;
+.map-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+  background-size: 44px 44px;
 }
