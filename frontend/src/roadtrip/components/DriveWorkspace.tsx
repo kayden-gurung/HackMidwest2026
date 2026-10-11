@@ -7,12 +7,13 @@ import { MapView } from "../../features/itinerary/components/MapView";
 import { PlanView } from "../../features/itinerary/components/PlanView";
 import { BudgetView } from "../../features/itinerary/components/BudgetView";
 import { driveChangePrompt, type DriveAction } from "../api/roadTripStore";
+import { demoPlan } from "../data/mockData";
 import type { DriveDraft } from "../types";
 import DemoDriveWorkspace from "./DemoDriveWorkspace";
 import { Icon } from "./ui";
 
 export default function DriveWorkspace({ draft, tripId, onEdit }: { draft: DriveDraft; tripId: string; onEdit: () => void }) {
-  if (config.useMocks) return <DemoDriveWorkspace draft={draft} onEdit={onEdit} />;
+  if (config.useMocks) return <DemoDriveWorkspace draft={draft} plan={demoPlan} onEdit={onEdit} />;
   return <LiveDriveWorkspace key={tripId} draft={draft} tripId={tripId} onEdit={onEdit} />;
 }
 

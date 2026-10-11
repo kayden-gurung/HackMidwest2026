@@ -10,7 +10,7 @@ Use the existing backend AWS configuration in `docs/AWS_SETUP.md`. No new AWS se
 docker compose up -d --build
 ```
 
-Open http://localhost:5173, choose **New trip**, enter the endpoints, interests, detour budget and fuel assumptions, and select **Find stops along my drive**. The map, stop list and budget update from a completed validated plan. Chat displays actual Strands specialist/tool events. If lookup or inference fails, the previous plan remains visible and chat offers retry.
+Open http://localhost:5173, choose **New trip**, enter the endpoints, interests, detour budget and your car's MPG and fuel assumptions, and select **Find stops along my drive**. The map, stop list and budget update from a completed validated plan. Chat displays actual Strands specialist/tool events. If lookup or inference fails, the previous plan remains visible and chat offers retry.
 
 The four actions request a different road route, different small towns along the route, different attractions in a chosen city, or different restaurants in that city. Free-text revisions use the same service. An existing itinerary is replaced only after the traveler approves its change preview. Rejecting a preview retains the original. The preview includes measured driving detour and fuel estimates.
 
@@ -20,6 +20,7 @@ The four actions request a different road route, different small towns along the
 - `features/chat/api/chatService.ts` handles SSE, history, errors, request isolation and `/api/ask/{run_id}/resume`.
 - `roadtrip/api/roadTripStore.ts` supplies typed per-journey driving constraints. Changed constraints invalidate outstanding reviews.
 - `roadtrip/components/DriveWorkspace.tsx` reuses the existing chat, approval, Leaflet map, plan and budget components.
+- The current main branch's city suggestions, date picker, car settings and direct-drive preview remain in `TripSetup.tsx`. Its latest prototype workspace is preserved byte-for-byte in `DemoDriveWorkspace.tsx`, including `DriveMap` and discovery/photo controls, and runs with `VITE_USE_MOCKS=true`. Live mode uses the verified itinerary map and does not connect community photo discovery. The prototype `fetchDrivePlan` adapter remains cached and is not used by live planning.
 - `backend/agent.py` and `orchestration.py` provide the existing orchestrator and Places, Transport and Budget specialists on Bedrock.
 - `find_places`, `locate`, `get_forecast` and `plan_drive` reuse the existing providers. `find_places(exclude_current=True)` omits already-selected source records. `find_route_towns` samples five positions on the route and verifies towns/villages through the existing location provider.
 - `backend/roadtrip.py` supplies request-local route caching and complete-route validation. `plan_drive(via=[...], alternative=True)` previews provider-supplied alternatives. The form endpoints, MPG, assumed gas price, detour budget and daily mileage limit remain authoritative.
@@ -61,3 +62,7 @@ Regression tests exercise real Strands tool/interrupt behavior with a scripted m
 Verified locally: 146 backend tests plus 12 subtests, 27 frontend tests, and the production frontend build pass. A live Bedrock run completed through Places, Transport and Budget using verified OSM places and an OSRM route; this is separate from the scripted-model tests. The default Kansas City → St. Louis browser flow also completed with three verified stops: 270.3 miles, 44.2 extra driving minutes within a 60-minute allowance, and $31.37 estimated fuel at 28 MPG and $3.25/gallon. Recommendations and provider routes may differ on subsequent runs.
 
 The live restaurant action proposed replacing Columbia's Twain stop with 44 Canteen, preserved the two Hermann stops, and paused with a measured review card. Approving that native Strands interrupt updated the map to the reviewed 270.2-mile route and $31.36 fuel estimate.
+
+These live checks preceded integrating the latest main UI updates; all automated tests and the production build were repeated after resolving that integration. Review the trip form and both live/demo workspaces before merging.
+
+![Live route after an approved restaurant replacement](images/strands-roadtrip-live.png)

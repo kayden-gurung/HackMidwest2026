@@ -1,0 +1,206 @@
+/* Styles for the Leaflet map in DriveMap. Leaflet draws its own DOM, so these can't be Tailwind classes. */
+
+.drive-map {
+  /* Shown while tiles load, and behind the markers if the tile server can't be reached. */
+  background: var(--color-map);
+  font-family: var(--font-sans);
+}
+
+.drive-map-placing,
+.drive-map-placing .leaflet-interactive {
+  cursor: crosshair;
+}
+
+.drive-marker {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(18, 38, 38, 0.4);
+  color: var(--color-school);
+  font-size: 12px;
+  font-weight: 700;
+  transition: transform 0.15s;
+}
+
+/* Stops on the drive are filled; the others are outlined. */
+.drive-marker-added {
+  background: var(--color-school);
+  color: #fff;
+}
+
+.drive-marker-selected {
+  transform: scale(1.25);
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
+/* Less explored places carry a gold ring so they stand out. */
+.drive-marker-rare {
+  border-color: var(--color-sun);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-sun) 45%, transparent), 0 2px 6px rgba(18, 38, 38, 0.4);
+}
+
+.drive-endpoint {
+  position: relative;
+  width: 32px;
+  height: 32px;
+}
+
+.drive-endpoint-dot {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(18, 38, 38, 0.4);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.drive-endpoint-start {
+  background: var(--color-ink);
+}
+
+.drive-endpoint-end {
+  background: var(--color-school);
+}
+
+.drive-endpoint-label {
+  position: absolute;
+  top: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-ink);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(18, 38, 38, 0.25);
+}
+
+.drive-photo {
+  position: relative;
+  width: 52px;
+  height: 60px;
+}
+
+.drive-photo-image {
+  display: block;
+  width: 52px;
+  height: 52px;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  background: var(--color-panel);
+  object-fit: cover;
+  box-shadow: 0 2px 6px rgba(18, 38, 38, 0.4);
+}
+
+.drive-photo-tip {
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-top: 8px solid #fff;
+  border-right: 7px solid transparent;
+  border-left: 7px solid transparent;
+}
+
+.drive-photo-count {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--color-ink);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* A place with a single visit is the rarest, so its pin is ringed in gold. */
+.drive-photo-rare .drive-photo-image {
+  border-color: var(--color-sun);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-sun) 45%, transparent), 0 2px 6px rgba(18, 38, 38, 0.4);
+}
+
+.drive-photo-rare .drive-photo-tip {
+  border-top-color: var(--color-sun);
+}
+
+.drive-popup .leaflet-popup-content-wrapper,
+.drive-popup .leaflet-popup-tip {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+.drive-popup .leaflet-popup-content-wrapper {
+  border-radius: 6px;
+}
+
+.drive-popup a.leaflet-popup-close-button {
+  color: var(--color-muted);
+}
+
+.drive-popup .leaflet-popup-content {
+  margin: 12px 14px;
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.drive-popup-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.drive-popup-meta {
+  color: var(--color-muted);
+}
+
+.drive-popup-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+}
+
+.drive-popup-links a {
+  color: var(--color-school);
+  font-weight: 700;
+}
+
+.drive-popup-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.drive-popup-button {
+  padding: 6px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--color-school);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.drive-popup-button-primary {
+  border-color: var(--color-school);
+  background: var(--color-school);
+  color: #fff;
+}
