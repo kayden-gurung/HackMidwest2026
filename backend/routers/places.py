@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from tools.driving import DriveEstimate, estimate_drive
+from tools.destination_photos import DestinationPhoto, PhotosUnavailable, destination_photo
 from tools.places import GeoPoint, Place, PlaceCategory, PlacesUnavailable, geocode, search_places
 
 router = APIRouter(prefix="/api/places", tags=["places"])
@@ -32,6 +33,14 @@ def locate(q: str = Query(min_length=2, max_length=120, description="A town, add
     if point is None:
         raise HTTPException(status_code=404, detail=f'Could not find "{q}".')
     return point
+
+
+@router.get("/photo", response_model=DestinationPhoto | None)
+def photo(q: str = Query(min_length=2, max_length=200, description="The complete destination name, including its state or country")):
+    try:
+        return destination_photo(q)
+    except PhotosUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/drive", response_model=DriveEstimate)

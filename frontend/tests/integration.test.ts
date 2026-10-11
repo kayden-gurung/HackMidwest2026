@@ -18,6 +18,7 @@ import { agentStore } from "../src/features/chat/api/agentStore";
 import type { PlanApproval } from "../src/features/chat/types";
 import { describeDrive, driveChangePrompt, roadTripConstraints, roadTripStore } from "../src/roadtrip/api/roadTripStore";
 import type { DriveDraft } from "../src/roadtrip/types";
+import { fetchDestinationPhoto } from "../src/roadtrip/api/destinationPhoto";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
 globalThis.window = globalThis as unknown as Window & typeof globalThis;
@@ -25,6 +26,44 @@ afterEach(() => mock.restoreAll());
 
 const driveDraft: DriveDraft = { start: "Kansas City, MO", destination: "St. Louis, MO", interests: ["History", "Local food"],
   detourBudget: 60, departureDate: "Flexible", maxMilesPerDay: 450 };
+
+test("destination photos use the full city and state and share lookups across drives", async () => {
+  const queries: string[] = [];
+  mock.method(globalThis, "fetch", async (url: string) => {
+    const city = new URL(url, "http://localhost").searchParams.get("q")!;
+    queries.push(city);
+    return new Response(JSON.stringify({ image_url: `https://upload.wikimedia.org/${city.endsWith("MO") ? "missouri" : "illinois"}.jpg`,
+      image_alt: `View of ${city}`, source_url: "https://en.wikipedia.org/wiki/File:City.jpg" }));
+  });
+  const first = fetchDestinationPhoto("  Springfield,   MO  ");
+  const duplicate = fetchDestinationPhoto("springfield, mo");
+  assert.equal(first, duplicate);
+  const missouri = await first;
+  const illinois = await fetchDestinationPhoto("Springfield, IL");
+  assert.deepEqual(queries, ["Springfield, MO", "Springfield, IL"]);
+  assert.equal(missouri!.imageAlt, "View of Springfield, MO");
+  assert.notEqual(missouri!.imageUrl, illinois!.imageUrl);
+});
+
+test("destination photo outages can be retried and unsafe or missing images are not rendered", async () => {
+  let calls = 0;
+  mock.method(globalThis, "fetch", async () => {
+    calls++;
+    if (calls === 1) return new Response("Service unavailable", { status: 503 });
+    if (calls === 2) return new Response(JSON.stringify({ image_url: "https://upload.wikimedia.org/retry.jpg", source_url: "javascript:alert(1)" }));
+    if (calls === 3) return new Response(JSON.stringify({ image_url: "javascript:alert(1)" }));
+    return new Response("null");
+  });
+  await assert.rejects(fetchDestinationPhoto("Retry city, MO"), /unavailable/);
+  const retry = await fetchDestinationPhoto("Retry city, MO");
+  assert.equal(retry!.imageAlt, "View of Retry city, MO");
+  assert.equal(retry!.sourceUrl, undefined);
+  assert.equal(await fetchDestinationPhoto("Unsafe photo, MO"), null);
+  assert.equal(await fetchDestinationPhoto("No photo, MO"), null);
+  assert.equal(await fetchDestinationPhoto("No photo, MO"), null);
+  assert.equal(await fetchDestinationPhoto("   "), null);
+  assert.equal(calls, 5);
+});
 
 test("road-trip planning sends structured constraints, preserves measured routes and isolates journeys", async () => {
   const tripId = "live-roadtrip";
