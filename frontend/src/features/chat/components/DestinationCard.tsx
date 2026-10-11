@@ -17,7 +17,6 @@ function DestinationCover({ imageUrl, imageAlt, destination }: { imageUrl?: stri
           <div className="postcard-orbit postcard-orbit-two" />
           <div className="postcard-orbit postcard-orbit-three" />
           <Icon name="compass" className="relative size-16 text-sea/70" />
-          <span className="absolute bottom-5 left-6 text-[10px] font-semibold uppercase tracking-[0.25em] text-sea">A new perspective</span>
         </div>
       )}
     </div>
