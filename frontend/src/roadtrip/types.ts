@@ -5,7 +5,8 @@ export type DriveDraft = {
   start: string
   destination: string
   interests: string[]
-  detourBudget: 15 | 30 | 60 | 120
+  // Extra driving minutes for detours: 15-120 on the slider, or any typed amount up to 600.
+  detourBudget: number
   departureDate: string
   maxMilesPerDay: number
   mpg: number
