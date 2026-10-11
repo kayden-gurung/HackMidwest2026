@@ -10,6 +10,7 @@ import type { ItinerarySnapshot } from "../src/features/itinerary/types";
 import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
 import { postcardFromItinerary } from "../src/features/chat/lib/tripPostcard";
 import { travelModeStore } from "../src/features/trips/api/travelModeStore";
+import { tripTypesStore } from "../src/features/journey/api/tripTypesStore";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
 globalThis.window = globalThis as unknown as Window & typeof globalThis;
@@ -73,10 +74,13 @@ test("concurrent sends to one journey are blocked before appending a duplicate",
 });
 
 test("New journey parameters reach chat and the header; My trips uses local journeys", async () => {
-  const request = { prompt: "Kansas City", vibe: "City energy", budgetUsd: 300, dates: { start: "2026-10-17", end: "2026-10-18" }, origin: "Omaha", adults: 2, children: 1 };
+  const request = { prompt: "Kansas City", vibes: ["City energy", "Food first"], budgetUsd: 300, dates: { start: "2026-10-17", end: "2026-10-18" }, origin: "Omaha", adults: 2, children: 1 };
   const message = describeJourney(request);
   assert.match(message, /2 adults and 1 child, leaving from Omaha/);
+  assert.match(message, /Vibe: City energy, Food first\./);
   assert.match(message, /Budget: \$300 total/);
+  const noVibe = describeJourney({ ...request, prompt: "", vibes: [] });
+  assert.match(noVibe, /^Plan me a trip\. Vibe: no preference\./);
   assert.match(message, /2026-10-17 to 2026-10-18/);
   const trip = await localTripsService.createTrip();
   await localTripsService.renameTrip(trip.id, "Kansas City", { startDate: request.dates.start, endDate: request.dates.end, origin: request.origin, travelers: 3 });
@@ -222,8 +226,8 @@ test("Google Maps links use the address, else exact coordinates, never a bare na
   assert.equal(googleMapsUrl(base), undefined);
 });
 
-test("streamed replies show the draft and tool while writing, then save the final reply", async () => {
-  const events = [{ text: "Let me check " }, { text: "real places." }, { tool: "find_places" }, { text: "Here is your plan." }, { reply: "Here is your plan." }, { done: true }];
+test("streamed replies show the draft and tools, retaining forecast and budget steps with the final reply", async () => {
+  const events = [{ text: "Let me check " }, { text: "real places." }, { tool: "find_places" }, { tool: "get_forecast" }, { tool: "check_budget" }, { tool: "update_itinerary" }, { text: "Here is your plan." }, { reply: "Here is your plan." }, { done: true }];
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
   // Split mid-event so the client has to stitch chunks back together.
   const chunks = [body.slice(0, 7), body.slice(7, 40), body.slice(40)];
@@ -241,9 +245,13 @@ test("streamed replies show the draft and tool while writing, then save the fina
   assert.equal(reply.text, "Here is your plan.");
   assert.ok(drafts.some((draft) => draft?.text === "Let me check real places." && draft.tool === undefined));
   assert.ok(drafts.some((draft) => draft?.tool === "find_places"));
+  assert.ok(drafts.some((draft) => draft?.tool === "get_forecast"));
+  assert.ok(drafts.some((draft) => draft?.tool === "check_budget"));
+  assert.deepEqual(reply.toolSteps, ["find_places", "get_forecast", "check_budget", "update_itinerary"]);
   assert.ok(drafts.some((draft) => draft?.text === "Let me check real places.\n\nHere is your plan."));
   assert.equal(conversationStore.getDraft("stream-trip"), undefined);
   assert.equal(conversationStore.getMessages("stream-trip").at(-1)?.text, "Here is your plan.");
+  assert.deepEqual((conversationStore.getMessages("stream-trip").at(-1) as any).toolSteps, reply.toolSteps);
 });
 
 test("an error event in the stream is shown like any other backend error", async () => {
@@ -270,4 +278,19 @@ test("the Plane / Road toggle is sent with each message, and links say what they
   assert.equal(websiteLabel({ ...base, category: "Flights", websiteUrl: "https://www.google.com/travel/flights?q=Flights" }), "Find tickets");
   assert.equal(websiteLabel({ ...base, category: "Driving", websiteUrl: "https://www.google.com/maps/dir/?api=1&origin=A" }), "Directions");
   assert.equal(websiteLabel({ ...base, category: "Food", websiteUrl: "https://example.com" }), "Website");
+});
+
+test("trip types chosen for a journey go with every message of that journey only", async () => {
+  const requests: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ reply: "ok" }), { status: 200 });
+  });
+  tripTypesStore.set("typed-trip", ["Food first", "Rest & reset"]);
+  await chatService.sendMessage("typed-trip", "Plan Kansas City");
+  await chatService.sendMessage("typed-trip", "Make day 2 slower");
+  await chatService.sendMessage("other-trip", "Plan Denver");
+  assert.deepEqual(requests[0].trip_types, ["Food first", "Rest & reset"]);
+  assert.deepEqual(requests[1].trip_types, ["Food first", "Rest & reset"]);
+  assert.deepEqual(requests[2].trip_types, []);
 });

@@ -42,6 +42,10 @@ ACCURACY
   assumptions. Put driving costs (fuel, tolls, parking, car hire) under the "Driving" category.
   When the traveler has not chosen how to travel, check that flights for the whole party fit the
   budget before recommending them; if they don't, propose a road trip and say why.
+- WEATHER: use get_forecast before planning outdoor activities for specific dates, and for any
+  weather-related revision. Use the destination and trip dates. Cite its source and retrieval
+  time. Only use returned forecast dates; if unavailable or out of range, say so and avoid
+  weather claims. Daily rain probability does not tell you exactly when it will rain.
 - Every cost is an estimate. Label it as one ("about", "roughly", "estimated").
 - When you are not sure about something, say you are not sure. A short honest "I don't know,
   check X" is better than a confident guess.
@@ -56,6 +60,12 @@ HOW TO HELP
   suggestions.
 - Respect the total trip budget for all travelers. Label costs as estimates and explain
   excluded costs. Keep USD estimates separate from any requested display currency.
+- You MUST call check_budget with the complete draft BEFORE every update_itinerary call.
+  Python does the arithmetic; use its total, remaining/over-budget amount and unknown costs.
+  If over budget, use cut_candidates to choose cheaper alternatives or skip optional activities,
+  preserving must-do stops and essential meals, lodging and transport. Recheck every changed
+  draft. If the budget is infeasible, explain the shortfall and ask what can change; never
+  silently raise the budget, invent low prices, or call an incomplete cost estimate affordable.
 - Use update_itinerary whenever you suggest or revise a concrete plan so the Plan, Map and
   Budget panels match the chat. Do not only describe the plan in text. If update_itinerary
   returns notes about removed or unverified details, fix them (look the place up, or drop it)
@@ -123,4 +133,31 @@ def plane_mode_instruction() -> str:
         " Driving item on the arrival day, and keep arrival and departure days light."
         "\n- Do not plan the main journey by car. If the destination is under about 250 miles away, you"
         " may mention in one sentence that driving could be easier, but still plan the flights."
+    )
+
+
+# What each trip type chip on the New journey screen asks for. Keep the keys in step with
+# `vibes` in frontend/src/features/journey/api/mockData.ts.
+TRIP_TYPES = {
+    "Beach & coast": "a coastal destination, with beach or waterfront time on most days",
+    "Big adventure": "active outdoor days: hikes, trails, water sports or other adventure activities",
+    "Food first": "food as the highlight: at least one standout local meal or food experience every day",
+    "City energy": "a walkable city: lively neighborhoods, culture, markets and evenings out",
+    "Rest & reset": "a slow pace: at most two activities a day, with real downtime (parks, spa, long meals)",
+    "Surprise me": "the traveler is open to something unexpected: choose a less obvious destination or activity yourself and say why",
+}
+
+
+def trip_types_instruction(trip_types: list[str]) -> str:
+    """Added to the system prompt on every message of a journey started with trip types selected."""
+    known = [t for t in trip_types if t in TRIP_TYPES]
+    if not known:
+        return ""
+    lines = "\n".join(f"- {t}: {TRIP_TYPES[t]}" for t in known)
+    both = " The plan must reflect every one of them, not just the first." if len(known) > 1 else ""
+    return (
+        "TRIP TYPE. The traveler chose these trip types for this journey:\n"
+        f"{lines}\n"
+        "Choose the destination (if not given) and every day's stops to fit them." + both +
+        " Keep them on every revision unless the traveler says otherwise."
     )

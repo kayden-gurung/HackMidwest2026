@@ -23,6 +23,7 @@ OWN_NOTE_PREFIXES = (
     "Several stops shared one generic map pin",
     "Flight costs are rough estimates. Roam has no live fare",
     "This plan is estimated at",
+    "Trip type ",
 )
 # ItinerarySnapshot allows at most 12 assumptions.
 MAX_ASSUMPTIONS = 12
@@ -110,7 +111,34 @@ def _add_town_context(items: list, evidence: Evidence) -> None:
             item.location = location.model_copy(update={"address": town})
 
 
-def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode: bool = False, pinner=None) -> tuple[ItinerarySnapshot, list[str]]:
+# Words that show a stop fits a trip type, for the types that can be checked from the plan itself.
+_BEACH = re.compile(r"\b(beach|coast|coastal|shore|seaside|waterfront|ocean|sea|bay|harbou?r|pier|boardwalk|lake|island|cove|surf|snorkel)", re.IGNORECASE)
+_ADVENTURE = re.compile(r"\b(hik|trail|kayak|canoe|raft|climb|bike|biking|cycl|zip|outdoor|canyon|mountain|summit|peak|falls|waterfall|park|paddle|surf|snorkel|dive|diving|ski|camp)", re.IGNORECASE)
+# "Rest & reset" means at most this many activities on any day.
+REST_MAX_ACTIVITIES = 2
+
+
+def trip_type_notes(items: list, trip_types: list[str]) -> list[str]:
+    """Where the plan doesn't match the trip types the traveler chose. Told to the model so it fixes the plan."""
+    notes = []
+    days = sorted({i.date for i in items})
+    text = lambda i: " ".join(filter(None, [i.title, i.description, i.location.name if i.location else None]))  # noqa: E731
+    if "Food first" in trip_types:
+        missing = [d for d in days if not any(i.date == d and i.category == "Food" for i in items)]
+        if missing:
+            notes.append(f"Trip type \"Food first\": no food stop on {', '.join(f'{d:%b} {d.day}' for d in missing)}.")
+    if "Rest & reset" in trip_types:
+        busy = [d for d in days if sum(i.date == d and i.category == "Activities" for i in items) > REST_MAX_ACTIVITIES]
+        if busy:
+            notes.append(f"Trip type \"Rest & reset\": more than {REST_MAX_ACTIVITIES} activities on {', '.join(f'{d:%b} {d.day}' for d in busy)}.")
+    if "Beach & coast" in trip_types and items and not any(_BEACH.search(text(i)) for i in items):
+        notes.append("Trip type \"Beach & coast\": no beach or waterfront stop in the plan.")
+    if "Big adventure" in trip_types and items and not any(_ADVENTURE.search(text(i)) for i in items):
+        notes.append("Trip type \"Big adventure\": no outdoor or adventure activity in the plan.")
+    return notes
+
+
+def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode: bool = False, pinner=None, trip_types: list[str] | None = None) -> tuple[ItinerarySnapshot, list[str]]:
     """Returns a cleaned copy plus notes on what was changed (shown to the model and the traveler).
 
     In car mode every flight is removed, whatever the model sent. `pinner` (pins.pin_stops) may
@@ -189,6 +217,7 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
         notes.append("Several stops shared one generic map pin (the town center), so those pins were removed: " + ", ".join(f'"{n}"' for n in dict.fromkeys(shared_pins)) + ". Look each place up with find_places to place it on the map.")
     if any(item.category == "Flights" for item in items):
         notes.append("Flight costs are rough estimates. Roam has no live fare or schedule data, so check airlines for real prices" + (" and times." if flight_times_removed else "."))
+    notes.extend(trip_type_notes(items, trip_types or []))
     total = sum(item.costUsd or 0 for item in items)
     planned = snapshot.budget.plannedUsd
     if planned is not None and total > planned:

@@ -6,6 +6,7 @@ import { conversationStore } from "./conversationStore";
 import { mockReply } from "./mockData";
 import { itineraryStore, validateItinerary } from "../../itinerary/api/itineraryStore";
 import { travelModeStore } from "../../trips/api/travelModeStore";
+import { tripTypesStore } from "../../journey/api/tripTypesStore";
 
 export interface ChatService {
   /** Earlier messages for a trip. */
@@ -62,12 +63,14 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
     car_mode: carMode,
     travel_mode: carMode ? "road" : "plane",
     max_drive_miles_per_day: carMode ? maxMilesPerDay : undefined,
+    trip_types: tripTypesStore.get(tripId),
   };
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 180000);
   try {
     // Streamed so the reply appears as it is written and the panel can say which tool Roam is using.
     let streamed = "";
+    const toolSteps: string[] = [];
     let afterTool = false;
     let reply: unknown;
     let itinerary: AskResponse["itinerary"] | undefined;
@@ -80,10 +83,11 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
           // Keep text written before and after a tool call from running together.
           streamed += (afterTool && streamed ? "\n\n" : "") + event.text;
           afterTool = false;
-          conversationStore.setDraft(tripId, { text: streamed });
+          conversationStore.setDraft(tripId, { text: streamed, toolSteps: [...toolSteps] });
         } else if (typeof event.tool === "string") {
           afterTool = true;
-          conversationStore.setDraft(tripId, { text: streamed, tool: event.tool });
+          toolSteps.push(event.tool);
+          conversationStore.setDraft(tripId, { text: streamed, tool: event.tool, toolSteps: [...toolSteps] });
         } else if (typeof event.reply === "string") {
           reply = event.reply;
         } else if (event.itinerary) {
@@ -98,7 +102,7 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
     if (json) ({ reply, itinerary } = json);
     if (failure) throw failure;
     if (typeof reply !== "string" || !reply.trim()) throw new Error("Roam returned an empty reply. Please try again.");
-    return { id: createId(), role: "assistant", text: reply, itinerary: itinerary == null ? undefined : validateItinerary(itinerary) };
+    return { id: createId(), role: "assistant", text: reply, toolSteps, itinerary: itinerary == null ? undefined : validateItinerary(itinerary) };
   } catch (error) {
     if (controller.signal.aborted) throw new Error("Roam took too long to respond. Please try again.");
     if (error instanceof TypeError) throw new Error("Cannot reach Roam. Check your connection and try again.");

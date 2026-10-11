@@ -8,6 +8,7 @@ export type SendStatus = "idle" | "sending" | "error";
 export interface ReplyDraft {
   text: string;
   tool?: string;
+  toolSteps?: string[];
 }
 
 /*

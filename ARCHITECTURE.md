@@ -46,7 +46,7 @@ If two features need the same data, the page passes it down as props (or you lif
 | `chat` | Conversation, composer, suggestion chips | `getConversation(tripId)` | `GET /api/trips/{id}/messages` | **local** (browser memory), endpoint proposed |
 | | | `sendMessage(tripId, prompt)` | `POST /api/ask` `{prompt}` → `{reply}` | **implemented** |
 | `itinerary` | Plan / Map / Budget panel: expandable days, interactive map with a marker per item, every item listed under its budget category | `getItinerary(tripId)` | `GET /api/trips/{id}/itinerary` | **implemented via chat**; standalone GET proposed |
-| `journey` | New journey form: prompt, vibe, budget, dates, starting point, adults and kids | none (sent as the first chat message) | `POST /api/ask` via `chat` | **implemented**, structured endpoint proposed |
+| `journey` | New journey form: prompt, vibes (optional, pick any), budget, dates, starting point, adults and kids | none (sent as the first chat message) | `POST /api/ask` via `chat` | **implemented**, structured endpoint proposed |
 | `profile` | Travel style card, user card | `getProfile()` | `GET /api/me` | proposed |
 | `settings` | Settings screen | none (kept in `settingsStore`, browser memory) | sent as `preferences` on `POST /api/ask` | **implemented** |
 | (places) | none yet | none yet | `GET /api/places/search`, `GET /api/places/locate`, `GET /api/places/drive` | **implemented** |
@@ -75,6 +75,32 @@ The itinerary panel is driven by one list, `Itinerary.items` (see `features/itin
 - **Without the agent:** `GET /api/places/search?near=Polignano a Mare, Italy&category=Food&keyword=seafood`, `GET /api/places/locate?q=Bari Airport` and `GET /api/places/drive?origin=Kansas City, MO&destination=Denver, CO`. Try them at http://localhost:8000/docs.
 - **Limits:** Nominatim allows one request per second, so lookups are spaced out and cached in memory until the backend restarts. Both services are public and can be slow or busy; failures come back as 503 with a readable message.
 - **Tests:** `docker compose exec backend python -m pytest` (offline, the map services are stubbed).
+
+## Forecast and budget tools
+
+`get_forecast(near, start_date, end_date)` is available in both the default and request-local
+Strands tool sets. `backend/tools/weather.py` geocodes the destination with the existing
+OpenStreetMap lookup, then requests daily weather from [Open-Meteo](https://open-meteo.com/en/docs)
+with a 10-second timeout. It returns destination-local dates, explicit units (Celsius, mm,
+km/h), source URLs, a UTC retrieval timestamp and the actual coverage window. Without dates it
+returns seven days; dated requests use up to sixteen days and reject ranges outside the
+provider's coverage. Outages, unknown places, malformed responses and missing forecast dates
+are explicit statuses, never sample weather. Forecast data is fetched on each call.
+
+`check_budget(itinerary)` is bound to the request's `ItineraryUpdates`, alongside
+`update_itinerary`. `backend/budget.py` uses decimal arithmetic to return the known estimated
+total, remaining/over-budget amount, unknown-cost items and ranked cut candidates. Candidates
+prioritize optional activities, then cheaper meals/stays/transport; the model chooses changes.
+Unknown costs never establish affordability. Every changed draft must be checked again:
+`update_itinerary` rejects an unchecked or different snapshot without changing the plan.
+Over-budget drafts may still be published with the existing warning so infeasible requests can
+be explained honestly; the check itself never silently deletes costs or changes the budget.
+
+The agent prompt requires forecasts for dated outdoor plans/weather revisions and a budget
+check before every itinerary update. SSE emits actual tool calls during both initial planning
+and the one-shot recovery pass. Chat displays their progress labels and retains “Forecast
+lookup” / “Budget check” labels with the reply; these indicate tool calls, not a promise that
+the weather service succeeded or that the trip is affordable.
 
 ## Traveler preferences
 

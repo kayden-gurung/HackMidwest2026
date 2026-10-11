@@ -8,11 +8,15 @@ import { postcardFromItinerary } from "../lib/tripPostcard";
 export function AssistantReply({ message, onSuggestion }: { message: AssistantMessage; onSuggestion: (text: string) => void }) {
   const recommendation = message.itinerary ? postcardFromItinerary(message.itinerary) : message.recommendation;
   const suggestions = message.suggestions?.length ? message.suggestions : recommendation ? ["Explore stays", "Slow it down"] : [];
+  const checks = [...new Set(message.toolSteps?.filter((step) => step === "get_forecast" || step === "check_budget"))];
   return (
     <div className="flex gap-3">
       <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-sea text-white"><Icon name="sparkles" className="size-4" /></div>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-bold">Roam</div>
+        {checks.length > 0 && <ul aria-label="Planning tool calls" className="mt-2 flex flex-wrap gap-2 text-xs text-muted">
+          {checks.map((step) => <li key={step} className="rounded-full border border-line px-2.5 py-1">{step === "get_forecast" ? "Forecast lookup" : "Budget check"}</li>)}
+        </ul>}
         <div className="chat-response mt-2 text-[15px] leading-7 text-ink/80"><Markdown components={{ a: ({ children, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer">{children}</a> }}>{message.text}</Markdown></div>
         {recommendation && <DestinationCard recommendation={recommendation} />}
         {message.flight && <FlightCard flight={message.flight} />}

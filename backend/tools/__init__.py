@@ -14,6 +14,7 @@ from datetime import date
 
 from tools import airports
 from tools.places import PlacesUnavailable, geocode, search_places
+from tools.weather import fetch_forecast
 
 
 def find_places(near: str, category: str, keyword: str = "", radius_m: int = 3000, limit: int = 8) -> dict:
@@ -123,9 +124,24 @@ def flight_links(from_airport: str, to_airport: str, depart_date: str = "", retu
     return {"status": "ok", **links, "note": "Prices and schedules are on these sites; Roam has no live fare data."}
 
 
+def get_forecast(near: str, start_date: str = "", end_date: str = "") -> dict:
+    """Get live daily weather for a destination before planning outdoor activities or weather-related revisions.
+
+    Forecasts cover at most the next 16 days, in destination local time. Never invent weather
+    outside the returned coverage. Cite source_urls and retrieved_at; null values are unknown.
+    Temperatures are Celsius, precipitation is mm, and wind is km/h (also returned in units).
+
+    Args:
+        near: Destination town or landmark, e.g. "Kansas City, MO" or "Puglia, Italy".
+        start_date: First requested day, YYYY-MM-DD. Omit both dates for the next seven days.
+        end_date: Last requested day, YYYY-MM-DD, inclusive. Omit for a one-day forecast.
+    """
+    return fetch_forecast(near, start_date, end_date)
+
+
 def get_travel_tools() -> list:
     """The tools to hand to the Strands agent: `Agent(tools=get_travel_tools())`."""
     # Imported here so the lookup code and its tests work without Strands installed.
     from strands import tool
 
-    return [tool(find_places), tool(locate), tool(plan_drive), tool(find_airports), tool(flight_links)]
+    return [tool(find_places), tool(locate), tool(plan_drive), tool(get_forecast), tool(find_airports), tool(flight_links)]

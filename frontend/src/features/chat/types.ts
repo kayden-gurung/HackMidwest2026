@@ -47,6 +47,8 @@ export interface AssistantMessage {
   /** Follow-up prompts shown as chips; clicking one sends it as a message. */
   suggestions?: string[];
   itinerary?: ItinerarySnapshot;
+  /** Actual streamed tool calls, retained so planning checks stay visible after the reply. */
+  toolSteps?: string[];
 }
 
 export type ChatMessage = UserMessage | AssistantMessage;
@@ -74,6 +76,8 @@ export interface AskRequest {
   travel_mode?: "plane" | "road";
   /** Car mode only: most miles to drive in one day (50–1500). */
   max_drive_miles_per_day?: number;
+  /** Trip types chosen on the New journey screen; the backend keeps the AI to them on every message. */
+  trip_types?: string[];
   preferences?: {
     interests: string[];
     pace?: string;
