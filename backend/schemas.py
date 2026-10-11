@@ -16,7 +16,6 @@ class Preferences(BaseModel):
     # "Hands-on", "Co-pilot" or "Surprise me": how much the agent should decide on its own.
     planning_style: str | None = Field(default=None, max_length=40)
     currency: str | None = Field(default=None, max_length=10)
-    home_airport: str | None = Field(default=None, max_length=80)
     travelers: str | None = Field(default=None, max_length=80)
 
 
@@ -32,7 +31,6 @@ def describe_preferences(preferences: Preferences | None) -> str:
         ("Stay style", clean(preferences.stay_style or "")),
         ("Planning style", clean(preferences.planning_style or "")),
         ("Currency", clean(preferences.currency or "")),
-        ("Home airport", clean(preferences.home_airport or "")),
         ("Usual travelers", clean(preferences.travelers or "")),
     ]
     present = [f"- {label}: {value}" for label, value in lines if value]

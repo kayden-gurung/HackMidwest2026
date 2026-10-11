@@ -1,48 +1,26 @@
-"""Tests for the Plane / Road toggle: airports, ticket links, day-by-day driving, and the prompts.
+"""Tests for road trips: day-by-day driving, route lines on the map, and the drives-only prompt.
 
 All map, routing and model calls are replaced, so no network or AWS keys are needed.
 """
-
-from datetime import date
-from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import tools
 from evidence import Evidence, recording_tools
 from routers import ask as ask_router
-from tools import airports, driving, places
+from tools import driving, places
 
 KANSAS_CITY = {"display_name": "Kansas City, Missouri, United States", "lat": "39.0997", "lon": "-94.5786"}
 DENVER = {"display_name": "Denver, Colorado, United States", "lat": "39.7392", "lon": "-104.9903"}
 
 
-def aerodrome(iata, name, lat, lon, importance, aerodrome_tag="", osm_id=1, **extratags):
-    return {
-        "osm_type": "way", "osm_id": osm_id, "lat": str(lat), "lon": str(lon), "category": "aeroway", "type": "aerodrome",
-        "name": name, "importance": importance, "namedetails": {"iata": iata, "name": name},
-        "extratags": {"aerodrome": aerodrome_tag, **extratags},
-    }
-
-
-AIRPORT_RESULTS = [
-    aerodrome("STJ", "Rosecrans Memorial Airport", 39.77, -94.91, 0.2, osm_id=2),
-    aerodrome("MCI", "Kansas City International Airport", 39.30, -94.71, 0.45, "international", osm_id=1, website="https://flykc.com"),
-    aerodrome("WRI", "McGuire Air Force Base", 40.01, -74.59, 0.3, osm_id=3),
-    aerodrome("OFF", "Offutt Field", 41.12, -95.91, 0.3, osm_id=4, military="airfield"),
-    # No airport code: not a passenger airport for our purposes.
-    {**aerodrome("", "Private Strip", 39.2, -94.6, 0.1, osm_id=5), "namedetails": {"name": "Private Strip"}},
-    # A different kind of result for the same words.
-    {"osm_type": "node", "osm_id": 6, "lat": "39.1", "lon": "-94.6", "category": "waterway", "type": "dam", "name": "Airport Dam"},
-]
 
 
 @pytest.fixture
 def services(monkeypatch):
-    """Nominatim: geocoding by name, airport searches (with a viewbox), and reverse lookups. OSRM: one route."""
+    """Nominatim: geocoding by name and reverse lookups. OSRM: one route."""
     state = {"calls": [], "route": {"code": "Ok", "routes": [{"distance": 965_606.4, "duration": 30_600}]}}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -50,57 +28,21 @@ def services(monkeypatch):
         if "nominatim" in request.url.host:
             if request.url.path.endswith("/reverse"):
                 return httpx.Response(200, json={"address": {"town": "Hays", "state": "Kansas"}})
-            if "viewbox" in request.url.params:
-                return httpx.Response(200, json=AIRPORT_RESULTS)
             hit = {"kansas city, mo": KANSAS_CITY, "denver, co": DENVER}.get(request.url.params["q"].lower())
             return httpx.Response(200, json=[hit] if hit else [])
         return httpx.Response(200, json=state["route"])
 
     monkeypatch.setattr(places, "_client", httpx.Client(transport=httpx.MockTransport(handler)))
     monkeypatch.setattr(places, "NOMINATIM_MIN_INTERVAL_S", 0)
-    for cache in (places.clear_caches, airports.clear_cache, driving.clear_cache):
+    for cache in (places.clear_caches, driving.clear_cache):
         cache()
     yield state
-    for cache in (places.clear_caches, airports.clear_cache, driving.clear_cache):
+    for cache in (places.clear_caches, driving.clear_cache):
         cache()
 
 
-def test_airports_are_passenger_airports_international_first(services):
-    found = airports.find_airports("Kansas City, MO")
-    assert [airport.iata for airport in found] == ["MCI", "STJ"]
-    mci = found[0]
-    assert mci.international and mci.website_url == "https://flykc.com"
-    assert mci.source_urls == ["https://www.openstreetmap.org/way/1"]
-    assert 0 < mci.distance_km < 40
-    searched = [call.url.params["q"] for call in services["calls"] if "viewbox" in call.url.params]
-    assert searched == ["international airport", "airport"]
-    assert airports.find_airports("Nowhereville") is None
 
 
-def test_flight_links_fill_in_route_dates_and_travelers():
-    links = airports.flight_search_links("jfk", "BRI", date(2026, 6, 18), date(2026, 6, 25), 2)
-    query = parse_qs(urlsplit(links["google_flights_url"]).query)["q"][0]
-    assert query == "Flights from JFK to BRI on 2026-06-18 through 2026-06-25 for 2 adults"
-    assert links["kayak_url"] == "https://www.kayak.com/flights/JFK-BRI/2026-06-18/2026-06-25/2adults"
-    assert airports.flight_search_links("JFK", "BRI")["kayak_url"] == "https://www.kayak.com/flights/JFK-BRI"
-    with pytest.raises(ValueError):
-        airports.flight_search_links("JFK1", "BRI")
-
-
-def test_tools_never_raise_and_report_bad_input(services):
-    assert tools.find_airports("Kansas City, MO")["airports"][0]["iata"] == "MCI"
-    assert tools.find_airports("Nowhereville")["status"] == "no_results"
-    assert tools.flight_links("JFK", "BRI", "18 June")["status"] == "error"
-    assert tools.flight_links("JFK", "BRI", "2026-06-18", travelers=2)["status"] == "ok"
-
-
-def test_airports_and_ticket_links_count_as_real_for_the_itinerary(services):
-    evidence = Evidence()
-    by_name = {t.tool_name: t for t in recording_tools(evidence)}
-    by_name["find_airports"]("Kansas City, MO")
-    assert evidence.known_source("https://www.openstreetmap.org/way/1").name == "Kansas City International Airport"
-    links = by_name["flight_links"]("MCI", "DEN", "2026-10-17", "2026-10-19", 2)
-    assert links["google_flights_url"] in evidence.drive_links and links["kayak_url"] in evidence.drive_links
 
 
 def test_drive_days_name_real_overnight_towns_on_the_route(services):
@@ -125,7 +67,7 @@ def test_drive_days_without_route_shape_still_split_the_drive(services):
     assert "Denver" in estimate.drive_days[0].google_maps_url
 
 
-def test_plane_and_road_toggle_reach_the_agent(monkeypatch):
+def test_every_trip_is_planned_by_road(monkeypatch):
     agents = []
 
     class Recorder:
@@ -142,35 +84,16 @@ def test_plane_and_road_toggle_reach_the_agent(monkeypatch):
     app.include_router(ask_router.router)
     client = TestClient(app)
 
-    client.post("/api/ask", json={"prompt": "x", "travel_mode": "plane"})
-    assert "TRAVEL BY PLANE" in agents[-1].system_prompt and "CAR MODE" not in agents[-1].system_prompt
-
-    client.post("/api/ask", json={"prompt": "x", "travel_mode": "road", "max_drive_miles_per_day": 300})
-    prompt = agents[-1].system_prompt
-    assert "TRAVEL BY ROAD" in prompt and "at most 300 miles" in prompt and "TRAVEL BY PLANE" not in prompt
-
     client.post("/api/ask", json={"prompt": "x"})
-    assert "TRAVEL BY" not in agents[-1].system_prompt
-    assert client.post("/api/ask", json={"prompt": "x", "travel_mode": "boat"}).status_code == 422
+    assert "TRAVEL BY ROAD" in agents[-1].system_prompt and "TRAVEL BY PLANE" not in agents[-1].system_prompt
 
+    client.post("/api/ask", json={"prompt": "x", "max_drive_miles_per_day": 300})
+    assert "at most 300 miles" in agents[-1].system_prompt
 
-def test_flight_at_a_real_airport_keeps_its_ticket_link(services):
-    from itinerary import ItinerarySnapshot
-    from validation import validate_snapshot
+    # Older clients may still send car_mode=false or a travel mode: Roam drives anyway.
+    client.post("/api/ask", json={"prompt": "x", "car_mode": False, "travel_mode": "plane"})
+    assert "TRAVEL BY ROAD" in agents[-1].system_prompt
 
-    evidence = Evidence()
-    by_name = {t.tool_name: t for t in recording_tools(evidence)}
-    by_name["find_airports"]("Kansas City, MO")
-    google = by_name["flight_links"]("DEN", "MCI", "2026-10-17")["google_flights_url"]
-    plan = ItinerarySnapshot.model_validate({
-        "startDate": "2026-10-17", "endDate": "2026-10-18", "budget": {"plannedUsd": 900},
-        "items": [{"id": "f1", "date": "2026-10-17", "title": "Flight DEN → MCI", "category": "Flights", "costUsd": 400,
-                   "location": {"name": "Kansas City International Airport", "lat": 39.30, "lng": -94.71},
-                   "websiteUrl": google, "sourceUrls": ["https://www.openstreetmap.org/way/1"]}],
-    })
-    cleaned, _ = validate_snapshot(plan, evidence)
-    assert cleaned.items[0].websiteUrl == google
-    assert cleaned.items[0].sourceUrls == ["https://www.openstreetmap.org/way/1"]
 
 
 def test_drive_home_is_split_like_the_way_there_and_summarized(services):

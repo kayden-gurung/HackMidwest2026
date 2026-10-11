@@ -32,7 +32,7 @@ class KnownPlace:
     website_url: str | None = None
     source_urls: list[str] = field(default_factory=list)
     address: str | None = None
-    # From Nominatim for `locate` results: "city", "town"... or "attraction", "aerodrome"...
+    # From Nominatim for `locate` results: "city", "town"... or "attraction", "museum"...
     kind: str | None = None
 
     @property
@@ -62,8 +62,7 @@ class Evidence:
     places_by_source: dict[str, KnownPlace] = field(default_factory=dict)
     # Towns and landmarks from `locate`: coordinates but no source link.
     points: list[KnownPlace] = field(default_factory=list)
-    # Links the tools made: plan_drive (route sources, Google Maps directions, per-day directions)
-    # and flight_links (Google Flights and Kayak searches). Real, but not places with a pin.
+    # Links plan_drive made (route sources, Google Maps directions, per-day directions). Real, but not places with a pin.
     drive_links: set[str] = field(default_factory=set)
     # Each driving day's route, by its directions link, so Driving items can be drawn on the map.
     drive_routes: dict[str, DriveRoute] = field(default_factory=dict)
@@ -182,23 +181,10 @@ def recording_tools(evidence: Evidence, max_miles_per_day: int | None = None) ->
                                    for key in ("drive_days", "drive_days_home")}}
         return result
 
-    def find_airports(near: str) -> dict:
-        result = travel_tools.find_airports(near)
-        # Airports are real, pinned places: flights may use them as their location.
-        for airport in result.get("airports", []):
-            evidence.add_place(airport)
-        return result
 
-    def flight_links(from_airport: str, to_airport: str, depart_date: str = "", return_date: str = "", travelers: int = 1) -> dict:
-        result = travel_tools.flight_links(from_airport, to_airport, depart_date, return_date, travelers)
-        # Kept with the other tool-made links, so a flight may keep its ticket search link.
-        evidence.drive_links.update(str(result[key]) for key in ("google_flights_url", "kayak_url") if result.get(key))
-        return result
 
     find_places.__doc__ = _FIND_PLACES_DOC
     locate.__doc__ = _LOCATE_DOC
     plan_drive.__doc__ = _PLAN_DRIVE_DOC
-    find_airports.__doc__ = travel_tools.find_airports.__doc__
-    flight_links.__doc__ = travel_tools.flight_links.__doc__
     # Weather evidence describes conditions, not a place's identity or booking details.
-    return [tool(find_places), tool(locate), tool(plan_drive), tool(travel_tools.get_forecast), tool(find_airports), tool(flight_links)]
+    return [tool(find_places), tool(locate), tool(plan_drive), tool(travel_tools.get_forecast)]

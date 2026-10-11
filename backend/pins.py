@@ -26,9 +26,8 @@ def max_lookups() -> int:
         return max(0, min(int(os.getenv("ROAM_MAX_PIN_LOOKUPS", "")), 50))
     except ValueError:
         return DEFAULT_MAX_LOOKUPS
-# A match must be within this distance of the town (airports can be far out: Denver's is 40 km)...
+# A match must be within this distance of the town...
 TOWN_RADIUS_M = 40_000
-AIRPORT_RADIUS_M = 80_000
 # ...and must not be the town itself, which is what Nominatim returns when it only matched the town.
 TOWN_CENTER_M = 300
 
@@ -75,17 +74,6 @@ def _lookup(query: str, town: KnownPlace, radius_m: int) -> places.GeoPoint | No
     return point if _distance_m(point.lat, point.lng, town.lat, town.lng) <= radius_m else None
 
 
-def _airport(town: KnownPlace, cache: dict) -> places.GeoPoint | None:
-    """The town's main airport, for flight stops the model gave no location."""
-    if "airport" not in cache:
-        cache["airport"] = None
-        for query in (f"{_short(town.name)} International Airport", f"{_short(town.name)} Airport"):
-            point = _lookup(query, town, AIRPORT_RADIUS_M)
-            if point is not None and ("airport" in point.name.lower() or point.kind == "aerodrome"):
-                cache["airport"] = point
-                break
-    return cache["airport"]
-
 
 def _pin(item, point: places.GeoPoint, evidence: Evidence, name: str | None = None) -> None:
     location = item.location
@@ -115,13 +103,6 @@ def pin_stops(items: list, evidence: Evidence) -> None:
             if lookups >= limit:
                 return
             lookups += 1
-            if item.category == "Flights":
-                # Flights are pinned at the airport: the one the model named, else the town's main airport.
-                point = _lookup(f"{location.name}, {_short(town.name)}", town, AIRPORT_RADIUS_M) if location else None
-                point = point or _airport(town, cache)
-                if point is not None:
-                    _pin(item, point, evidence, name=None if location is None else location.name)
-                continue
             if location is None:
                 continue  # a generic stop ("Lunch", "Free afternoon"): nothing to look up
             # The town name in the query keeps "Union Station" from matching the one in another city.

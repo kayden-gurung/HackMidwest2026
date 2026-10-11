@@ -10,9 +10,9 @@ from prompts.travel import CHAT_PROMPT
 
 ORCHESTRATOR_PROMPT = """
 You coordinate a team of travel specialists. For concrete plans, delegate place research to
-research_places and transport (driving routes, airports, flight ticket links) to plan_transport
-when relevant. Your instructions may name lookup tools such as find_places, plan_drive,
-find_airports or flight_links: the specialists hold those tools, so delegate instead and copy
+research_places and driving routes to plan_transport
+when relevant. Your instructions may name lookup tools such as find_places or plan_drive:
+the specialists hold those tools, so delegate instead and copy
 the names, coordinates, links, miles and legs they return exactly.
 Delegate live forecast checks to research_places for dated outdoor plans and weather disruptions.
 Include the traveler's constraints and relevant current stops in each task, in a few sentences.
@@ -37,7 +37,7 @@ Do not delegate greetings, clarifying questions, or unrelated requests. Keep del
 
 SPECIALIST_PROMPTS = {
     "places": "You are the Places specialist. Research verified places using find_places and locate. Use get_forecast for dated outdoor plans and weather-related revisions; return only covered dates, units, source URLs and retrieval time. Return concise findings, exact source URLs, coordinates and unavailable-data notes. Do not write a full itinerary or claim to update any panels.",
-    "transport": "You are the Transport specialist. By road: use plan_drive for distances, driving times and fuel estimates; locate may resolve stops. Respect car mode and daily driving limits. Return plan_drive's summary, fuel cost and assumptions, and every leg of drive_days and drive_days_home exactly as returned: start, end, miles, hours and that leg's google_maps_url. By plane: use find_airports for both ends of the trip and flight_links for ticket search links; return each chosen airport's name, code, coordinates and source link, and both links, exactly as returned. You have no live fares, airlines or schedules: never state them. Copy every link character for character. Do not update the itinerary.",
+    "transport": "You are the Transport specialist. By road: use plan_drive for distances, driving times and fuel estimates; locate may resolve stops. Respect car mode and daily driving limits. Return plan_drive's summary, fuel cost and assumptions, and every leg of drive_days and drive_days_home exactly as returned: start, end, miles, hours and that leg's google_maps_url. Roam plans drives only: never suggest flights. Copy every link character for character. Do not update the itinerary.",
     "budget": "You are the Budget specialist. Call calculate_budget with no arguments: it reads the draft the orchestrator just checked, so you never need the itinerary pasted to you. Compare the total for all travelers with the budget, flag unknown or excluded costs, and suggest specific tradeoffs if over budget. Keep it to a few sentences. Prices are estimates, never booking quotes. Do not update the itinerary.",
 }
 
@@ -63,7 +63,7 @@ def specialist_tools(model, travel_tools: list, checked_draft=None) -> tuple[lis
     """`checked_draft` returns the draft check_budget last accepted, so no model has to retype it."""
     by_name = {item.tool_name: item for item in travel_tools}
     names = {"places": ["find_places", "locate", "get_forecast"],
-             "transport": ["plan_drive", "locate", "find_airports", "flight_links"]}
+             "transport": ["plan_drive", "locate"]}
 
     @tool
     def calculate_budget(itinerary: ItinerarySnapshot | None = None) -> dict:

@@ -19,7 +19,7 @@ def analyze_budget(plan: "ItinerarySnapshot") -> dict:
               "incomplete" if unknown else "under_budget" if remaining > 0 else "on_budget")
     # Review optional activities first; essential meals, lodging and transport need cheaper
     # replacements, not blind deletion. These are candidates, never automatic edits.
-    priority = {"Activities": 0, "Food": 1, "Stays": 2, "Driving": 3, "Flights": 3}
+    priority = {"Activities": 0, "Food": 1, "Stays": 2, "Driving": 3}
     candidates = sorted((item for item in plan.items if item.costUsd),
                         key=lambda item: (priority[item.category], -item.costUsd)) if remaining is not None and remaining < 0 else []
     return {
