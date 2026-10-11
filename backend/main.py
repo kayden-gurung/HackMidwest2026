@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from routers import ask, health, places
+from routers import ask, explore, health, places
 
 app = FastAPI(title="Roam API")
 
@@ -8,3 +8,4 @@ app = FastAPI(title="Roam API")
 app.include_router(health.router)
 app.include_router(ask.router)
 app.include_router(places.router)
+app.include_router(explore.router)
