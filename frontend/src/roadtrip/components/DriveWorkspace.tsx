@@ -1,14 +1,25 @@
 import { useMemo, useState } from "react"
-import { driveStops, sampleDiscoveries } from "../data/mockData"
+import { googleMapsPlaceUrl } from "../lib/mapLinks"
 import type {
   CommunityDiscovery,
   DriveDraft,
+  DrivePlan,
   DriveStop,
+  LatLng,
 } from "../types"
+import { DriveMap } from "./DriveMap"
 import { Action, Icon, StatusTag } from "./ui"
+
+function formatDuration(minutes: number) {
+  const hours = Math.floor(minutes / 60)
+  const rest = Math.round(minutes % 60)
+  if (hours === 0) return `${rest} min`
+  return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`
+}
 
 function StopCard({
   stop,
+  number,
   selected,
   added,
   onSelect,
@@ -16,6 +27,8 @@ function StopCard({
   onRetry,
 }: {
   stop: DriveStop
+  /** The number on this stop's map marker. */
+  number: number
   selected: boolean
   added: boolean
   onSelect: () => void
@@ -44,7 +57,12 @@ function StopCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <div className="text-sm font-bold">{stop.name}</div>
+              <div className="flex items-center gap-2 text-sm font-bold">
+                <span className="grid size-5 shrink-0 place-items-center rounded-full bg-school text-[10px] text-white">
+                  {number}
+                </span>
+                {stop.name}
+              </div>
               <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-school">
                 {stop.category}
               </div>
@@ -95,9 +113,12 @@ function StopCard({
 }
 
 function DiscoveryUpload({
+  location,
   onClose,
   onAdd,
 }: {
+  /** Where the visitor dropped the pin on the map. */
+  location: LatLng
   onClose: () => void
   onAdd: (discovery: CommunityDiscovery) => void
 }) {
@@ -192,6 +213,9 @@ function DiscoveryUpload({
                 <div className="mt-2 text-xs leading-5 text-muted">
                   {caption}
                 </div>
+                <div className="mt-2 text-[10px] text-muted">
+                  Pinned at {location[0].toFixed(3)}, {location[1].toFixed(3)}
+                </div>
                 <StatusTag>Local session preview</StatusTag>
               </div>
             </div>
@@ -213,8 +237,8 @@ function DiscoveryUpload({
                     place,
                     caption,
                     image,
-                    x: 66,
-                    y: 24,
+                    lat: location[0],
+                    lng: location[1],
                     count: 1,
                   })
             }
@@ -223,142 +247,6 @@ function DiscoveryUpload({
             {step < 3 ? "Continue" : "Save discovery"}
           </Action>
         </div>
-      </div>
-    </div>
-  )
-}
-
-function RouteMap({
-  stops,
-  selectedId,
-  onSelect,
-  discoveries,
-  showSuggestions,
-  showCommunity,
-  onDiscovery,
-  onAddDiscovery,
-}: {
-  stops: DriveStop[]
-  selectedId: string | null
-  onSelect: (id: string) => void
-  discoveries: CommunityDiscovery[]
-  showSuggestions: boolean
-  showCommunity: boolean
-  onDiscovery: (discovery: CommunityDiscovery) => void
-  onAddDiscovery: () => void
-}) {
-  return (
-    <div className="relative h-full min-h-[520px] overflow-hidden bg-[#dde1d6]">
-      <div className="absolute inset-0 opacity-60 map-grid" />
-      <svg
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        className="absolute inset-0 size-full"
-        aria-hidden="true"
-      >
-        <path
-          d="M5 76 C24 70, 30 58, 43 56 S64 44, 95 22"
-          fill="none"
-          stroke="#fff"
-          strokeWidth="3.5"
-        />
-        <path
-          d="M5 76 C24 70, 30 58, 43 56 S64 44, 95 22"
-          fill="none"
-          stroke="#31594c"
-          strokeWidth="1.2"
-          strokeDasharray="2 0.5"
-        />
-        <path
-          d="M18 0 C21 28, 16 48, 28 100M72 0 C67 35, 82 61, 78 100"
-          fill="none"
-          stroke="#c4cbbb"
-          strokeWidth=".7"
-        />
-      </svg>
-      <div className="absolute left-[4%] top-[72%]">
-        <div className="grid size-8 place-items-center rounded-full border-2 border-white bg-ink text-[10px] font-bold text-white shadow">
-          A
-        </div>
-        <div className="mt-1 whitespace-nowrap bg-white/90 px-2 py-1 text-[9px] font-bold">
-          Kansas City
-        </div>
-      </div>
-      <div className="absolute left-[91%] top-[17%]">
-        <div className="grid size-8 place-items-center rounded-full border-2 border-white bg-school text-[10px] font-bold text-white shadow">
-          B
-        </div>
-        <div className="mt-1 -translate-x-8 whitespace-nowrap bg-white/90 px-2 py-1 text-[9px] font-bold">
-          St. Louis
-        </div>
-      </div>
-      {showSuggestions &&
-        stops.map((stop, index) => (
-          <div
-            key={stop.id}
-            className="absolute"
-            style={{ left: `${stop.x}%`, top: `${stop.y}%` }}
-          >
-            <Action
-              onClick={() => onSelect(stop.id)}
-              className="-translate-x-1/2 -translate-y-1/2"
-              label={`Select ${stop.name}`}
-            >
-              <div
-                className={`grid size-9 place-items-center rounded-full border-2 border-white text-xs font-bold shadow-md ${
-                  selectedId === stop.id
-                    ? "scale-125 bg-school text-white"
-                    : "bg-white text-school"
-                }`}
-              >
-                {index + 1}
-              </div>
-            </Action>
-          </div>
-        ))}
-      {showCommunity &&
-        discoveries.map((discovery) => (
-          <div
-            key={discovery.id}
-            className="absolute"
-            style={{ left: `${discovery.x}%`, top: `${discovery.y}%` }}
-          >
-            <Action
-              onClick={() => onDiscovery(discovery)}
-              className="-translate-x-1/2 -translate-y-full"
-              label={`Open photo from ${discovery.place}`}
-            >
-              <div className="relative">
-                <img
-                  src={discovery.image}
-                  alt=""
-                  className="size-12 rounded-lg border-2 border-white object-cover shadow-md"
-                />
-                <div className="mx-auto h-0 w-0 border-x-[6px] border-t-[7px] border-x-transparent border-t-white" />
-                {discovery.count > 1 && (
-                  <div className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full bg-ink text-[9px] font-bold text-white">
-                    {discovery.count}
-                  </div>
-                )}
-              </div>
-            </Action>
-          </div>
-        ))}
-      <div className="absolute left-4 top-4 flex flex-col gap-2">
-        <div className="border border-line bg-white/95 p-2 shadow-sm">
-          <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider text-muted">
-            <Icon name="layers" className="size-3.5" /> Map layers
-          </div>
-        </div>
-        <Action
-          onClick={onAddDiscovery}
-          className="flex items-center gap-2 rounded-md bg-school px-3 py-2 text-[10px] font-bold text-white"
-        >
-          <Icon name="camera" className="size-3.5" /> Add a discovery
-        </Action>
-      </div>
-      <div className="absolute bottom-4 right-4 bg-white/95 px-3 py-2 text-[9px] text-muted shadow-sm">
-        Stylized prototype map · not for navigation
       </div>
     </div>
   )
@@ -434,6 +322,16 @@ function StopDetail({
               Open official reference ↗
             </Action>
           )}
+          {googleMapsPlaceUrl(stop) && (
+            <a
+              href={googleMapsPlaceUrl(stop)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 block text-[10px] font-bold text-school underline"
+            >
+              Open in Google Maps ↗
+            </a>
+          )}
           <div className="mt-1 text-[10px] leading-4 text-muted">
             Demo information does not verify hours, safety, or public access.
           </div>
@@ -498,40 +396,61 @@ function StopDetail({
 
 export default function DriveWorkspace({
   draft,
+  plan,
   onEdit,
 }: {
   draft: DriveDraft
+  plan: DrivePlan
   onEdit: () => void
 }) {
-  const [added, setAdded] = useState<string[]>(["rocheport"])
-  const [selectedId, setSelectedId] = useState<string | null>("rocheport")
+  const { route, stops } = plan
+  // Start with the first suggestion on the drive. Mount this with a new `key` for a new plan.
+  const [added, setAdded] = useState<string[]>(
+    stops.slice(0, 1).map((stop) => stop.id),
+  )
+  const [selectedId, setSelectedId] = useState<string | null>(
+    stops[0]?.id ?? null,
+  )
+  const [focusTick, setFocusTick] = useState(0)
   const [detailOpen, setDetailOpen] = useState(false)
   const [budget, setBudget] = useState(draft.detourBudget)
   const [notice, setNotice] = useState("")
   const [lookupRetried, setLookupRetried] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [showCommunity, setShowCommunity] = useState(true)
-  const [discoveries, setDiscoveries] = useState(sampleDiscoveries)
+  const [discoveries, setDiscoveries] = useState(plan.discoveries)
   const [activeDiscovery, setActiveDiscovery] =
     useState<CommunityDiscovery | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
+  // Choosing where on the map a new photo pin goes.
+  const [placing, setPlacing] = useState(false)
+  const [pinLocation, setPinLocation] = useState<LatLng | null>(null)
   const [mobileView, setMobileView] = useState<"map" | "list">("map")
   const [askOpen, setAskOpen] = useState(false)
   const usedMinutes = useMemo(
     () =>
-      driveStops
+      stops
         .filter((stop) => added.includes(stop.id))
         .reduce((sum, stop) => sum + stop.detourMinutes, 0),
-    [added],
+    [added, stops],
   )
   const gas = useMemo(
     () =>
-      driveStops
+      stops
         .filter((stop) => added.includes(stop.id))
         .reduce((sum, stop) => sum + stop.gasCost, 0),
-    [added],
+    [added, stops],
   )
-  const selected = driveStops.find((stop) => stop.id === selectedId) ?? null
+  const selected = stops.find((stop) => stop.id === selectedId) ?? null
+
+  // Picking a stop (from the list or the map) moves the map to it.
+  const selectStop = (id: string, openDetail: boolean) => {
+    setSelectedId(id)
+    setFocusTick((tick) => tick + 1)
+    if (openDetail) setDetailOpen(true)
+    // On a phone the list covers the map, so show the map.
+    setMobileView("map")
+  }
 
   const toggleStop = (stop: DriveStop) => {
     if (added.includes(stop.id)) {
@@ -576,7 +495,7 @@ export default function DriveWorkspace({
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {[
-            ["Base drive", "3 hr 48 min"],
+            ["Base drive", formatDuration(route.baseMinutes)],
             ["Added drive", `${usedMinutes} min`],
             ["Extra gas", `~$${gas.toFixed(2)}`],
             ["Detour budget", `${usedMinutes} of ${budget} min`],
@@ -653,7 +572,7 @@ export default function DriveWorkspace({
                 Detour time excludes time spent visiting.
               </div>
             </div>
-            <StatusTag>{driveStops.length} demo</StatusTag>
+            <StatusTag>{stops.length} demo</StatusTag>
           </div>
           {budget === 15 && (
             <div className="mb-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
@@ -662,9 +581,10 @@ export default function DriveWorkspace({
             </div>
           )}
           <div className="space-y-3">
-            {driveStops.map((stop) => (
+            {stops.map((stop, index) => (
               <StopCard
                 key={stop.id}
+                number={index + 1}
                 stop={{
                   ...stop,
                   lookup: lookupRetried.includes(stop.id)
@@ -676,10 +596,7 @@ export default function DriveWorkspace({
                 }}
                 selected={selectedId === stop.id}
                 added={added.includes(stop.id)}
-                onSelect={() => {
-                  setSelectedId(stop.id)
-                  setDetailOpen(true)
-                }}
+                onSelect={() => selectStop(stop.id, true)}
                 onToggle={() => toggleStop(stop)}
                 onRetry={() => setLookupRetried([...lookupRetried, stop.id])}
               />
@@ -718,21 +635,42 @@ export default function DriveWorkspace({
           </div>
         </div>
 
-        <div className="relative h-full">
-          <RouteMap
-            stops={driveStops}
+        <div className="relative h-full min-h-[520px]">
+          <DriveMap
+            route={route}
+            stops={stops}
+            addedIds={added}
             selectedId={selectedId}
-            onSelect={(id) => {
-              setSelectedId(id)
-              setDetailOpen(true)
-            }}
+            focusTick={focusTick}
+            detailOpen={detailOpen}
             discoveries={discoveries}
             showSuggestions={showSuggestions}
             showCommunity={showCommunity}
-            onDiscovery={setActiveDiscovery}
-            onAddDiscovery={() => setUploadOpen(true)}
+            placing={placing}
+            onSelectStop={(id) => selectStop(id, false)}
+            onToggleStop={(id) => {
+              const stop = stops.find((candidate) => candidate.id === id)
+              if (stop) toggleStop(stop)
+            }}
+            onOpenDetail={(id) => selectStop(id, true)}
+            onSelectDiscovery={setActiveDiscovery}
+            onPlace={(lat, lng) => {
+              setPlacing(false)
+              setPinLocation([lat, lng])
+              setUploadOpen(true)
+            }}
           />
+          <Action
+            onClick={() => setPlacing(!placing)}
+            className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-md bg-school px-3 py-2 text-[10px] font-bold text-white shadow-sm"
+          >
+            <Icon name={placing ? "close" : "camera"} className="size-3.5" />{" "}
+            {placing ? "Cancel" : "Add a discovery"}
+          </Action>
           <div className="absolute right-4 top-4 z-20 space-y-1 border border-line bg-white p-2 shadow-sm">
+            <div className="flex items-center gap-2 px-2 pb-1 text-[9px] font-bold uppercase tracking-wider text-muted">
+              <Icon name="layers" className="size-3.5" /> Map layers
+            </div>
             <Action
               onClick={() => setShowSuggestions(!showSuggestions)}
               className="flex items-center gap-2 px-2 py-1.5 text-[10px] font-semibold"
@@ -794,8 +732,9 @@ export default function DriveWorkspace({
               onClose={() => setDetailOpen(false)}
             />
           )}
-          {uploadOpen && (
+          {uploadOpen && pinLocation && (
             <DiscoveryUpload
+              location={pinLocation}
               onClose={() => setUploadOpen(false)}
               onAdd={(discovery) => {
                 setDiscoveries([...discoveries, discovery])

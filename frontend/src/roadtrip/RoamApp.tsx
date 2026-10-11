@@ -1,10 +1,12 @@
 import { useState } from "react"
+import { fetchDrivePlan } from "./api/drivePlan"
+import { demoPlan } from "./data/mockData"
 import AppShell from "./components/AppShell"
 import Dashboard from "./components/Dashboard"
 import DriveWorkspace from "./components/DriveWorkspace"
 import TripSetup from "./components/TripSetup"
 import { Action, Icon } from "./components/ui"
-import type { AppScreen, DriveDraft } from "./types"
+import type { AppScreen, DriveDraft, DrivePlan } from "./types"
 
 const initialDrive: DriveDraft = {
   start: "Kansas City, MO",
@@ -157,14 +159,27 @@ function SettingsScreen() {
 export default function App() {
   const [screen, setScreen] = useState<AppScreen>("dashboard")
   const [driveDraft, setDriveDraft] = useState(initialDrive)
+  // Opening a saved drive shows the cached demo; planning a new one replaces it.
+  const [plan, setPlan] = useState<DrivePlan>(demoPlan)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
-  const submit = () => {
+  const submit = async () => {
     setLoading(true)
-    window.setTimeout(() => {
-      setLoading(false)
+    setError("")
+    try {
+      // Keeps the "Looking along the route" screen up long enough to read.
+      const [next] = await Promise.all([
+        fetchDrivePlan(driveDraft),
+        new Promise((resolve) => window.setTimeout(resolve, 850)),
+      ])
+      setPlan(next)
       setScreen("drive")
-    }, 850)
+    } catch {
+      setError("Roam couldn't plan that drive. Check the cities and try again.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const navigate = (next: AppScreen) => setScreen(next)
@@ -184,12 +199,14 @@ export default function App() {
         drive={driveDraft}
         setDrive={setDriveDraft}
         onSubmit={submit}
+        error={error}
       />
     )
   else if (screen === "drive")
     content = (
       <DriveWorkspace
         draft={driveDraft}
+        plan={plan}
         onEdit={() => setScreen("setup")}
       />
     )

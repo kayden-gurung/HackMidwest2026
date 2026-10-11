@@ -163,10 +163,12 @@ export default function TripSetup({
   drive,
   setDrive,
   onSubmit,
+  error,
 }: {
   drive: DriveDraft
   setDrive: (draft: DriveDraft) => void
   onSubmit: () => void
+  error?: string
 }) {
   const [expanded, setExpanded] = useState(false)
   const toggleDrive = (value: string) =>
@@ -301,6 +303,14 @@ export default function TripSetup({
             </div>
 
           <div className="mt-7 border-t border-line pt-5">
+            {error && (
+              <div
+                role="alert"
+                className="mb-3 bg-peach px-3 py-2 text-xs font-semibold text-school"
+              >
+                {error}
+              </div>
+            )}
             <Action
               onClick={onSubmit}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-school px-5 py-3.5 text-sm font-bold text-white"
