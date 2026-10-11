@@ -8,7 +8,7 @@ import { config } from "../../config/env"
 const fieldClass =
   "min-h-11 w-full rounded-md border border-line bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-school"
 
-function CityField({
+export function CityField({
   label,
   value,
   onChange,
