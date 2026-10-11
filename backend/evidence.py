@@ -13,7 +13,7 @@ from strands import tool
 
 import tools as travel_tools
 import tools.places as map_data
-from itinerary import ItinerarySnapshot
+from itinerary import ItinerarySnapshot, PlanItem
 
 # The model reads these docstrings to decide how to call the tools, so reuse the originals word for word.
 _FIND_PLACES_DOC = travel_tools.find_places.__doc__
@@ -35,6 +35,11 @@ class KnownPlace:
     # From Nominatim for `locate` results: "city", "town"... or "attraction", "museum"...
     kind: str | None = None
     category: str | None = None
+    opening_hours: str | None = None
+    fee: str | None = None
+    charge: str | None = None
+    conditional_fee: str | None = None
+    conditional_charge: str | None = None
 
     @property
     def is_area(self) -> bool:
@@ -60,6 +65,8 @@ class DriveRoute:
 
 @dataclass
 class Evidence:
+    # Accepted item metadata survives revisions even when another lookup refreshes a place.
+    accepted_items: dict[str, PlanItem] = field(default_factory=dict)
     places_by_source: dict[str, KnownPlace] = field(default_factory=dict)
     # Towns and landmarks from `locate`: coordinates but no source link.
     points: list[KnownPlace] = field(default_factory=list)
@@ -83,6 +90,12 @@ class Evidence:
                 source_urls=[str(url) for url in place.get("source_urls", [])],
                 address=place.get("address"),
                 category=place.get("category"),
+                kind=place.get("kind"),
+                opening_hours=place.get("opening_hours"),
+                fee=place.get("fee"),
+                charge=place.get("charge"),
+                conditional_fee=place.get("conditional_fee"),
+                conditional_charge=place.get("conditional_charge"),
             )
         except (KeyError, TypeError, ValueError):
             return
@@ -122,6 +135,7 @@ def evidence_from_snapshot(snapshot: ItinerarySnapshot | None) -> Evidence:
     """Stops in the current plan were checked when that plan was made, so a revision may keep them."""
     evidence = Evidence()
     for item in snapshot.items if snapshot else []:
+        evidence.accepted_items[item.id] = item.model_copy(deep=True)
         if item.route and item.websiteUrl and item.location and item.location.lat is not None and item.location.lng is not None:
             evidence.drive_links.add(item.websiteUrl)
             evidence.drive_routes[item.websiteUrl] = DriveRoute(
@@ -136,6 +150,7 @@ def evidence_from_snapshot(snapshot: ItinerarySnapshot | None) -> Evidence:
                 "source_urls": item.sourceUrls,
                 "address": item.location.address,
                 "category": item.category,
+                "opening_hours": item.openingHours,
             })
     return evidence
 

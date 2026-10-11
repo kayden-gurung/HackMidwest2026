@@ -35,7 +35,7 @@ export function describeDrive(draft: DriveDraft): string {
     `Plan a one-way drive from ${draft.start} to ${draft.destination} for one traveler.`,
     `Interests: ${draft.interests.join(", ") || "interesting local stops"}.`,
     `Departure: ${draft.departureDate.trim() || "Flexible"}. If flexible, assume today and state the date.`,
-    "There is no spending limit set. Use null for unknown meal, activity and lodging prices.",
+    "There is no spending limit set. Include clearly labeled planning allowances for missing meal/activity prices and sourced local opening hours. Never invent published prices or hours.",
     "Choose two to four verified, worthwhile stops along the route,",
     "within the total extra driving-time limit. Allow enough days for the daily driving limit.",
     "Create a complete drive itinerary. If live data is unavailable, say so.",

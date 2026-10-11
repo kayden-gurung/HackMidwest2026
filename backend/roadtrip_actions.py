@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from strands import tool
 
-from itinerary import ItinerarySnapshot, Location, PlanBudget, PlanItem, TripOverview
+from itinerary import ItineraryEditError, ItinerarySnapshot, Location, PlanBudget, PlanItem, TripOverview
 
 
 class StopChoice(BaseModel):
@@ -33,7 +33,7 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
     def known(source_url):
         place = evidence.known_source(source_url)
         if place is None:
-            raise ValueError("Select an exact source_url from a verified place lookup or the current itinerary.")
+            raise ItineraryEditError("The selected place was not verified. Select an exact source_url from a place lookup or the current itinerary.")
         return place
 
     def visit(source_url, day, time, start, stop_id):
@@ -95,7 +95,7 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
                     if place.get("source_urls"):
                         candidates.append({"source_url": place["source_urls"][0], "name": place["name"],
                                            "category": place["category"], "town": town,
-                                           **{key: place[key] for key in ("lat", "lng", "cuisine") if key in place}})
+                                           **{key: place[key] for key in ("lat", "lng", "cuisine", "opening_hours", "fee", "charge") if key in place}})
         result = {"status": "ok" if candidates else "unavailable" if "unavailable" in statuses else "no_results", "drive": drive,
                   "places": candidates, "notes": notes,
                   "message": "Choose two to four nearby candidates by source_url. Combined detours are checked by create_road_trip; do not invent missing places or costs."}
@@ -135,13 +135,15 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
     @tool
     def edit_stops(remove_ids: list[str] | None = None,
                    replacements: list[StopReplacement] | None = None,
-                   additions: list[StopChoice] | None = None) -> dict:
+                   additions: list[StopChoice] | None = None,
+                   end_date: str = "") -> dict:
         """Atomically check all requested changes against the current itinerary, preserving other details.
 
         Args:
             remove_ids: Existing non-driving stop IDs to remove; omit to keep them.
-            replacements: Existing stop_id plus a verified source_url. Keeps that ID, date and time; replaces map facts and sets unknown price to null.
-            additions: Verified source_url plus optional day (1-based within existing dates) and HH:MM time.
+            replacements: Existing stop_id plus a verified source_url. Keeps that ID, date and time; replaces map facts and uses a sourced entry fee or labeled planning allowance.
+            additions: Verified source_url plus optional day (1-based from the original start date) and HH:MM time. For days after the current trip ends, also supply end_date.
+            end_date: YYYY-MM-DD to explicitly extend the trip for added days at the destination. Omit/empty to preserve the current dates. Never shorten the trip or exceed 60 days.
         With no edits, recheck retained stops after a successful alternative-route selection.
         Submit all changes together; a retry replaces the unpublished draft, rather than accumulating edits.
         Follow with update_itinerary with NO arguments to request consent. You may batch these calls.
@@ -153,10 +155,22 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
         remove_ids = remove_ids or []
         replacements = [StopReplacement.model_validate(item) for item in replacements or []]
         additions = [StopChoice.model_validate(item) for item in additions or []]
+        if end_date:
+            try:
+                end = date.fromisoformat(end_date)
+            except ValueError:
+                raise ItineraryEditError("The proposed end date must be a valid YYYY-MM-DD date.") from None
+            if end < base.endDate:
+                raise ItineraryEditError("This stop edit cannot shorten the trip. Keep its current end date or extend it.")
+            if (end - base.startDate).days >= 60:
+                raise ItineraryEditError("The trip cannot exceed 60 days. Choose an earlier end date.")
+            base.endDate = end
+        if any(base.startDate + timedelta(days=item.day - 1) > base.endDate for item in additions):
+            raise ItineraryEditError(f"An added stop falls after the trip ends on {base.endDate.isoformat()}. Extend the trip's end date before adding later stops.")
         visits = {item.id: item for item in base.items if item.category != "Driving"}
         changed = [*remove_ids, *[item.stop_id for item in replacements]]
         if len(changed) != len(set(changed)) or any(key not in visits for key in changed):
-            raise ValueError("Edit each existing non-driving stop ID at most once; unknown or driving IDs cannot be edited.")
+            raise ItineraryEditError("Edit each existing non-driving stop ID at most once; unknown or driving IDs cannot be edited.")
         for key in remove_ids:
             visits.pop(key)
         for replacement in replacements:

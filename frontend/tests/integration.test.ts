@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ItemRow } from "../src/features/itinerary/components/ItemRow";
+import { AgentXrayPanel } from "../src/features/chat/components/AgentXrayPanel";
 import { chatService } from "../src/features/chat/api/chatService";
 import { conversationStore } from "../src/features/chat/api/conversationStore";
 import { localTripsService } from "../src/features/trips/api/tripsService";
 import { describeJourney } from "../src/features/journey/describeJourney";
 import { itineraryStore, validateItinerary } from "../src/features/itinerary/api/itineraryStore";
-import { budgetTotals, googleMapsUrl, hasCoordinates, itemCostLabel, websiteLabel } from "../src/features/itinerary/lib/itinerary";
+import { budgetTotals, formatOpeningHours, googleMapsUrl, hasCoordinates, itemCostLabel, websiteLabel } from "../src/features/itinerary/lib/itinerary";
 import type { ItinerarySnapshot } from "../src/features/itinerary/types";
 import { sampleTrips } from "../src/features/explore/api/sampleTrips";
 import { destinationIdeas } from "../src/features/explore/api/mockData";
@@ -63,6 +67,19 @@ test("destination photo outages can be retried and unsafe or missing images are 
   assert.equal(await fetchDestinationPhoto("No photo, MO"), null);
   assert.equal(await fetchDestinationPhoto("   "), null);
   assert.equal(calls, 5);
+});
+
+test("Agent X-ray explains a failed edit while retaining the recovered run status", () => {
+  const markup = renderToStaticMarkup(createElement(AgentXrayPanel, {
+    events: [{ id: "date-rejected", agent: "orchestrator", kind: "tool_finished", tool: "edit_stops",
+      status: "error", timestamp: "2026-10-11T12:00:00Z",
+      detail: "An added stop falls after the trip ends on 2026-10-12. Extend the trip's end date before adding later stops." }],
+    running: false, awaiting: true, failed: false,
+  }));
+  assert.match(markup, /Check requested stop changes · error/);
+  assert.match(markup, /An added stop falls after the trip ends on 2026-10-12/);
+  assert.match(markup, /Awaiting consent/);
+  assert.doesNotMatch(markup, /Run stopped/);
 });
 
 test("road-trip planning sends structured constraints, preserves measured routes and isolates journeys", async () => {
@@ -409,7 +426,7 @@ test("chat updates a journey's plan/map/budget, sends it for revisions, and pres
   assert.ok(hasCoordinates(first.items[0]));
   assert.equal(budgetTotals(first).spentUsd, 30);
   assert.equal(budgetTotals(first).unknownCosts, 1);
-  assert.equal(itemCostLabel(first.items[1]), "Cost TBD");
+  assert.equal(itemCostLabel(first.items[1]), "Price unavailable");
   response.itinerary.items[0] = { ...response.itinerary.items[0], title: "Restaurant lunch", costUsd: 60 };
   await chatService.sendMessage("panel-trip", "Replace picnic with lunch");
   assert.equal(requests[1].current_itinerary.items[0].title, "Park picnic");
@@ -617,4 +634,45 @@ test("road trips send the daily miles limit, and New journey can set it", async 
   const base = { prompt: "Denver", vibes: [], budgetUsd: 900, dates: null, origin: "Kansas City", adults: 2, children: 0 };
   assert.match(describeJourney({ ...base, travelBy: "road", maxMilesPerDay: 300 }), /by road in our own car, at most 300 miles a day\./);
   assert.match(describeJourney({ ...base, travelBy: "plane" }), /Getting there: by plane\./);
+});
+
+test("opening schedules display readable local times, closures, split and overnight hours", () => {
+  assert.equal(formatOpeningHours("Mo-Fr 16:00-20:00"), "Mon–Fri 4 PM – 8 PM");
+  assert.equal(formatOpeningHours("Mo-Su 12:30-15:00,19:30-22:30; PH off"), "Mon–Sun 12:30 PM – 3 PM, 7:30 PM – 10:30 PM; Public holidays Closed");
+  assert.equal(formatOpeningHours("Fr-Sa 21:00-02:00"), "Fri–Sat 9 PM – 2 AM (next day)");
+  assert.equal(formatOpeningHours("Mo-Su 10:00-24:00"), "Mon–Sun 10 AM – 12 AM");
+  assert.equal(formatOpeningHours("24/7"), "Open 24 hours daily");
+  assert.equal(formatOpeningHours("Nov-Mar off; Apr-Oct Mo-Fr sunrise-sunset"), "Nov-Mar Closed; Apr-Oct Mon–Fri sunrise-sunset");
+  assert.match(formatOpeningHours(null), /Hours not listed/);
+});
+
+test("drive stop metadata reaches shared cards, budgets and revision payloads", async () => {
+  const plan = planFixture();
+  plan.items[0] = { ...plan.items[0], category: "Food", costUsd: 25, costBasis: "planning",
+    costNote: "Planning allowance: $25 for one traveler's meal; not a published menu price.",
+    openingHours: "Mo-Su 16:00-20:00" };
+  plan.items[1] = { ...plan.items[1], costUsd: 150, costBasis: "planning", costNote: "Planning allowance: $150 per room/night." };
+  assert.deepEqual(validateItinerary(plan), plan);
+  itineraryStore.set("stop-details", plan);
+  const saved = itineraryStore.get("stop-details")!;
+  assert.equal(budgetTotals(saved).spentUsd, 175);
+  assert.equal(budgetTotals(saved).unknownCosts, 0);
+  const markup = renderToStaticMarkup(createElement(ItemRow, { item: saved.items[0] }));
+  assert.match(markup, /Est\. \$25/);
+  assert.match(markup, /Planning allowance/);
+  assert.match(markup, /Listed hours \(local\): .*Mon–Sun 4 PM – 8 PM/);
+  assert.doesNotMatch(markup, /Cost TBD/);
+  const missing = renderToStaticMarkup(createElement(ItemRow, { item: saved.items[1] }));
+  assert.match(missing, /Hours not listed/);
+  assert.equal(itemCostLabel({ ...saved.items[0], costBasis: "listed", costUsd: 12 }), "Listed $12");
+  const bodies: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return eventResponse([{ reply: "No changes." }, { done: true }]);
+  });
+  await chatService.sendMessage("stop-details", "Keep my stops");
+  assert.deepEqual(bodies[0].current_itinerary.items, plan.items);
+  for (const fields of [{ openingHours: 123 }, { costBasis: "quote" }, { costNote: {} }, { costBasis: "listed", costUsd: null }]) {
+    assert.throws(() => validateItinerary({ ...plan, items: [{ ...plan.items[0], ...fields }] }), /invalid stop/);
+  }
 });

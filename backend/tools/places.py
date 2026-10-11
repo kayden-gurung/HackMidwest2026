@@ -84,6 +84,10 @@ class Place(BaseModel):
     website_url: str | None = None
     cuisine: str | None = None
     opening_hours: str | None = None
+    fee: str | None = None
+    charge: str | None = None
+    conditional_fee: str | None = None
+    conditional_charge: str | None = None
     phone: str | None = None
     # Straight-line distance from the searched location.
     distance_m: int
@@ -248,6 +252,10 @@ def _to_place(element: dict, category: str, origin: GeoPoint) -> Place | None:
         website_url=_web_url(tags.get("website") or tags.get("contact:website")),
         cuisine=tags.get("cuisine", "").replace(";", ", ").replace("_", " ") or None,
         opening_hours=tags.get("opening_hours"),
+        fee=tags.get("fee"),
+        charge=tags.get("charge"),
+        conditional_fee=tags.get("fee:conditional"),
+        conditional_charge=tags.get("charge:conditional"),
         phone=tags.get("phone") or tags.get("contact:phone"),
         distance_m=_distance_m(origin.lat, origin.lng, lat, lng),
         source_urls=[f"https://www.openstreetmap.org/{element.get('type', 'node')}/{element.get('id')}"],

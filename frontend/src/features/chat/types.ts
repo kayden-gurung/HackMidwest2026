@@ -106,6 +106,8 @@ export interface XrayEvent {
   tool?: string;
   call_id?: string;
   status?: string;
+  /** Safe explanation for a failed tool step; a later step may still recover. */
+  detail?: string;
   duration_ms?: number | null;
 }
 

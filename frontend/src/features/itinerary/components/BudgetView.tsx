@@ -17,7 +17,7 @@ export function BudgetView({ itinerary, onShowOnMap }: { itinerary: Itinerary; o
       <div className="mt-1 text-sm text-muted">{itinerary.budget.plannedUsd == null ? "No budget limit set" : `of ${formatUsd(itinerary.budget.plannedUsd)} budget`}</div>
       <div className="mt-4 h-2 overflow-hidden rounded-full bg-line"><div className={`h-full rounded-full ${over ? "bg-coral" : "bg-sea"}`} style={{ width: `${Math.min(percentUsed, 100)}%` }} /></div>
       {remainingUsd != null && <div className={`mt-2 text-xs font-semibold ${over ? "text-coral" : "text-sea"}`}>{over ? `${formatUsd(-remainingUsd)} over budget` : `${formatUsd(remainingUsd)} left in budget`}</div>}
-      <p className="mt-3 text-xs leading-5 text-muted">Planning estimates, not live quotes or bookings.{unknownCosts > 0 && ` ${unknownCosts} ${unknownCosts === 1 ? "item has" : "items have"} an unknown cost and ${unknownCosts === 1 ? "is" : "are"} excluded from this total.`}</p>
+      <p className="mt-3 text-xs leading-5 text-muted">Planning estimates, not live quotes or bookings.{itinerary.items.some((item) => item.costBasis === "planning") && " The total includes the planning allowances shown on each stop for one traveler."}{unknownCosts > 0 && ` ${unknownCosts} ${unknownCosts === 1 ? "item has" : "items have"} an unknown cost and ${unknownCosts === 1 ? "is" : "are"} excluded from this total.`}</p>
 
       <div className="mt-6 space-y-6">
         {visibleBudgetCategories(itinerary.items).map((category) => {

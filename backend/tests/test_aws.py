@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from strands.types.exceptions import ModelThrottledException
 
 import main
+from agent_runs import tool_failure_detail
 from agent import build_agent, DEFAULT_MODEL_ID
 
 
@@ -21,6 +22,11 @@ class AWSRouteTests(unittest.TestCase):
     def test_health_does_not_require_aws(self):
         with patch("routers.ask.build_agent", side_effect=NoCredentialsError()):
             self.assertEqual(self.client.get("/api/health").json(), {"ok": True})
+
+    def test_tool_failure_details_do_not_expose_private_exception_text(self):
+        for error in [RuntimeError("private upstream details"), ValueError("private upstream details"),
+                      aws_failure("AccessDeniedException", "private upstream details")]:
+            self.assertNotIn("private upstream details", tool_failure_detail(error))
 
     def test_missing_credentials(self):
         with patch("routers.ask.build_agent", side_effect=NoCredentialsError()):

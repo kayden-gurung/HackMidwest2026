@@ -5,6 +5,7 @@ journeys. Deploy this in one API worker; a shared session store is required for 
 """
 
 import asyncio
+import logging
 import secrets
 import threading
 import time
@@ -17,6 +18,20 @@ from strands.hooks import (AfterInvocationEvent, AfterModelCallEvent, AfterToolC
                           BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent, HookProvider)
 
 from budget import analyze_budget
+from aws_errors import aws_error_response
+from itinerary import ItineraryEditError
+
+logger = logging.getLogger("roam.agent")
+
+
+def tool_failure_detail(error) -> str:
+    if isinstance(error, ItineraryEditError):
+        return str(error)
+    if isinstance(error, ValidationError):
+        return "The proposed tool inputs do not match the required itinerary fields or trip dates."
+    if isinstance(error, ValueError):
+        return "The proposed changes did not pass the itinerary or driving-limit checks. Your current plan is unchanged."
+    return aws_error_response(error)[1]
 
 # Safety ceiling shared with the legacy multi-agent planner. The direct road-trip path
 # normally needs only a few calls and cancels inference after publication or denial.
@@ -138,8 +153,15 @@ class XrayHooks(HookProvider):
             self.run.trace(self.role, "tool_started", tool=event.tool_use["name"], call_id=key[1])
 
     def after_tool(self, event):
+        status = "cancelled" if event.cancel_message else event.result.get("status", "success")
+        details = {}
+        if status == "error":
+            details["detail"] = tool_failure_detail(event.exception)
+            logger.warning("Agent tool failed: run=%s agent=%s tool=%s exception=%s reason=%s",
+                           self.run.id, self.role, event.tool_use["name"],
+                           type(event.exception).__name__, details["detail"])
         self.run.trace(self.role, "tool_finished", tool=event.tool_use["name"], call_id=event.tool_use["toolUseId"],
-                       status="cancelled" if event.cancel_message else event.result.get("status", "success"),
+                       status=status, **details,
                        duration_ms=round(event.duration * 1000) if event.duration is not None else None)
 
 

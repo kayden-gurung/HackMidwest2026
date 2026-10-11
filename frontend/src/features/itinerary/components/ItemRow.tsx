@@ -1,5 +1,5 @@
 import { Action, Icon } from "../../../components/ui";
-import { formatDay, formatTime, googleMapsUrl, hasCoordinates, itemCostLabel, safeWebUrl, websiteLabel } from "../lib/itinerary";
+import { formatDay, formatOpeningHours, formatTime, googleMapsUrl, hasCoordinates, itemCostLabel, safeWebUrl, websiteLabel } from "../lib/itinerary";
 import type { ItineraryItem } from "../types";
 import { categoryStyle } from "./categoryStyle";
 
@@ -49,6 +49,10 @@ export function ItemRow({
             <div className="shrink-0 text-xs font-bold leading-5">{itemCostLabel(item)}</div>
           </div>
           {when && <div className="mt-0.5 text-xs text-muted [overflow-wrap:anywhere]">{when}</div>}
+          {item.costNote && <div className="mt-1 text-xs leading-5 text-muted">{item.costNote}</div>}
+          {item.category !== "Driving" && item.category !== "Flights" && <div className="mt-1 text-xs leading-5 text-ink/70 [overflow-wrap:anywhere]">
+            {item.openingHours ? "Listed hours (local): " : ""}{formatOpeningHours(item.openingHours)}
+          </div>}
           {item.description && <div className="mt-1.5 text-xs leading-5 text-ink/70 [overflow-wrap:anywhere]">{item.description}</div>}
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
             {onShowOnMap && hasCoordinates(item) && (

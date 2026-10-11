@@ -2,7 +2,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef } from "react";
 import { EmptyState } from "../../../components/ui";
-import { formatDay, formatTime, googleMapsUrl, hasCoordinates, inTripOrder, itemCostLabel, safeWebUrl, websiteLabel } from "../lib/itinerary";
+import { formatDay, formatOpeningHours, formatTime, googleMapsUrl, hasCoordinates, inTripOrder, itemCostLabel, safeWebUrl, websiteLabel } from "../lib/itinerary";
 import type { Itinerary, ItineraryItem } from "../types";
 import { categoryStyle } from "./categoryStyle";
 import { ItemRow } from "./ItemRow";
@@ -27,6 +27,8 @@ function popupContent(item: ItineraryItem, markerNumber: number): HTMLElement {
   add("roam-popup-title", `${markerNumber}. ${item.title}`);
   add("roam-popup-meta", [formatDay(item.date), item.time ? formatTime(item.time) : undefined, itemCostLabel(item)].filter(Boolean).join(" · "));
   if (item.location?.name) add("roam-popup-meta", item.location.name);
+  if (item.costNote) add("roam-popup-meta", item.costNote);
+  if (item.category !== "Driving" && item.category !== "Flights") add("roam-popup-meta", `${item.openingHours ? "Listed hours (local): " : ""}${formatOpeningHours(item.openingHours)}`);
 
   const links = document.createElement("div");
   links.className = "roam-popup-links";
