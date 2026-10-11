@@ -4,6 +4,7 @@ import Dashboard from "./components/Dashboard"
 import DriveDashboard, { type DriveSession } from "./components/DriveDashboard"
 import DriveWorkspace from "./components/DriveWorkspace"
 import ExploreTheme from "./components/ExploreTheme"
+import SettingsScreen, { emptyProfile } from "./components/SettingsScreen"
 import TripSetup from "./components/TripSetup"
 import { Action, Icon } from "./components/ui"
 import type { AppScreen, DriveDraft } from "./types"
@@ -111,44 +112,6 @@ function ExploreScreen({ onOpen }: { onOpen: (theme: ExploreThemeId) => void }) 
   )
 }
 
-function SettingsScreen() {
-  return (
-    <div className="h-full overflow-y-auto p-5 md:p-10">
-      <div className="mx-auto max-w-3xl">
-        <div className="font-display text-4xl font-semibold">
-          Planning preferences
-        </div>
-        <div className="mt-2 text-sm text-muted">
-          Defaults for your drives.
-        </div>
-        <div className="mt-7 divide-y divide-line border-y border-line bg-white px-5">
-          {[
-            ["Home city", "Kansas City, MO"],
-            ["Currency", "USD"],
-            ["Planning style", "Co-pilot"],
-            ["Distance units", "Miles"],
-          ].map(([label, value]) => (
-            <div key={label} className="flex items-center justify-between py-5">
-              <div className="text-xs font-semibold">{label}</div>
-              <div className="flex items-center gap-2 text-xs text-muted">
-                {value}
-                <Icon name="chevron" className="size-4" />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-8 border border-line bg-panel p-5">
-          <div className="text-xs font-bold">Agent X-ray</div>
-          <div className="mt-2 text-xs leading-5 text-muted">
-            Open a drive to see live Places, Transport, and Budget activity in chat.
-            Proposed revisions wait for your approval before replacing your plan.
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function App() {
   const [screen, setScreen] = useState<AppScreen>("dashboard")
   const [driveDraft, setDriveDraft] = useState(initialDrive)
@@ -156,6 +119,8 @@ export default function App() {
   const [activeId, setActiveId] = useState<string>()
   const [formError, setFormError] = useState<string>()
   const [exploring, setExploring] = useState<ExploreThemeId | null>(null)
+  // Profile details from Settings. Kept in this browser tab only for now.
+  const [profile, setProfile] = useState(emptyProfile)
   const active = sessions.find((session) => session.id === activeId)
 
   const submit = () => {
@@ -222,7 +187,7 @@ export default function App() {
     )
   else if (screen === "explore")
     content = <ExploreScreen onOpen={setExploring} />
-  else content = <SettingsScreen />
+  else content = <SettingsScreen profile={profile} onSave={setProfile} />
 
   return (
     <AppShell screen={screen} onNavigate={navigate}>
