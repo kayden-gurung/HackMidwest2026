@@ -4,13 +4,9 @@ import { itineraryStore } from "../../itinerary/api/itineraryStore";
 /** How a journey travels, set from the Plane / Road toggle in the trip header. Road is car mode: drive the whole trip, never fly. */
 export interface TravelMode {
   carMode: boolean;
-  /** Most miles the traveler wants to drive in one day. Only used in car mode. */
-  maxMilesPerDay: number;
 }
 
-/** Choices in the header's miles-per-day picker. */
-export const MILES_PER_DAY_OPTIONS = [200, 300, 400, 500, 600] as const;
-const DEFAULT_MODE: TravelMode = { carMode: false, maxMilesPerDay: 400 };
+const DEFAULT_MODE: TravelMode = { carMode: false };
 
 /*
  * LOCAL STORE, like the chats: kept in browser memory per journey, reset when the page reloads.
@@ -56,6 +52,5 @@ export function useTravelMode(tripId: string) {
     travelBy: (mode.carMode ? "road" : "plane") as TravelBy,
     setTravelBy: (travelBy: TravelBy) => travelModeStore.set(tripId, { carMode: travelBy === "road" }),
     setCarMode: (carMode: boolean) => travelModeStore.set(tripId, { carMode }),
-    setMaxMilesPerDay: (maxMilesPerDay: number) => travelModeStore.set(tripId, { maxMilesPerDay }),
   };
 }

@@ -53,7 +53,7 @@ function historyFor(tripId: string): NonNullable<AskRequest["history"]> {
 }
 
 const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) => {
-  const { carMode, maxMilesPerDay } = travelModeStore.get(tripId);
+  const { carMode } = travelModeStore.get(tripId);
   const body: AskRequest = {
     prompt,
     history: historyFor(tripId),
@@ -62,7 +62,6 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
     current_itinerary: itineraryStore.snapshot(tripId),
     car_mode: carMode,
     travel_mode: carMode ? "road" : "plane",
-    max_drive_miles_per_day: carMode ? maxMilesPerDay : undefined,
     trip_types: tripTypesStore.get(tripId),
   };
   const controller = new AbortController();

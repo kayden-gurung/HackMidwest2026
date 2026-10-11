@@ -107,7 +107,6 @@ def _http() -> httpx.Client:
 
 def geocode(place: str) -> GeoPoint | None:
     """Coordinates for a place name, or None when nothing matches."""
-    global _last_nominatim_call
     query = " ".join(place.split())
     if not query:
         return None
@@ -115,18 +114,10 @@ def geocode(place: str) -> GeoPoint | None:
     if key in _geocode_cache:
         return _geocode_cache[key]
 
-    with _nominatim_lock:
-        wait = NOMINATIM_MIN_INTERVAL_S - (time.monotonic() - _last_nominatim_call)
-        if wait > 0:
-            time.sleep(wait)
-        try:
-            response = _http().get(NOMINATIM_URL, params={"q": query, "format": "jsonv2", "limit": 1}, timeout=GEOCODE_TIMEOUT_S)
-            response.raise_for_status()
-            results = response.json()
-        except (httpx.HTTPError, ValueError) as error:
-            raise PlacesUnavailable("The location lookup service is not responding. Try again in a moment.") from error
-        finally:
-            _last_nominatim_call = time.monotonic()
+    try:
+        results = nominatim_request(NOMINATIM_URL, {"q": query, "format": "jsonv2", "limit": 1})
+    except (httpx.HTTPError, ValueError) as error:
+        raise PlacesUnavailable("The location lookup service is not responding. Try again in a moment.") from error
 
     point = None
     if isinstance(results, list) and results:
@@ -274,6 +265,87 @@ def _notability(element: dict) -> int:
     )
 
 
+# Fast path: Nominatim "special phrases" (e.g. "museums") searched inside a box around the location.
+# It answers in under a second, where the public Overpass server often takes 10-40 s when busy.
+# Each category has default phrases and keyword phrases; a keyword that names a phrase picks it.
+NOMINATIM_SEARCH_LIMIT = 40
+_PHRASES: dict[str, tuple[tuple[str, ...], dict[str, str]]] = {
+    "Food": (("restaurants",), {"cafe": "cafes", "coffee": "cafes", "bar": "bars", "pub": "pubs", "beer": "pubs",
+                               "fast food": "fast food", "ice cream": "ice cream", "market": "marketplaces"}),
+    "Stays": (("hotels",), {"hostel": "hostels", "motel": "motels", "guest house": "guest houses", "guesthouse": "guest houses",
+                            "apartment": "apartments", "camp": "camp sites", "camping": "camp sites", "chalet": "chalets"}),
+    "Activities": (("attractions", "museums", "parks"), {
+        "museum": "museums", "gallery": "galleries", "galleries": "galleries", "art": "galleries", "park": "parks", "garden": "gardens",
+        "zoo": "zoos", "aquarium": "aquariums", "beach": "beaches", "viewpoint": "viewpoints", "view": "viewpoints",
+        "attraction": "attractions", "sight": "attractions", "landmark": "attractions", "monument": "monuments",
+        "castle": "castles"}),
+}
+
+
+def _phrases_for(category: str, keyword: str | None) -> tuple[tuple[str, ...], str | None]:
+    """The Nominatim phrases to search, and the keyword left over to filter the results by (if any)."""
+    defaults, by_keyword = _PHRASES[category]
+    lowered = (keyword or "").lower()
+    for word, phrase in by_keyword.items():
+        # Whole words only (plurals allowed), so "barbecue" does not pick "bars".
+        if re.search(rf"\b{re.escape(word)}(?:s|es)?\b", lowered):
+            return (phrase,), None
+    return defaults, keyword
+
+
+def _matches_category(tags: dict, category: str) -> bool:
+    return any(key in tags and (values is None or re.fullmatch(values, str(tags[key]))) for key, values in CATEGORY_FILTERS[category])
+
+
+def _nominatim_element(result: dict) -> dict | None:
+    """A Nominatim result in the shape of an Overpass element, so ranking and conversion are shared."""
+    try:
+        lat, lon = float(result["lat"]), float(result["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    tags = {key: value for key, value in (result.get("extratags") or {}).items() if isinstance(value, str)}
+    if result.get("category") and result.get("type"):
+        tags[result["category"]] = result["type"]
+    if result.get("name"):
+        tags.setdefault("name", result["name"])
+    address = result.get("address") or {}
+    for tag, field in (("addr:street", "road"), ("addr:housenumber", "house_number"), ("addr:postcode", "postcode")):
+        if address.get(field):
+            tags.setdefault(tag, address[field])
+    city = address.get("city") or address.get("town") or address.get("village")
+    if city:
+        tags.setdefault("addr:city", city)
+    return {"type": result.get("osm_type", "node"), "id": result.get("osm_id"), "lat": lat, "lon": lon, "tags": tags}
+
+
+def _nominatim_elements(category: str, origin: GeoPoint, radius_m: int, keyword: str | None) -> list[dict]:
+    """Places of one category inside the search box, as elements. httpx and JSON errors reach the caller."""
+    phrases, leftover = _phrases_for(category, keyword)
+    lat_span = radius_m / 111_320
+    lng_span = lat_span / max(math.cos(math.radians(origin.lat)), 0.01)
+    viewbox = f"{origin.lng - lng_span},{origin.lat + lat_span},{origin.lng + lng_span},{origin.lat - lat_span}"
+    pattern = _keyword_regex(leftover)
+    # A phrase search returns at most 40 places, which may include none of the keyword's. Searching
+    # the keyword itself first finds places named after it ("Jack Stack Barbecue").
+    if leftover:
+        phrases = (leftover, *phrases)
+    elements, seen = [], set()
+    for phrase in phrases:
+        results = nominatim_request(NOMINATIM_URL, {"q": phrase, "format": "jsonv2", "limit": NOMINATIM_SEARCH_LIMIT, "extratags": 1,
+                                  "addressdetails": 1, "viewbox": viewbox, "bounded": 1})
+        for result in results if isinstance(results, list) else []:
+            element = _nominatim_element(result)
+            if element is None or (element["type"], element["id"]) in seen or not _matches_category(element["tags"], category):
+                continue
+            tags = element["tags"]
+            # A keyword that is not a phrase ("seafood", "bbq") filters by name or cuisine.
+            if pattern and not re.search(pattern, f"{tags.get('name', '')} {tags.get('cuisine', '')}", re.IGNORECASE):
+                continue
+            seen.add((element["type"], element["id"]))
+            elements.append(element)
+    return elements
+
+
 def search_places(
     near: str,
     category: PlaceCategory,
@@ -300,11 +372,16 @@ def search_places(
     if origin is None:
         return []
 
+    # Fast path first. Overpass (slow when busy) is only the backup for when Nominatim fails or finds nothing.
+    try:
+        elements = _nominatim_elements(category, origin, radius_m, keyword) or None
+    except (httpx.HTTPError, ValueError):
+        elements = None
+
     # Ask for far more than needed: Overpass returns matches in no useful order, so the ranking
     # below needs a wide pool to pick the well-documented, nearby ones from.
     query = _overpass_query(category, origin.lat, origin.lng, radius_m, keyword, fetch=OVERPASS_FETCH)
-    elements = None
-    for url in OVERPASS_URLS:
+    for url in OVERPASS_URLS if elements is None else ():
         try:
             response = _http().post(url, data={"data": query}, timeout=SEARCH_TIMEOUT_S)
             response.raise_for_status()

@@ -138,6 +138,18 @@ def trip_type_notes(items: list, trip_types: list[str]) -> list[str]:
     return notes
 
 
+def _attach_routes(items: list, route_links: dict[str, str], evidence: Evidence) -> None:
+    """Give each driving leg its route line and a pin where that day's drive ends."""
+    for item in items:
+        link = route_links.get(item.id)
+        if link is None:
+            continue
+        route = evidence.drive_routes[link]
+        item.route = route.path
+        item.websiteUrl = link
+        item.location = Location(name=route.end_name, lat=route.end_lat, lng=route.end_lng)
+
+
 def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode: bool = False, pinner=None, trip_types: list[str] | None = None) -> tuple[ItinerarySnapshot, list[str]]:
     """Returns a cleaned copy plus notes on what was changed (shown to the model and the traveler).
 
@@ -150,9 +162,15 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
     unverified: list[str] = []
     flight_times_removed = False
 
+    # Driving legs whose directions link came from plan_drive get that leg's route (see _attach_routes).
+    route_links: dict[str, str] = {}
     for original in snapshot.items:
         item = original.model_copy(deep=True)
         label = item.location.name if item.location else item.title
+        if item.category == "Driving" and item.websiteUrl in evidence.drive_routes:
+            route_links[item.id] = item.websiteUrl
+        # Routes only ever come from plan_drive, never from the model.
+        item.route = None
 
         if car_mode and is_air_travel(item.title, item.category):
             removed_flights.append(item.title)
@@ -201,6 +219,7 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
     _add_town_context(items, evidence)
     if pinner is not None:
         pinner(items, evidence)
+    _attach_routes(items, route_links, evidence)
     # Only mention stops that are still off the map.
     still_unpinned = {i.location.name for i in items if i.location and i.location.lat is None} | {i.title for i in items if i.location is None}
     shared_pins = [name for name in shared_pins if name in still_unpinned]

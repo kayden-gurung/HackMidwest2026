@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import date
 from typing import Literal
@@ -15,6 +16,9 @@ from itinerary import ItinerarySnapshot, ItineraryUpdates
 from prompts.travel import TRIP_TYPES, car_mode_instruction, plane_mode_instruction, trip_types_instruction
 from schemas import Preferences, describe_preferences
 from validation import is_air_travel, validate_snapshot
+
+# Errors reach the traveler as a short message; the full reason goes to the backend log.
+logger = logging.getLogger("roam.ask")
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -136,6 +140,7 @@ def ask(body: AskRequest):
             result["itinerary"] = plan.model_dump(mode="json")
         return result
     except Exception as error:
+        logger.exception("Chat request failed")
         status, detail = aws_error_response(error)
         raise HTTPException(status_code=status, detail=detail) from None
 
@@ -176,6 +181,7 @@ async def ask_stream(body: AskRequest):
             if plan is not None:
                 yield f"data: {json.dumps({'itinerary': plan.model_dump(mode='json')})}\n\n"
         except Exception as error:
+            logger.exception("Streamed chat request failed")
             status, detail = aws_error_response(error)
             yield f"data: {json.dumps({'error': detail, 'status': status})}\n\n"
         yield f"data: {json.dumps({'done': True})}\n\n"

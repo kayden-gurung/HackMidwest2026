@@ -38,6 +38,8 @@ export function validateItinerary(value: unknown): ItinerarySnapshot {
       || (item.description != null && typeof item.description !== "string")
       || (item.websiteUrl != null && typeof item.websiteUrl !== "string")
       || (item.sourceUrls != null && (!Array.isArray(item.sourceUrls) || !item.sourceUrls.every((url) => typeof url === "string")))
+      || (item.route != null && (!Array.isArray(item.route) || item.route.length > 400 || !item.route.every((point) => Array.isArray(point) && point.length === 2
+        && Number.isFinite(point[0]) && Math.abs(point[0]) <= 90 && Number.isFinite(point[1]) && Math.abs(point[1]) <= 180)))
       || (location != null && (typeof location.name !== "string" || !location.name || hasLat !== hasLng
         || (hasLat && (!Number.isFinite(location.lat) || Math.abs(location.lat!) > 90 || !Number.isFinite(location.lng) || Math.abs(location.lng!) > 180))))) {
       throw new Error("Roam returned an invalid stop. Your previous plan is still here; please retry.");

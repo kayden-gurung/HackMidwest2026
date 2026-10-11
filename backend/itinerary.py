@@ -38,6 +38,8 @@ class PlanItem(PlanModel):
     location: Location | None = None
     websiteUrl: str | None = Field(default=None, max_length=2000)
     sourceUrls: list[str] = Field(default_factory=list, max_length=10)
+    route: list[list[float]] | None = Field(default=None, max_length=400,
+                                            description="Filled in automatically for driving legs from plan_drive. Leave it out.")
 
 
 class PlanBudget(PlanModel):

@@ -49,6 +49,15 @@ AREA_KINDS = {
 
 
 @dataclass
+class DriveRoute:
+    """One day's drive from plan_drive: its line on the map and where it ends."""
+    path: list[list[float]]
+    end_name: str
+    end_lat: float
+    end_lng: float
+
+
+@dataclass
 class Evidence:
     places_by_source: dict[str, KnownPlace] = field(default_factory=dict)
     # Towns and landmarks from `locate`: coordinates but no source link.
@@ -56,6 +65,8 @@ class Evidence:
     # Links the tools made: plan_drive (route sources, Google Maps directions, per-day directions)
     # and flight_links (Google Flights and Kayak searches). Real, but not places with a pin.
     drive_links: set[str] = field(default_factory=set)
+    # Each driving day's route, by its directions link, so Driving items can be drawn on the map.
+    drive_routes: dict[str, DriveRoute] = field(default_factory=dict)
     # Landmarks and towns from `locate` that came with an OpenStreetMap link, by that link.
     # Kept apart from places_by_source: a town's link must not make town-center pins look verified.
     located_by_source: dict[str, KnownPlace] = field(default_factory=dict)
@@ -110,6 +121,11 @@ def evidence_from_snapshot(snapshot: ItinerarySnapshot | None) -> Evidence:
     """Stops in the current plan were checked when that plan was made, so a revision may keep them."""
     evidence = Evidence()
     for item in snapshot.items if snapshot else []:
+        if item.route and item.websiteUrl and item.location and item.location.lat is not None and item.location.lng is not None:
+            evidence.drive_links.add(item.websiteUrl)
+            evidence.drive_routes[item.websiteUrl] = DriveRoute(
+                path=item.route, end_name=item.location.name, end_lat=item.location.lat, end_lng=item.location.lng)
+            continue
         if item.sourceUrls and item.location and item.location.lat is not None and item.location.lng is not None:
             evidence.add_place({
                 "name": item.location.name,
@@ -157,6 +173,13 @@ def recording_tools(evidence: Evidence, max_miles_per_day: int | None = None) ->
             # Each day's directions link is real too, so driving legs may keep it.
             legs = [*result.get("drive_days", []), *result.get("drive_days_home", [])]
             evidence.drive_links.update(str(leg["google_maps_url"]) for leg in legs if leg.get("google_maps_url"))
+            for leg in legs:
+                if leg.get("path") and leg.get("end_lat") is not None and leg.get("google_maps_url"):
+                    evidence.drive_routes[str(leg["google_maps_url"])] = DriveRoute(
+                        path=leg["path"], end_name=str(leg["end"]), end_lat=float(leg["end_lat"]), end_lng=float(leg["end_lng"]))
+            # The route lines are for the map, not the model: hundreds of numbers would only cost time.
+            result = {**result, **{key: [{k: v for k, v in leg.items() if k not in ("path", "end_lat", "end_lng")} for leg in result.get(key, [])]
+                                   for key in ("drive_days", "drive_days_home")}}
         return result
 
     def find_airports(near: str) -> dict:

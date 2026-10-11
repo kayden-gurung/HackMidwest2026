@@ -208,10 +208,10 @@ test("car mode is sent with each message, takes flights off the plan, and accept
 
   travelModeStore.set(tripId, { carMode: true });
   assert.deepEqual(itineraryStore.get(tripId)!.items.map((item) => item.id), ["d"]);
-  travelModeStore.set(tripId, { maxMilesPerDay: 300 });
   await chatService.sendMessage(tripId, "Drive instead");
   assert.equal(requests[1].car_mode, true);
-  assert.equal(requests[1].max_drive_miles_per_day, 300);
+  // No daily mileage limit is sent: the backend keeps each driving day to a comfortable length.
+  assert.equal(requests[1].max_drive_miles_per_day, undefined);
   assert.equal(travelModeStore.get("another-trip").carMode, false);
 
   assert.doesNotThrow(() => validateItinerary(itineraryStore.snapshot(tripId)));
@@ -269,10 +269,10 @@ test("the Plane / Road toggle is sent with each message, and links say what they
   await chatService.sendMessage("toggle-trip", "Plan it");
   assert.equal(sent[0].travel_mode, "plane");
   assert.equal(sent[0].car_mode, false);
-  travelModeStore.set("toggle-trip", { carMode: true, maxMilesPerDay: 300 });
+  travelModeStore.set("toggle-trip", { carMode: true });
   await chatService.sendMessage("toggle-trip", "Now by road");
   assert.equal(sent[1].travel_mode, "road");
-  assert.equal(sent[1].max_drive_miles_per_day, 300);
+  assert.equal(sent[1].max_drive_miles_per_day, undefined);
 
   const base = { id: "x", date: "2026-10-17", title: "x", costUsd: null } as const;
   assert.equal(websiteLabel({ ...base, category: "Flights", websiteUrl: "https://www.google.com/travel/flights?q=Flights" }), "Find tickets");
@@ -299,5 +299,17 @@ test("New journey says how the traveler gets there in Roam's first message", () 
   const base = { prompt: "Denver", vibes: [], budgetUsd: 1500, dates: null, origin: "Kansas City, MO", adults: 2, children: 0 };
   assert.match(describeJourney(base), /Getting there: by plane\.$/);
   assert.match(describeJourney({ ...base, travelBy: "plane" }), /Getting there: by plane\.$/);
-  assert.match(describeJourney({ ...base, travelBy: "road", maxMilesPerDay: 300 }), /Getting there: by road in our own car, at most 300 miles of driving per day\.$/);
+  assert.match(describeJourney({ ...base, travelBy: "road" }), /Getting there: by road in our own car\.$/);
+});
+
+test("driving legs keep their road route for the map; malformed routes are rejected", () => {
+  const plan = (route: unknown) => ({
+    startDate: "2026-10-17", endDate: "2026-10-18", budget: { plannedUsd: 500 },
+    items: [{ id: "d", date: "2026-10-17", title: "Drive Kansas City → Salina", category: "Driving", costUsd: 40,
+      location: { name: "Salina, Kansas", lat: 38.84, lng: -97.61 }, route }],
+  });
+  const ok = validateItinerary(plan([[39.1, -94.58], [38.9, -96.2], [38.84, -97.61]]));
+  assert.equal(ok.items[0].route!.length, 3);
+  assert.throws(() => validateItinerary(plan([[39.1]])));
+  assert.throws(() => validateItinerary(plan([[200, 0], [0, 0]])));
 });

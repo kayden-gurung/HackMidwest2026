@@ -33,7 +33,20 @@ def build_model() -> BedrockModel:
             retries={"mode": "standard", "total_max_attempts": 2},
         ),
         temperature=_temperature(),
+        # A full itinerary is a long update_itinerary call. Without a limit Bedrock uses the model's
+        # small default, and a long plan gets cut off mid-call, which fails the whole request.
+        max_tokens=_max_tokens(),
     )
+
+
+DEFAULT_MAX_TOKENS = 16_000
+
+
+def _max_tokens() -> int:
+    try:
+        return max(1_000, min(int(os.getenv("MODEL_MAX_TOKENS", "")), 64_000))
+    except ValueError:
+        return DEFAULT_MAX_TOKENS
 
 
 def build_agent(messages: list | None = None, extra_tools: list | None = None, travel_tools: list | None = None) -> Agent:

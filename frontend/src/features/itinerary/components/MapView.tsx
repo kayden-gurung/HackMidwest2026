@@ -100,6 +100,14 @@ export function MapView({
     });
     L.polyline(points, { color: "#173b3a", weight: 2, opacity: 0.55, dashArray: "4 6" }).addTo(map);
 
+    // Driving legs: the real road route, drawn over the dashed stop-to-stop line.
+    const routes = ordered.filter((item) => item.route && item.route.length > 1).map((item) =>
+      L.polyline(item.route!.map(([lat, lng]) => L.latLng(lat, lng)), { color: categoryStyle.Driving.markerColor, weight: 4, opacity: 0.85 })
+        .bindTooltip(item.title, { sticky: true })
+        .on("click", () => onFocusRef.current(item.id))
+        .addTo(map),
+    );
+
     const markers = markersRef.current;
     mapped.forEach((item, index) => {
       const marker = L.marker(points[index], { icon: markerIcon(item, index + 1, false), title: item.title, keyboard: true })
@@ -109,7 +117,9 @@ export function MapView({
       markers.set(item.id, marker);
     });
 
-    map.fitBounds(L.latLngBounds(points), { padding: [28, 28], maxZoom: 14 });
+    const bounds = L.latLngBounds(points);
+    routes.forEach((line) => bounds.extend(line.getBounds()));
+    map.fitBounds(bounds, { padding: [28, 28], maxZoom: 14 });
     mapRef.current = map;
 
     return () => {
@@ -117,7 +127,7 @@ export function MapView({
       mapRef.current = null;
       markers.clear();
     };
-  }, [mapped]);
+  }, [mapped, ordered]);
 
   // Move to the selected stop, enlarge its marker and open its popup.
   useEffect(() => {
