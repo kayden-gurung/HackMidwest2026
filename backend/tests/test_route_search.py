@@ -1,7 +1,10 @@
 """Route search and the first plan, on a small fake Kansas City -> Denver world. No network."""
 
+import json
 import math
 import re
+import threading
+import time
 from datetime import date
 
 import httpx
@@ -381,3 +384,54 @@ def test_overpass_gives_up_within_its_time_budget(monkeypatch):
     with pytest.raises(places.PlacesUnavailable):
         places.overpass("q", timeout_s=20, budget_s=20)
     assert tried == ["overpass-api.de"]  # the backup server was not tried with under 3 s left
+
+
+TIMED_OUT = {"elements": [{"type": "node", "id": 1}],
+             "remark": 'runtime error: Query timed out in "query" at line 1 after 26 seconds.'}
+
+
+def test_an_overpass_answer_that_ran_out_of_time_is_never_trusted_or_saved(tmp_path, monkeypatch):
+    tried = []
+
+    def handler(request):
+        tried.append(request.url.host)
+        if request.url.host == "overpass-api.de":
+            return httpx.Response(200, json=TIMED_OUT)  # "OK", but cut short
+        return httpx.Response(200, json={"elements": [{"type": "node", "id": 2}]})
+
+    monkeypatch.setattr(places, "_client", httpx.Client(transport=places.DiskCacheTransport(httpx.MockTransport(handler), tmp_path)))
+    assert places.overpass("q") == [{"type": "node", "id": 2}]  # the backup server's full answer
+    assert tried == ["overpass-api.de", "overpass.kumi.systems"]
+    saved = [p.read_text() for p in tmp_path.rglob("*.json")]
+    assert len(saved) == 1 and "timed out" not in saved[0]
+    # An incomplete answer saved by an older version is not reused either.
+    assert places.overpass_failed(json.dumps(TIMED_OUT))
+    assert not places.overpass_failed(json.dumps({"elements": [], "remark": "note: fine"}))
+
+
+def test_background_warming_waits_while_a_traveler_is_searching(monkeypatch):
+    order = []
+    monkeypatch.setattr(places, "_client", httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json={"elements": []}))))
+    real_post = places._client.post
+
+    def post(*args, **kwargs):
+        order.append(threading.current_thread().name)
+        return real_post(*args, **kwargs)
+
+    monkeypatch.setattr(places._client, "post", post)
+    background = threading.Thread(target=lambda: places.overpass("q"), name=places.BACKGROUND_THREAD_PREFIX)
+    with places.foreground():
+        background.start()
+        time.sleep(0.8)
+        assert order == []  # still waiting
+        places.overpass("q")  # the traveler's own search goes straight through
+    background.join(timeout=5)
+    assert order == ["MainThread", places.BACKGROUND_THREAD_PREFIX]
+
+
+def test_route_search_leaves_out_the_start_and_end_cities(world):
+    stops_for(["History"])
+    boxes = [tuple(map(float, b)) for b in re.findall(r'\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\);', world["queries"][0])]
+    # No box covers downtown Kansas City or Denver.
+    assert boxes and not any(s <= lat <= n and w <= lng <= e for s, w, n, e in boxes for lat, lng in (KC, DENVER))

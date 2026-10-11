@@ -6,7 +6,7 @@ real plan straight away and offer swaps (other towns, attractions, restaurants) 
 
 from fastapi import APIRouter, HTTPException, Query
 
-from tools.places import Place, PlacesUnavailable
+from tools.places import Place, PlacesUnavailable, foreground
 from tools.route_search import RouteOption, RouteStop, find_attractions, find_restaurants, route_options, towns_along_route
 from trip_planner import TripPlan, TripRequest, build_first_plan
 
@@ -20,7 +20,8 @@ def _unavailable(error: PlacesUnavailable) -> HTTPException:
 @router.post("/plan", response_model=TripPlan)
 def plan(body: TripRequest):
     try:
-        result = build_first_plan(body)
+        with foreground():  # background warming waits for this
+            result = build_first_plan(body)
     except PlacesUnavailable as error:
         raise _unavailable(error) from error
     if result is None:
@@ -31,7 +32,8 @@ def plan(body: TripRequest):
 @router.get("/routes", response_model=list[RouteOption])
 def routes(origin: str = Query(min_length=2, max_length=120), destination: str = Query(min_length=2, max_length=120)):
     try:
-        return route_options(origin, destination)
+        with foreground():  # background warming waits for this
+            return route_options(origin, destination)
     except PlacesUnavailable as error:
         raise _unavailable(error) from error
 
@@ -47,7 +49,8 @@ def towns(
     limit: int = Query(default=8, ge=1, le=25),
 ):
     try:
-        return towns_along_route(origin, destination, interests, route_index, exclude, max_detour_minutes, limit)
+        with foreground():  # background warming waits for this
+            return towns_along_route(origin, destination, interests, route_index, exclude, max_detour_minutes, limit)
     except PlacesUnavailable as error:
         raise _unavailable(error) from error
 
@@ -56,7 +59,8 @@ def towns(
 def attractions(near: str = Query(min_length=2, max_length=120), interests: list[str] = Query(default=[]),
                 exclude: list[str] = Query(default=[], max_length=50), limit: int = Query(default=8, ge=1, le=25)):
     try:
-        return find_attractions(near, interests, exclude, limit=limit)
+        with foreground():  # background warming waits for this
+            return find_attractions(near, interests, exclude, limit=limit)
     except PlacesUnavailable as error:
         raise _unavailable(error) from error
 
@@ -65,6 +69,7 @@ def attractions(near: str = Query(min_length=2, max_length=120), interests: list
 def restaurants(near: str = Query(min_length=2, max_length=120), keyword: str | None = Query(default=None, max_length=60),
                 exclude: list[str] = Query(default=[], max_length=50), limit: int = Query(default=8, ge=1, le=25)):
     try:
-        return find_restaurants(near, keyword, exclude, limit=limit)
+        with foreground():  # background warming waits for this
+            return find_restaurants(near, keyword, exclude, limit=limit)
     except PlacesUnavailable as error:
         raise _unavailable(error) from error

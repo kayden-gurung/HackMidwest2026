@@ -16,17 +16,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel
+
+log = logging.getLogger("roam.places")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Tried in order, so a busy or unreachable server falls through to the next.
@@ -95,6 +99,14 @@ class Place(BaseModel):
     source_urls: list[str]
 
 
+def overpass_failed(body: str | bytes) -> bool:
+    """Overpass answers 200 even when it ran out of time or memory, with a "remark" saying so and the
+    elements cut short. Such an answer is incomplete: never trust it, never save it."""
+    text = body.decode("utf-8", "replace") if isinstance(body, bytes) else body
+    head = text[:300] + text[-600:]  # the remark sits near the start or the end
+    return '"remark"' in head and ("runtime error" in head or "timed out" in head or "out of memory" in head)
+
+
 class DiskCacheTransport(httpx.BaseTransport):
     """Keeps successful map-service answers on disk, so a route planned once is instant afterwards,
     even after a restart, and works on bad venue wifi. OpenStreetMap data changes slowly; delete
@@ -123,6 +135,8 @@ class DiskCacheTransport(httpx.BaseTransport):
         path = self._path(request)
         try:
             saved = json.loads(path.read_text(encoding="utf-8"))
+            if overpass_failed(saved["body"]):
+                raise ValueError("saved before this check: an incomplete answer")
             return httpx.Response(saved["status"], headers={"content-type": saved["type"], "x-roam-cache": "hit"},
                                   content=saved["body"].encode("utf-8"), request=request)
         except (OSError, ValueError, KeyError):
@@ -131,6 +145,8 @@ class DiskCacheTransport(httpx.BaseTransport):
         if response.status_code != 200:
             return response
         body = response.read()
+        if overpass_failed(body):
+            return httpx.Response(200, headers=response.headers, content=body, request=request)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_suffix(".tmp")
@@ -416,23 +432,79 @@ def _nominatim_elements(category: str, origin: GeoPoint, radius_m: int, keyword:
     return elements
 
 
+# Overpass allows about two requests at a time per visitor; more get "429 Too Many Requests".
+# Everything in this backend shares these two slots. Background work (warm.py, threads named
+# "roam-warm...") only ever takes one, and waits while a traveler's request is running.
+_overpass_slots = threading.BoundedSemaphore(2)
+_background_slot = threading.BoundedSemaphore(1)
+_foreground_lock = threading.Lock()
+_foreground_requests = 0
+BACKGROUND_THREAD_PREFIX = "roam-warm"
+
+
+@contextmanager
+def foreground():
+    """Marks a traveler's request: background warming pauses its map searches until it is done."""
+    global _foreground_requests
+    with _foreground_lock:
+        _foreground_requests += 1
+    try:
+        yield
+    finally:
+        with _foreground_lock:
+            _foreground_requests -= 1
+
+
+def traveler_waiting() -> bool:
+    return _foreground_requests > 0
+
+
+def _in_background() -> bool:
+    return threading.current_thread().name.startswith(BACKGROUND_THREAD_PREFIX)
+
+
+@contextmanager
+def _overpass_slot():
+    if not _in_background():
+        with _overpass_slots:
+            yield
+        return
+    with _background_slot:
+        while True:
+            while traveler_waiting():
+                time.sleep(0.5)
+            if _overpass_slots.acquire(timeout=0.5):
+                break
+        try:
+            yield
+        finally:
+            _overpass_slots.release()
+
+
 def overpass(query: str, timeout_s: float = SEARCH_TIMEOUT_S, budget_s: float | None = None) -> list[dict]:
     """Runs an Overpass query on the first server that answers. Raises PlacesUnavailable when none does.
 
     `budget_s` caps the total wait across servers: the backup server only gets the time that is left.
+    An answer that says the server ran out of time counts as no answer.
     """
     started = time.monotonic()
-    for url in OVERPASS_URLS:
-        remaining = timeout_s if budget_s is None else min(timeout_s, budget_s - (time.monotonic() - started))
-        if remaining < 3:
-            break
-        try:
-            response = _http().post(url, data={"data": query}, timeout=remaining)
-            response.raise_for_status()
-            elements = response.json().get("elements", [])
-            return elements if isinstance(elements, list) else []
-        except (httpx.HTTPError, ValueError, AttributeError):
-            continue
+    with _overpass_slot():
+        for url in OVERPASS_URLS:
+            remaining = timeout_s if budget_s is None else min(timeout_s, budget_s - (time.monotonic() - started))
+            if remaining < 3:
+                break
+            try:
+                response = _http().post(url, data={"data": query}, timeout=remaining)
+                response.raise_for_status()
+                if overpass_failed(response.content):
+                    log.warning("Overpass %s ran out of time on this query after %.1f s", urlsplit(url).hostname, time.monotonic() - started)
+                    continue
+                elements = response.json().get("elements", [])
+                return elements if isinstance(elements, list) else []
+            except (httpx.HTTPError, ValueError, AttributeError) as error:
+                log.warning("Overpass %s failed after %.1f s: %s", urlsplit(url).hostname, time.monotonic() - started,
+                            getattr(getattr(error, "response", None), "status_code", None) or type(error).__name__)
+                continue
     raise PlacesUnavailable("The place search service is not responding. Try again in a moment.")
 
 

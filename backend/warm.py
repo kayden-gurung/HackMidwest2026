@@ -48,6 +48,9 @@ def demo_routes() -> list[tuple[str, str]]:
 
 def warm(routes: list[tuple[str, str]] | None = None) -> None:
     for start, destination in routes if routes is not None else demo_routes():
+        # A traveler's request comes first: wait until it is done.
+        while places.traveler_waiting():
+            time.sleep(1)
         began = time.monotonic()
         try:
             plan = build_first_plan(TripRequest(start=start, destination=destination, **DEFAULT_SETTINGS))
@@ -68,7 +71,8 @@ def start_warming() -> None:
     """Warm the demo routes in a background thread, unless turned off or under the tests."""
     if "pytest" in sys.modules or not demo_routes():
         return
-    threading.Thread(target=warm, name="roam-warm", daemon=True).start()
+    # The name marks its map searches as background work (tools/places.py _overpass_slot).
+    threading.Thread(target=warm, name=places.BACKGROUND_THREAD_PREFIX, daemon=True).start()
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -76,9 +77,9 @@ PATH_STEP_M = 2_000
 BOX_LENGTH_M = 60_000
 # Boxes per Overpass request (about 1,500 km). Longer drives send a few requests at the same time.
 BOXES_PER_REQUEST = 25
-OVERPASS_TIMEOUT_S = 20.0
+OVERPASS_TIMEOUT_S = 28.0
 # Give up on the search (and plan without stops) after this long, whichever servers were tried.
-OVERPASS_BUDGET_S = 25.0
+OVERPASS_BUDGET_S = 30.0
 MAX_ELEMENTS = 6000
 # Candidates whose detour is measured (one OSRM table request). The public demo server allows 100 points.
 MAX_DETOUR_CHECKS = 25
@@ -257,7 +258,7 @@ def _route_query(boxes: list[tuple[float, float, float, float]], with_food: list
         statements.append(f'node["place"~"^(town|village)$"]["name"]{bbox};')
         statements += [f'nwr{f}["name"]{bbox};' for f in filters if f != food or food_here]
     return (
-        f"[out:json][timeout:{int(OVERPASS_TIMEOUT_S) - 2}];({''.join(statements)})->.found;"
+        f"[out:json][timeout:{int(OVERPASS_TIMEOUT_S) - 3}];({''.join(statements)})->.found;"
         # Nodes with their coordinates; ways and relations with tags and a centre point only (no
         # member lists), which keeps the answer small. "out tags" alone would drop node coordinates.
         f"node.found out qt {MAX_ELEMENTS};(way.found;relation.found;);out tags center qt {MAX_ELEMENTS};"
@@ -373,8 +374,17 @@ def search_route(coordinates: list) -> RoutePlaces:
     """
     points = _simplify(coordinates)
     cumulative = _cumulative(points)
-    boxes = _boxes(points, cumulative)
     start, end = points[0], points[-1]
+    # The first and last ENDPOINT_GAP_M are the start and end cities, whose places are skipped anyway.
+    # They are also the densest map data on the route, so leaving them out of the boxes makes the
+    # search much lighter for Overpass.
+    if cumulative[-1] > 2 * ENDPOINT_GAP_M + BOX_LENGTH_M / 2:
+        first = _index_at(cumulative, ENDPOINT_GAP_M - TOWN_CORRIDOR_M)
+        last = _index_at(cumulative, cumulative[-1] - ENDPOINT_GAP_M + TOWN_CORRIDOR_M)
+        inner, inner_cumulative = points[first:last + 1], [c - cumulative[first] for c in cumulative[first:last + 1]]
+    else:
+        inner, inner_cumulative = points, cumulative
+    boxes = _boxes(inner, inner_cumulative)
     # Restaurants near the start and end cities would swamp the answer, and are not "on the way".
     with_food = [all(_distance_m((s + n) / 2, (w + e) / 2, *p) > ENDPOINT_GAP_M + BOX_LENGTH_M / 2 for p in (start, end))
                  for s, w, n, e in boxes]
@@ -388,7 +398,8 @@ def search_route(coordinates: list) -> RoutePlaces:
         except places.PlacesUnavailable:
             return None
 
-    with ThreadPoolExecutor(max_workers=2) as pool:  # Overpass allows a couple of requests per visitor
+    # Named after the calling thread, so background warming stays recognisable (places._overpass_slot).
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix=f"{threading.current_thread().name}-search") as pool:
         results = list(pool.map(run, groups))
     if all(result is None for result in results):
         raise places.PlacesUnavailable("The place search service is not responding. Try again in a moment.")

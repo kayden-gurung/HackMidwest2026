@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
@@ -261,7 +262,7 @@ def build_first_plan(request: TripRequest) -> TripPlan | None:
     picks: dict[str, dict] = {}
     if request.include_places:
         # The two map searches run at the same time: stops along the route, and beds and meals.
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix=f"{threading.current_thread().name}-plan") as pool:
             route_search = pool.submit(search_route, coordinates)
             anchor_search = pool.submit(_anchor_places, _anchors(estimate, destination))
             try:
