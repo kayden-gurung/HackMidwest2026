@@ -2,7 +2,20 @@ import { parseIsoDate } from "../../../lib/format";
 import type { BudgetCategory, Itinerary, ItineraryItem } from "../types";
 
 /** The Budget sections, in the order they are shown. */
-export const budgetCategories: BudgetCategory[] = ["Flights", "Stays", "Food", "Activities"];
+export const budgetCategories: BudgetCategory[] = ["Flights", "Driving", "Stays", "Food", "Activities"];
+
+/**
+ * The Budget sections to show for these items. A trip is usually either flown or driven, so an empty
+ * "Driving" section is hidden, and an empty "Flights" section is hidden on a trip that has driving costs.
+ */
+export function visibleBudgetCategories(items: ItineraryItem[]): BudgetCategory[] {
+  const has = (category: BudgetCategory) => items.some((item) => item.category === category);
+  return budgetCategories.filter((category) => {
+    if (category === "Driving") return has("Driving");
+    if (category === "Flights") return has("Flights") || !has("Driving");
+    return true;
+  });
+}
 
 function toIsoDate(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -56,12 +69,21 @@ export function hasCoordinates(item: ItineraryItem): item is ItineraryItem & { l
   return Number.isFinite(item.location?.lat) && Number.isFinite(item.location?.lng);
 }
 
-/** Opens the place in Google Maps. Searches by name and address when known, since that finds the real listing. */
+/**
+ * Opens the place in Google Maps.
+ * - Name + address when there is an address: finds the real listing.
+ * - Otherwise the exact coordinates: a name alone ("Blue Plate") makes Google guess, and it
+ *   usually lands on the town center or near wherever the viewer is.
+ * - Name only as a last resort.
+ */
 export function googleMapsUrl(item: ItineraryItem): string | undefined {
   const { location } = item;
   if (!location) return undefined;
-  const text = [location.name, location.address].filter(Boolean).join(", ");
-  const query = text || (hasCoordinates(item) ? `${location.lat},${location.lng}` : "");
+  const query = location.address
+    ? [location.name, location.address].filter(Boolean).join(", ")
+    : hasCoordinates(item)
+      ? `${location.lat},${location.lng}`
+      : location.name;
   return query ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}` : undefined;
 }
 

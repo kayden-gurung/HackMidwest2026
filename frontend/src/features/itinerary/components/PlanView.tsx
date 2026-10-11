@@ -48,7 +48,10 @@ export function PlanView({
 
   const nights = nightsBetween(itinerary.startDate, itinerary.endDate);
   const { spentUsd, remainingUsd, percentUsed, unknownCosts } = budgetTotals(itinerary);
+  // The budget card names the travel cost: flights, or driving on a road trip.
   const flightsUsd = totalCost(itinerary.items.filter((item) => item.category === "Flights"));
+  const drivingUsd = totalCost(itinerary.items.filter((item) => item.category === "Driving"));
+  const travelLabel = flightsUsd > 0 ? `Flights ${formatUsd(flightsUsd)}` : drivingUsd > 0 ? `Driving ${formatUsd(drivingUsd)}` : "";
   const visibleDates = showAllDays ? dates : dates.slice(0, COLLAPSED_DAY_COUNT);
 
   const toggleDay = (date: string) => setOpenDates((current) => (current.includes(date) ? current.filter((item) => item !== date) : [...current, date]));
@@ -121,7 +124,7 @@ export function PlanView({
       <Action onClick={onOpenBudget} label="Open the budget breakdown" className="mt-7 block rounded-2xl bg-deep p-4 text-white">
         <div className="flex items-center justify-between text-xs"><span className="font-bold uppercase tracking-widest text-white/60">Estimated cost</span><span className="font-bold">{formatUsd(spentUsd)}{itinerary.budget.plannedUsd != null && ` / ${formatUsd(itinerary.budget.plannedUsd)}`}</span></div>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15"><div className={`h-full rounded-full ${remainingUsd != null && remainingUsd < 0 ? "bg-coral" : "bg-sun"}`} style={{ width: `${Math.min(percentUsed, 100)}%` }} /></div>
-        <div className="mt-3 flex justify-between text-[11px] text-white/60"><span>{flightsUsd > 0 && `Flights ${formatUsd(flightsUsd)}`}</span><span>{remainingUsd == null ? "Budget not set" : remainingUsd >= 0 ? `${formatUsd(remainingUsd)} left` : `${formatUsd(-remainingUsd)} over`}</span></div>
+        <div className="mt-3 flex justify-between text-[11px] text-white/60"><span>{travelLabel}</span><span>{remainingUsd == null ? "Budget not set" : remainingUsd >= 0 ? `${formatUsd(remainingUsd)} left` : `${formatUsd(-remainingUsd)} over`}</span></div>
         {unknownCosts > 0 && <div className="mt-2 text-[11px] text-white/70">{unknownCosts} {unknownCosts === 1 ? "cost" : "costs"} still TBD; excluded from total.</div>}
       </Action>
     </>

@@ -1,10 +1,11 @@
 import { config } from "../../../config/env";
-import { api } from "../../../lib/apiClient";
+import { api, ApiError } from "../../../lib/apiClient";
 import { createId, mockResponse } from "../../../lib/mock";
 import type { AskRequest, AskResponse, AssistantMessage, ChatMessage, TravelPreferences } from "../types";
 import { conversationStore } from "./conversationStore";
 import { mockReply } from "./mockData";
 import { itineraryStore, validateItinerary } from "../../itinerary/api/itineraryStore";
+import { travelModeStore } from "../../trips/api/travelModeStore";
 
 export interface ChatService {
   /** Earlier messages for a trip. */
@@ -51,11 +52,50 @@ function historyFor(tripId: string): NonNullable<AskRequest["history"]> {
 }
 
 const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) => {
-  const body: AskRequest = { prompt, history: historyFor(tripId), mode, preferences: preferences && toRequestPreferences(preferences), current_itinerary: itineraryStore.snapshot(tripId) };
+  const { carMode, maxMilesPerDay } = travelModeStore.get(tripId);
+  const body: AskRequest = {
+    prompt,
+    history: historyFor(tripId),
+    mode,
+    preferences: preferences && toRequestPreferences(preferences),
+    current_itinerary: itineraryStore.snapshot(tripId),
+    car_mode: carMode,
+    max_drive_miles_per_day: carMode ? maxMilesPerDay : undefined,
+  };
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 180000);
   try {
-    const { reply, itinerary } = await api.post<AskResponse>("/api/ask", body, controller.signal);
+    // Streamed so the reply appears as it is written and the panel can say which tool Roam is using.
+    let streamed = "";
+    let afterTool = false;
+    let reply: unknown;
+    let itinerary: AskResponse["itinerary"] | undefined;
+    let failure: ApiError | undefined;
+    const json = await api.postEvents<AskResponse>(
+      "/api/ask/stream",
+      body,
+      (event) => {
+        if (typeof event.text === "string") {
+          // Keep text written before and after a tool call from running together.
+          streamed += (afterTool && streamed ? "\n\n" : "") + event.text;
+          afterTool = false;
+          conversationStore.setDraft(tripId, { text: streamed });
+        } else if (typeof event.tool === "string") {
+          afterTool = true;
+          conversationStore.setDraft(tripId, { text: streamed, tool: event.tool });
+        } else if (typeof event.reply === "string") {
+          reply = event.reply;
+        } else if (event.itinerary) {
+          itinerary = event.itinerary as AskResponse["itinerary"];
+        } else if (typeof event.error === "string") {
+          failure = new ApiError(event.error, typeof event.status === "number" ? event.status : 500);
+        }
+      },
+      controller.signal,
+    );
+    // A plain JSON answer (older backend) carries the same fields as the final stream events.
+    if (json) ({ reply, itinerary } = json);
+    if (failure) throw failure;
     if (typeof reply !== "string" || !reply.trim()) throw new Error("Roam returned an empty reply. Please try again.");
     return { id: createId(), role: "assistant", text: reply, itinerary: itinerary == null ? undefined : validateItinerary(itinerary) };
   } catch (error) {

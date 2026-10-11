@@ -68,6 +68,10 @@ export interface AskRequest {
   history?: { role: "user" | "assistant"; content: string }[];
   mode?: "Hands-on" | "Co-pilot" | "Surprise me";
   current_itinerary?: ItinerarySnapshot;
+  /** Car mode from the trip header: the backend plans by car and removes every flight. */
+  car_mode?: boolean;
+  /** Car mode only: most miles to drive in one day (50–1500). */
+  max_drive_miles_per_day?: number;
   preferences?: {
     interests: string[];
     pace?: string;

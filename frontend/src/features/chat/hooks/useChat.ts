@@ -10,6 +10,8 @@ export function useChat(tripId: string, preferences?: TravelPreferences, mode?: 
   const messages = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getMessages(tripId));
   const sendStatus = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getStatus(tripId));
   const error = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getError(tripId));
+  // The reply while it streams in, if one is on its way.
+  const draft = useSyncExternalStore(conversationStore.subscribe, () => conversationStore.getDraft(tripId));
 
   const send = useCallback(
     (text: string) => {
@@ -22,5 +24,5 @@ export function useChat(tripId: string, preferences?: TravelPreferences, mode?: 
   );
 
   const retry = useCallback(() => { chatService.retryMessage(tripId, preferences, mode).catch(() => undefined); }, [tripId, preferences, mode]);
-  return { messages, sendStatus, error, send, retry };
+  return { messages, sendStatus, error, draft, send, retry };
 }

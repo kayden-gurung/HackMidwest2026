@@ -16,7 +16,8 @@ export interface ItineraryDay {
   accent?: DayAccent;
 }
 
-export type BudgetCategory = "Flights" | "Stays" | "Food" | "Activities";
+/** "Driving" covers fuel, car hire, tolls and parking on a road trip. */
+export type BudgetCategory = "Flights" | "Driving" | "Stays" | "Food" | "Activities";
 
 export interface ItemLocation {
   /** What to search for in Google Maps, e.g. "Grotta Palazzese". */

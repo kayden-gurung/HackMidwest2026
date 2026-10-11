@@ -41,7 +41,7 @@ export interface PlanRequestDates {
   budget_usd: number;
 }
 
-const categories: BudgetCategory[] = ["Flights", "Stays", "Food", "Activities"];
+const categories: BudgetCategory[] = ["Flights", "Driving", "Stays", "Food", "Activities"];
 
 export function itineraryFromPlan(tripId: string, request: PlanRequestDates, plan: PlanResponse): Itinerary {
   const items: ItineraryItem[] = plan.activities.map((activity, index) => ({

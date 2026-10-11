@@ -5,10 +5,11 @@ import { conversationStore } from "../src/features/chat/api/conversationStore";
 import { localTripsService } from "../src/features/trips/api/tripsService";
 import { describeJourney } from "../src/features/journey/describeJourney";
 import { itineraryStore, validateItinerary } from "../src/features/itinerary/api/itineraryStore";
-import { budgetTotals, hasCoordinates, itemCostLabel } from "../src/features/itinerary/lib/itinerary";
+import { budgetTotals, googleMapsUrl, hasCoordinates, itemCostLabel } from "../src/features/itinerary/lib/itinerary";
 import type { ItinerarySnapshot } from "../src/features/itinerary/types";
 import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
 import { postcardFromItinerary } from "../src/features/chat/lib/tripPostcard";
+import { travelModeStore } from "../src/features/trips/api/travelModeStore";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
 globalThis.window = globalThis as unknown as Window & typeof globalThis;
@@ -180,4 +181,73 @@ test("live postcards use each journey's metadata and keep unknown estimates sepa
   assert.equal(postcardFromItinerary(free)!.unknownCosts, 0);
   assert.equal(postcardFromItinerary({ ...plan, items: [] }), undefined);
   assert.throws(() => validateItinerary({ ...plan, overview: { destination: "" } }), /invalid plan/);
+});
+
+test("car mode is sent with each message, takes flights off the plan, and accepts Driving stops", async () => {
+  const requests: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ reply: "ok" }), { status: 200 });
+  });
+  const tripId = "car-trip";
+  itineraryStore.set(tripId, {
+    startDate: "2026-10-17", endDate: "2026-10-18", budget: { plannedUsd: 900 }, assumptions: [],
+    items: [
+      { id: "f", date: "2026-10-17", title: "Flight MCI to DEN", category: "Flights", costUsd: 400 },
+      { id: "d", date: "2026-10-17", title: "Drive to Salina", category: "Driving", costUsd: 40 },
+    ],
+  });
+
+  await chatService.sendMessage(tripId, "Plan Denver");
+  assert.equal(requests[0].car_mode, false);
+  assert.equal(requests[0].max_drive_miles_per_day, undefined);
+
+  travelModeStore.set(tripId, { carMode: true });
+  assert.deepEqual(itineraryStore.get(tripId)!.items.map((item) => item.id), ["d"]);
+  travelModeStore.set(tripId, { maxMilesPerDay: 300 });
+  await chatService.sendMessage(tripId, "Drive instead");
+  assert.equal(requests[1].car_mode, true);
+  assert.equal(requests[1].max_drive_miles_per_day, 300);
+  assert.equal(travelModeStore.get("another-trip").carMode, false);
+
+  assert.doesNotThrow(() => validateItinerary(itineraryStore.snapshot(tripId)));
+});
+
+test("Google Maps links use the address, else exact coordinates, never a bare name when a pin is known", () => {
+  const base = { id: "x", date: "2026-10-17", title: "Dinner", category: "Food" as const, costUsd: 20 };
+  const query = (url?: string) => decodeURIComponent(new URL(url!).searchParams.get("query")!);
+  assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate", address: "Main St 1, Kansas City" } })), "Blue Plate, Main St 1, Kansas City");
+  assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate", lat: 39.05, lng: -94.59 } })), "39.05,-94.59");
+  assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate" } })), "Blue Plate");
+  assert.equal(googleMapsUrl(base), undefined);
+});
+
+test("streamed replies show the draft and tool while writing, then save the final reply", async () => {
+  const events = [{ text: "Let me check " }, { text: "real places." }, { tool: "find_places" }, { text: "Here is your plan." }, { reply: "Here is your plan." }, { done: true }];
+  const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+  // Split mid-event so the client has to stitch chunks back together.
+  const chunks = [body.slice(0, 7), body.slice(7, 40), body.slice(40)];
+  const drafts: (ReturnType<typeof conversationStore.getDraft>)[] = [];
+  const unsubscribe = conversationStore.subscribe(() => drafts.push(conversationStore.getDraft("stream-trip")));
+  let url = "";
+  mock.method(globalThis, "fetch", async (requestUrl: string) => {
+    url = requestUrl;
+    const stream = new ReadableStream({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close(); } });
+    return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
+  });
+  const reply = await chatService.sendMessage("stream-trip", "Weekend in KC");
+  unsubscribe();
+  assert.match(url, /\/api\/ask\/stream$/);
+  assert.equal(reply.text, "Here is your plan.");
+  assert.ok(drafts.some((draft) => draft?.text === "Let me check real places." && draft.tool === undefined));
+  assert.ok(drafts.some((draft) => draft?.tool === "find_places"));
+  assert.ok(drafts.some((draft) => draft?.text === "Let me check real places.\n\nHere is your plan."));
+  assert.equal(conversationStore.getDraft("stream-trip"), undefined);
+  assert.equal(conversationStore.getMessages("stream-trip").at(-1)?.text, "Here is your plan.");
+});
+
+test("an error event in the stream is shown like any other backend error", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(`data: ${JSON.stringify({ error: "Bedrock throttled the request.", status: 429 })}\n\ndata: {"done": true}\n\n`, { headers: { "Content-Type": "text/event-stream" } }));
+  await assert.rejects(chatService.sendMessage("stream-error-trip", "Hi"), /Bedrock throttled/);
+  assert.equal(conversationStore.getError("stream-error-trip"), "Bedrock throttled the request.");
 });
