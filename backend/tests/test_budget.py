@@ -4,6 +4,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from budget import analyze_budget
 from itinerary import ItinerarySnapshot, ItineraryUpdates
 from main import app
 from routers import ask
@@ -35,9 +36,21 @@ def test_under_equal_and_unlimited_budgets(budget, status, remaining):
 
 
 def test_unknown_costs_are_not_free_or_a_promise_of_affordability():
-    result = ItineraryUpdates().check_budget(itinerary=draft((None, 50, 0)))
+    # The budget maths itself never counts a missing price as free.
+    result = analyze_budget(ItinerarySnapshot.model_validate(draft((None, 50, 0))))
     assert result["estimated_total_usd"] == 50 and result["budget_status"] == "incomplete"
     assert result["within_budget"] is None and result["unknown_costs"] == [{"id": "0", "title": "Hotel"}]
+
+
+def test_missing_prices_get_a_labelled_estimate_before_the_budget_check():
+    updates = ItineraryUpdates()
+    result = updates.check_budget(itinerary=draft((None, 50, 0), budget=300))
+    # A hotel room for one traveler is estimated at $130; prices already given, including free, are kept.
+    assert result["estimated_total_usd"] == 180 and result["unknown_costs"] == []
+    assert result["budget_status"] == "under_budget" and result["within_budget"] is True
+    checked = updates.checked_draft
+    assert [item.costUsd for item in checked.items] == [130, 50, 0]
+    assert any(line.startswith("Stop, meal and stay prices are rough estimates for 1 traveler") for line in checked.assumptions)
     over = ItineraryUpdates().check_budget(itinerary=draft((None, 200, 0)))
     assert over["budget_status"] == "over_budget" and over["within_budget"] is False
 

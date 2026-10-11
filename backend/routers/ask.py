@@ -15,6 +15,7 @@ from agent_runs import AgentRun, runs
 from aws_errors import aws_error_response
 from evidence import Evidence, evidence_from_snapshot, recording_tools
 from pins import pin_stops
+from price_estimates import travelers_count
 from itinerary import ItinerarySnapshot, ItineraryUpdates
 from prompts.travel import TRIP_TYPES, car_mode_instruction, trip_types_instruction
 from schemas import Preferences, RoadTripPreferences, describe_preferences
@@ -74,6 +75,7 @@ def checked_updates(body: AskRequest) -> tuple[ItineraryUpdates, Evidence]:
         return (planner.validate(cleaned) if planner else cleaned), notes
     updates = ItineraryUpdates(check=check, check_on_budget=planner is not None)
     updates.roadtrip_planner = planner
+    updates.travelers = travelers_count(body.preferences.travelers if body.preferences else None)
     return updates, evidence
 
 

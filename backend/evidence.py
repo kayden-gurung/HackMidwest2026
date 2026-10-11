@@ -35,6 +35,8 @@ class KnownPlace:
     # From Nominatim for `locate` results: "city", "town"... or "attraction", "museum"...
     kind: str | None = None
     category: str | None = None
+    # From find_places: "museum", "motel", "cafe"... Kept apart from `kind`, which decides is_area.
+    place_kind: str | None = None
 
     @property
     def is_area(self) -> bool:
@@ -83,6 +85,7 @@ class Evidence:
                 source_urls=[str(url) for url in place.get("source_urls", [])],
                 address=place.get("address"),
                 category=place.get("category"),
+                place_kind=place.get("kind"),
             )
         except (KeyError, TypeError, ValueError):
             return

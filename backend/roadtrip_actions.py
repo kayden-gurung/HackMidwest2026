@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from strands import tool
 
 from itinerary import ItinerarySnapshot, Location, PlanBudget, PlanItem, TripOverview
+from price_estimates import estimate_assumptions, estimate_cost
 
 
 class StopChoice(BaseModel):
@@ -29,6 +30,7 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
     planner = updates.roadtrip_planner
     by_name = {item.tool_name: item for item in travel_tools}
     research_cache = {}
+    travelers = getattr(updates, "travelers", 1)
 
     def known(source_url):
         place = evidence.known_source(source_url)
@@ -38,13 +40,18 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
 
     def visit(source_url, day, time, start, stop_id):
         place = known(source_url)
+        title, category = place.name.split(", ")[0][:200], place.category or "Activities"
+        # The map has no prices: a rough estimate by kind of place, labelled as one in the assumptions.
+        cost = estimate_cost(category, getattr(place, "place_kind", None) or place.kind, title, travelers)
         return PlanItem(id=stop_id, date=start + timedelta(days=day - 1), time=time,
-                        title=place.name.split(", ")[0][:200], category=place.category or "Activities",
-                        costUsd=None, location=Location(name=place.name[:200], address=place.address,
+                        title=title, category=category,
+                        costUsd=cost, location=Location(name=place.name[:200], address=place.address,
                         lat=place.lat, lng=place.lng), websiteUrl=place.website_url,
                         sourceUrls=place.source_urls or [source_url])
 
     def stage(candidate):
+        if any(item.category != "Driving" for item in candidate.items):
+            candidate = candidate.model_copy(update={"assumptions": estimate_assumptions(candidate.assumptions, travelers)})
         result = updates.check_budget(candidate)
         return {**result, "message": "The complete route and budget are checked. Call update_itinerary with no arguments to publish or request consent."}
 
@@ -140,7 +147,7 @@ def roadtrip_actions(body, updates, evidence, travel_tools) -> list:
 
         Args:
             remove_ids: Existing non-driving stop IDs to remove; omit to keep them.
-            replacements: Existing stop_id plus a verified source_url. Keeps that ID, date and time; replaces map facts and sets unknown price to null.
+            replacements: Existing stop_id plus a verified source_url. Keeps that ID, date and time; replaces map facts and re-estimates the price.
             additions: Verified source_url plus optional day (1-based within existing dates) and HH:MM time.
         With no edits, recheck retained stops after a successful alternative-route selection.
         Submit all changes together; a retry replaces the unpublished draft, rather than accumulating edits.

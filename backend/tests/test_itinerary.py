@@ -28,7 +28,7 @@ def test_strands_tool_accepts_nested_input_and_isolates_request_state():
     events = asyncio.run(run())
     assert events[-1]["tool_result"]["status"] == "success"
     assert updates.latest.items[0].title == "Park picnic"
-    assert updates.latest.items[1].costUsd is None
+    assert updates.latest.items[1].costUsd == 120  # a stay with no price gets the default room estimate
     assert ItineraryUpdates().latest is None
 
 
@@ -82,7 +82,7 @@ def test_chat_revisions_use_current_plan_and_return_complete_snapshots(monkeypat
     monkeypatch.setattr(ask_router, "build_agent", factory)
     client = TestClient(app)
     first = client.post("/api/ask", json={"prompt": "Plan trip"}).json()
-    assert first["itinerary"]["items"][1]["costUsd"] is None
+    assert first["itinerary"]["items"][1]["costUsd"] == 120
     second = client.post("/api/ask", json={"prompt": "Change picnic", "current_itinerary": first["itinerary"]}).json()
     assert "Park picnic" in agents[-1].system_prompt
     assert second["itinerary"]["items"][0]["title"] == "Restaurant lunch"
@@ -146,9 +146,9 @@ def test_completed_tool_update_without_chat_text_still_returns_a_confirmation(mo
     monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: FakeAgent(kwargs["extra_tools"]))
     response = TestClient(app).post("/api/ask", json={"prompt": "Revise plan"})
     assert response.status_code == 200
-    assert "$30.00" in response.json()["reply"]
+    assert "$150.00" in response.json()["reply"]
     assert "$300.00 budget" in response.json()["reply"]
-    assert "unknown" in response.json()["reply"]
+    assert "unknown" not in response.json()["reply"]
     assert len(response.json()["itinerary"]["items"]) == 2
 
 
