@@ -46,7 +46,7 @@ If two features need the same data, the page passes it down as props (or you lif
 | `chat` | Conversation, composer, suggestion chips | `getConversation(tripId)` | `GET /api/trips/{id}/messages` | **local** (browser memory), endpoint proposed |
 | | | `sendMessage(tripId, prompt)` | `POST /api/ask` `{prompt}` → `{reply}` | **implemented** |
 | `itinerary` | Plan / Map / Budget panel: expandable days, interactive map with a marker per item, every item listed under its budget category | `getItinerary(tripId)` | `GET /api/trips/{id}/itinerary` | **implemented via chat**; standalone GET proposed |
-| `journey` | New journey form: prompt, vibe, budget, dates, starting point, adults and kids | none (sent as the first chat message) | `POST /api/ask` via `chat` | **implemented**, structured endpoint proposed |
+| `journey` | New journey form: prompt, vibes (optional, pick any), budget, dates, starting point, adults and kids | none (sent as the first chat message) | `POST /api/ask` via `chat` | **implemented**, structured endpoint proposed |
 | `profile` | Travel style card, user card | `getProfile()` | `GET /api/me` | proposed |
 | `settings` | Settings screen | none (kept in `settingsStore`, browser memory) | sent as `preferences` on `POST /api/ask` | **implemented** |
 | (places) | none yet | none yet | `GET /api/places/search`, `GET /api/places/locate`, `GET /api/places/drive` | **implemented** |

@@ -37,7 +37,8 @@ function Stepper({ label, hint, value, min, max, onChange }: { label: string; hi
  */
 export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (request: JourneyRequest) => void; initialPrompt?: string }) {
   const [prompt, setPrompt] = useState(initialPrompt);
-  const [vibe, setVibe] = useState(journeyDefaults.vibe);
+  // Empty means "No preference"; picking any vibe clears it, and clearing every vibe brings it back.
+  const [selectedVibes, setSelectedVibes] = useState(journeyDefaults.vibes);
   const [budgetUsd, setBudgetUsd] = useState(journeyDefaults.budgetUsd);
   // null means flexible dates.
   const [dates, setDates] = useState<DateRange | null>(null);
@@ -47,7 +48,12 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
   const [adults, setAdults] = useState(journeyDefaults.adults);
   const [children, setChildren] = useState(journeyDefaults.children);
 
-  const findTrip = () => onStart({ prompt: prompt.trim(), vibe, budgetUsd, dates, origin: origin.trim(), adults, children });
+  const toggleVibe = (item: string) =>
+    setSelectedVibes((current) => (current.includes(item) ? current.filter((picked) => picked !== item) : [...current, item]));
+  const vibeChip = (selected: boolean) =>
+    `rounded-full border px-3.5 py-2 text-xs font-semibold ${selected ? "border-sea bg-mint text-sea" : "border-line text-muted hover:border-sea"}`;
+
+  const findTrip = () => onStart({ prompt: prompt.trim(), vibes: vibes.filter((item) => selectedVibes.includes(item)), budgetUsd, dates, origin: origin.trim(), adults, children });
 
   return (
     <main className="flex min-w-0 flex-1 flex-col lg:h-screen">
@@ -86,10 +92,14 @@ export function NewJourneyView({ onStart, initialPrompt = "" }: { onStart: (requ
 
             <div className="mt-6">
               <FieldLabel>Choose a vibe</FieldLabel>
+              <div className="mt-1 text-xs text-muted">Optional. Pick as many as you like.</div>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
+              <Action onClick={() => setSelectedVibes([])} className={vibeChip(selectedVibes.length === 0)}>
+                No preference
+              </Action>
               {vibes.map((item) => (
-                <Action key={item} onClick={() => setVibe(item)} className={`rounded-full border px-3.5 py-2 text-xs font-semibold ${vibe === item ? "border-sea bg-mint text-sea" : "border-line text-muted hover:border-sea"}`}>
+                <Action key={item} onClick={() => toggleVibe(item)} className={vibeChip(selectedVibes.includes(item))}>
                   {item}
                 </Action>
               ))}

@@ -10,7 +10,8 @@ export interface DateRange {
 export interface JourneyRequest {
   /** Free text: a place or a feeling, e.g. "A warm, low-key beach week with incredible food". May be empty. */
   prompt: string;
-  vibe: string;
+  /** Vibes the traveler picked, in display order. Empty means "No preference". */
+  vibes: string[];
   /** Whole-dollar total for all travelers, or null when the traveler left it blank (no budget limit). */
   budgetUsd: number | null;
   /** The chosen trip window, or null when the traveler's dates are flexible. */
