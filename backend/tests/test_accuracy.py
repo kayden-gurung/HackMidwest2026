@@ -357,3 +357,19 @@ def test_unpinned_stops_are_looked_up_in_the_trip_town(monkeypatch):
     assert "Lawrence, Kansas City" not in queries  # driving legs are not looked up
     note = next(n for n in notes if "shared one generic map pin" in n)
     assert "Nelson-Atkins" not in note and '"Union Station"' in note
+
+
+def test_lookup_limit_defaults_to_15_and_can_be_changed(monkeypatch):
+    import tools.places as places_module
+    from pins import max_lookups, pin_stops
+
+    monkeypatch.delenv("ROAM_MAX_PIN_LOOKUPS", raising=False)
+    assert max_lookups() == 15
+    monkeypatch.setenv("ROAM_MAX_PIN_LOOKUPS", "not a number")
+    assert max_lookups() == 15
+    monkeypatch.setenv("ROAM_MAX_PIN_LOOKUPS", "2")
+    queries = []
+    monkeypatch.setattr(places_module, "geocode", lambda q: queries.append(q) or None)
+    items = ItinerarySnapshot.model_validate(plan(*(item(f"s{n}", location={"name": f"Stop {n}"}) for n in range(5)))).items
+    pin_stops(items, town_evidence())
+    assert len(queries) == 2

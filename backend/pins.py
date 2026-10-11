@@ -10,12 +10,21 @@ than wrong.
 from __future__ import annotations
 
 import math
+import os
 
 import tools.places as places
 from evidence import Evidence
 
-# How many stops to look up per plan. Nominatim allows one request a second, so keep this small.
-MAX_LOOKUPS = 8
+# How many stops to look up per plan. Nominatim allows one request a second, so each lookup can add
+# about a second to the reply. Override with ROAM_MAX_PIN_LOOKUPS in backend/.env.
+DEFAULT_MAX_LOOKUPS = 15
+
+
+def max_lookups() -> int:
+    try:
+        return max(0, min(int(os.getenv("ROAM_MAX_PIN_LOOKUPS", "")), 50))
+    except ValueError:
+        return DEFAULT_MAX_LOOKUPS
 # A match must be within this distance of the town...
 TOWN_RADIUS_M = 40_000
 # ...but not on the town center itself, which is what Nominatim returns when it only matched the town.
@@ -35,12 +44,12 @@ def pin_stops(items: list, evidence: Evidence) -> None:
     towns = list(evidence.points)
     if not towns:
         return
-    lookups = 0
+    lookups, limit = 0, max_lookups()
     for item in items:
         location = item.location
         if location is None or location.lat is not None or item.category in ("Flights", "Driving"):
             continue
-        if lookups >= MAX_LOOKUPS:
+        if lookups >= limit:
             return
         # The town name in the query keeps "Union Station" from matching the one in another city.
         town = next((t for t in towns if location.address and location.address == t.name), towns[0])
