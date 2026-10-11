@@ -3,9 +3,14 @@
 import asyncio
 import json
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from threading import Event
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
+from strands import Agent as StrandsAgent
+from strands.models import Model
 
 from itinerary import ItineraryUpdates
 from evidence import Evidence
@@ -82,7 +87,8 @@ def test_real_strands_tool_reports_rejection_as_error_then_accepts_checked_id():
 
 
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("initial", ["rejected", "checked_only", "adjusted_without_tools"])
+@pytest.mark.parametrize("initial", ["rejected", "checked_only", "adjusted_without_tools",
+                                    "terse_without_tools", "empty_without_tools", "invalid_schema"])
 @pytest.mark.parametrize("recover", [False, True])
 def test_revision_recovery_confirms_publication_or_preserves_previous_plan(monkeypatch, stream, initial, recover):
     agents = []
@@ -92,6 +98,8 @@ def test_revision_recovery_confirms_publication_or_preserves_previous_plan(monke
 
         def __init__(self, kwargs):
             self.tools = {tool.tool_name: tool for tool in kwargs["extra_tools"]}
+            self.tool_agent = StrandsAgent(model=Mock(spec=Model), tools=list(self.tools.values()),
+                                          hooks=kwargs["hooks"], callback_handler=None)
             self.calls = 0
 
         def act(self):
@@ -107,7 +115,14 @@ def test_revision_recovery_confirms_publication_or_preserves_previous_plan(monke
                         pass
                 elif initial == "checked_only":
                     self.tools["check_budget"](itinerary=draft)
-                    return ""  # Pending tool state must trigger recovery even without reply text.
+                    return ""  # An explicit edit request with a checked draft needs publication.
+                elif initial == "invalid_schema":
+                    assert self.tool_agent.tool.update_itinerary(draft_id=123)["status"] == "error"
+                    return "Sure — the museum is at 11 AM."
+                elif initial == "terse_without_tools":
+                    return "Sure — the museum is at 11 AM."
+                elif initial == "empty_without_tools":
+                    return ""
                 return "I've adjusted your itinerary: the museum is at 11 AM."
             if recover:
                 checked = self.tools["check_budget"](itinerary=draft)
@@ -181,3 +196,109 @@ def test_failed_revision_preserves_existing_car_mode_flight_cleanup():
     assert [item.id for item in cleaned.items] == ["museum", "lunch"]
     reply = ask.confirmed_reply("Done!", updates, True, car_mode_cleanup=True)
     assert "couldn't apply" in reply and "Car mode removed flights" in reply
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_read_only_budget_question_does_not_publish_or_trigger_recovery(monkeypatch, stream):
+    agents = []
+
+    class Agent:
+        system_prompt = "Roam"
+
+        def __init__(self, kwargs):
+            self.check_budget = kwargs["extra_tools"][1]
+            self.calls = 0
+
+        def act(self):
+            self.calls += 1
+            result = self.check_budget(itinerary=plan())
+            return f"The known estimated subtotal is ${result['estimated_total_usd']:.0f}; lunch cost is unknown. No changes were made."
+
+        def __call__(self, prompt):
+            return self.act()
+
+        async def stream_async(self, prompt):
+            yield {"result": self.act()}
+
+    def factory(**kwargs):
+        agent = Agent(kwargs)
+        agents.append(agent)
+        return agent
+
+    monkeypatch.setattr(ask, "build_agent", factory)
+    response = TestClient(app).post("/api/ask/stream" if stream else "/api/ask", json={
+        "prompt": "How much does my current trip cost? Do not change anything.", "current_itinerary": plan(),
+    })
+    assert response.status_code == 200
+    result = (next(json.loads(line[6:]) for line in response.text.splitlines()
+                   if line.startswith("data: ") and "reply" in json.loads(line[6:]))
+              if stream else response.json())
+    assert result["reply"] == "The known estimated subtotal is $30; lunch cost is unknown. No changes were made."
+    assert "itinerary" not in response.text
+    assert agents[-1].calls == 1
+
+
+def test_schema_invalid_budget_check_invalidates_previous_draft_id():
+    updates = ItineraryUpdates()
+    draft_id = updates.check_budget(itinerary=plan())["draft_id"]
+    agent = StrandsAgent(model=Mock(spec=Model), tools=[updates.check_budget, updates.update_itinerary],
+                        hooks=[updates], callback_handler=None)
+    assert agent.tool.check_budget(itinerary={"items": []})["status"] == "error"
+    assert agent.tool.update_itinerary(draft_id=draft_id)["status"] == "error"
+    assert updates.latest is None
+
+
+@pytest.mark.parametrize("prompt", ["Move the museum to 11 AM", "Can you please move the museum to 11 AM?",
+                                   "I'd like you to move the museum to 11 AM", "Please slow it down"])
+def test_explicit_edit_requests_recover_without_relying_on_success_wording(prompt):
+    body = ask.AskRequest(prompt=prompt, current_itinerary=plan())
+    assert ask.needs_panel_update(body, ItineraryUpdates(), "Sure.")
+
+
+def test_concurrent_publications_cannot_consume_the_same_draft_twice():
+    validating = Event()
+    release = Event()
+    second_started = Event()
+
+    def check(draft):
+        validating.set()
+        assert release.wait(timeout=2)
+        return draft, []
+
+    updates = ItineraryUpdates(check=check)
+    draft_id = updates.check_budget(itinerary=plan())["draft_id"]
+
+    def second_call():
+        second_started.set()
+        return updates.update_itinerary(draft_id=draft_id)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(updates.update_itinerary, draft_id=draft_id)
+        try:
+            assert validating.wait(timeout=2)
+            second = executor.submit(second_call)
+            assert second_started.wait(timeout=2)
+            with pytest.raises(TimeoutError):
+                second.result(timeout=0.05)
+        finally:
+            release.set()
+        assert first.result(timeout=2)["status"] == "updated"
+        with pytest.raises(ValueError, match="Budget check required"):
+            second.result(timeout=2)
+
+
+def test_read_only_request_does_not_turn_a_rejected_call_into_an_edit():
+    updates = ItineraryUpdates()
+    with pytest.raises(ValueError):
+        updates.update_itinerary(draft_id="missing")
+    body = ask.AskRequest(prompt="Check my budget; do not change anything.", current_itinerary=plan())
+    assert not ask.needs_panel_update(body, updates, "No changes were made.")
+    assert ask.final_itinerary(body, updates, Evidence()) is None
+    assert "previous plan is unchanged" in ask.confirmed_reply("Done!", updates, False)
+
+
+@pytest.mark.parametrize("prompt", ["Can you make a packing list?", "Make me a packing list.",
+                                   "Can you set a reminder for my flight?"])
+def test_non_itinerary_tasks_do_not_trigger_edit_recovery(prompt):
+    body = ask.AskRequest(prompt=prompt, current_itinerary=plan())
+    assert not ask.needs_panel_update(body, ItineraryUpdates(), "Here is some travel information.")

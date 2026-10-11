@@ -96,6 +96,8 @@ request-local `draft_id`; `update_itinerary(draft_id=...)` publishes that stored
 asking the model to reproduce it. Every changed draft must be checked again. IDs are invalidated
 by a new check or successful publication. An exact snapshot remains a legacy alternative;
 unchecked, different, stale or cross-request drafts produce a Strands tool error.
+Draft storage and publication are locked per request so concurrent tool calls cannot consume
+one ID twice or mix a budget result with another draft.
 Over-budget drafts may still be published with the existing warning so infeasible requests can
 be explained honestly; the check itself never silently deletes costs or changes the budget.
 
@@ -105,9 +107,11 @@ and the one-shot recovery pass. Chat displays their progress labels and retains 
 lookup” / “Budget check” labels with the reply; these indicate tool calls, not a promise that
 the weather service succeeded or that the trip is affordable.
 
-An unfinished budget check or rejected update triggers recovery independently of the reply's
-wording. Wording heuristics remain a fallback for replies that claim an edit without attempting
-any tools. After recovery, the router checks publication state: an unapplied edit returns an
+Publication attempts are tracked by a Strands before-tool hook, including calls that fail input
+validation before the tool function runs. A rejected publication triggers recovery independently
+of the reply's wording. Explicit edit requests and reply wording provide fallback detection when
+the model attempts no publication. Checking a budget alone does not force an update, so budget
+questions can remain read-only. After recovery, the router checks publication state: an unapplied edit returns an
 explicit failure message and no itinerary, preserving the previous plan in the browser.
 The existing car-mode fallback still removes flights from the previous plan; the failure
 message explicitly distinguishes that cleanup from the edit that could not be applied.

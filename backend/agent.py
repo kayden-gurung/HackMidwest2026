@@ -36,10 +36,11 @@ def build_model() -> BedrockModel:
     )
 
 
-def build_agent(messages: list | None = None, extra_tools: list | None = None, travel_tools: list | None = None) -> Agent:
+def build_agent(messages: list | None = None, extra_tools: list | None = None, travel_tools: list | None = None,
+                hooks: list | None = None) -> Agent:
     """`travel_tools` replaces the default place tools, e.g. with recording versions (see evidence.py)."""
     model = build_model()
     # Let botocore retry transient failures once. Strands' default six attempts
     # otherwise keep requests waiting for minutes when account quotas are zero.
     return Agent(model=model, messages=messages, system_prompt=SYSTEM_PROMPT, tools=[*(get_travel_tools() if travel_tools is None else travel_tools), *(extra_tools or [])],
-                 callback_handler=None, retry_strategy=None)
+                 callback_handler=None, retry_strategy=None, hooks=hooks)

@@ -68,7 +68,7 @@ def max_miles(body: AskRequest) -> int | None:
 def final_itinerary(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence) -> ItinerarySnapshot | None:
     """The plan to send back. If car mode was switched on but the model left the old plan alone,
     the old plan's flights are still removed so the panels never show one."""
-    if updates.latest is not None and not updates.update_pending:
+    if updates.latest is not None and not updates.update_pending and not updates.has_unpublished_draft:
         return updates.latest
     current = body.current_itinerary
     if body.car_mode and current is not None and any(is_air_travel(item.title, item.category) for item in current.items):
@@ -78,7 +78,8 @@ def final_itinerary(body: AskRequest, updates: ItineraryUpdates, evidence: Evide
 
 def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evidence):
     messages = [{"role": message.role, "content": [{"text": message.content}]} for message in body.history]
-    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget], travel_tools=recording_tools(evidence, max_miles(body)))
+    agent = build_agent(messages=messages, extra_tools=[updates.update_itinerary, updates.check_budget],
+                        travel_tools=recording_tools(evidence, max_miles(body)), hooks=[updates])
     mode = body.mode or (body.preferences.planning_style if body.preferences else None) or "Co-pilot"
     mode_instruction = {
         "Hands-on": "Present options and ask the traveler to choose before making a detailed plan.",
@@ -110,23 +111,43 @@ NUDGE = (
 _CHANGED = re.compile(r"\b(swapp|replac|updat|chang|adjust|reschedul|shift|added|adding|remov|moved|moving|switch|instead of|now (has|includes|starts|ends))", re.IGNORECASE)
 _NEW_PLAN = re.compile(r"\bday\s*(1|one)\b", re.IGNORECASE)
 _ASKING = re.compile(r"(would you like|do you want|should i|shall i|which (one|option)|let me know)", re.IGNORECASE)
+_EDIT_REQUEST = re.compile(
+    r"^\s*(?:(?:hey|hi|okay|ok)[,!]?\s+)?(?:please\s+)?"
+    r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|"
+    r"i\s+(?:want|need)\s+(?:you\s+)?to\s+|i['’]d\s+like\s+(?:you\s+)?to\s+|let['’]s\s+)?"
+    r"(?:move|swap|replace|remove|delete|add|change|adjust|reschedule|shift|switch|update|"
+    r"revise|rearrange|reorder|cancel|increase|decrease|reduce|cut|slow|"
+    r"make\s+(?:it|this\s+trip|(?:my|the)\s+(?:trip|itinerary|plan))|"
+    r"set\s+(?:(?:my|the)\s+)?(?:budget|time|date|cost|lunch|dinner|museum))\b", re.IGNORECASE,
+)
+_READ_ONLY_REQUEST = re.compile(
+    r"\b(?:do not|don['’]t)\s+(?:change|edit|update|modify|adjust|publish)\s+"
+    r"(?:anything\b(?!\s+else\b)|(?:my|the|this)\s+(?:itinerary|plan)\b)", re.IGNORECASE,
+)
 
 
 def needs_panel_update(body: AskRequest, updates: ItineraryUpdates, reply: str) -> bool:
     """True when the reply says the plan changed (or lays out a new plan) but the panels were not updated."""
+    edit_requested = body.current_itinerary is not None and bool(_EDIT_REQUEST.search(body.prompt))
+    if not edit_requested and _READ_ONLY_REQUEST.search(body.prompt):
+        return False  # Explicitly read-only questions must not become edits due to reply wording.
     if updates.update_pending:
         return True  # Tool state takes precedence over wording, even if the reply is empty or a question.
-    if updates.latest is not None or not reply:
+    if updates.has_unpublished_draft and edit_requested:
+        return True
+    if updates.latest is not None:
         return False
+    if not reply:
+        return edit_requested
     if reply.rstrip().endswith("?") and _ASKING.search(reply):
         return False  # a question ("Would you like me to swap it?"): nothing has changed yet
     pattern = _CHANGED if body.current_itinerary is not None else _NEW_PLAN
-    return bool(pattern.search(reply))
+    return edit_requested or bool(pattern.search(reply))
 
 
 def confirmed_reply(reply: str, updates: ItineraryUpdates, recovery_needed: bool, *, car_mode_cleanup: bool = False) -> str:
     """Never report a rejected or unfinished panel update as a successful edit."""
-    if updates.update_pending or (recovery_needed and updates.latest is None):
+    if updates.update_pending or (recovery_needed and (updates.latest is None or updates.has_unpublished_draft)):
         if car_mode_cleanup:
             return ("I couldn't apply the requested itinerary changes. Car mode removed flights from your "
                     "previous plan; the rest is unchanged. Please try again.")

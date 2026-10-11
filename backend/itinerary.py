@@ -1,11 +1,13 @@
 """Validated, request-local itinerary updates from the Strands agent."""
 
 from datetime import date
+from threading import RLock
 from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from strands import tool
+from strands.hooks import BeforeToolCallEvent, HookRegistry
 
 from budget import analyze_budget
 
@@ -85,6 +87,24 @@ class ItineraryUpdates:
         self._budget_draft: ItinerarySnapshot | None = None
         self._draft_id: str | None = None
         self.update_pending = False
+        self._lock = RLock()
+
+    @property
+    def has_unpublished_draft(self) -> bool:
+        return self._budget_draft is not None
+
+    def register_hooks(self, registry: HookRegistry, **kwargs) -> None:
+        registry.add_callback(BeforeToolCallEvent, self.before_tool_call)
+
+    def before_tool_call(self, event: BeforeToolCallEvent) -> None:
+        # This runs before Strands validates tool input, so malformed publication
+        # attempts are tracked even when the decorated method never executes.
+        with self._lock:
+            if event.tool_use["name"] == "update_itinerary":
+                self.update_pending = True
+            elif event.tool_use["name"] == "check_budget":
+                self._budget_draft = None
+                self._draft_id = None
 
     @tool
     def check_budget(self, itinerary: ItinerarySnapshot) -> dict:
@@ -99,15 +119,15 @@ class ItineraryUpdates:
         Args:
             itinerary: Complete draft itinerary, including costs for all travelers and budget.
         """
-        self.update_pending = True
-        self._budget_draft = None
-        self._draft_id = None
-        draft = ItinerarySnapshot.model_validate(itinerary)
-        result = analyze_budget(draft)
-        self._budget_draft = draft.model_copy(deep=True)
-        self._draft_id = uuid4().hex
-        result["draft_id"] = self._draft_id
-        return result
+        with self._lock:
+            self._budget_draft = None
+            self._draft_id = None
+            draft = ItinerarySnapshot.model_validate(itinerary)
+            result = analyze_budget(draft)
+            self._budget_draft = draft.model_copy(deep=True)
+            self._draft_id = uuid4().hex
+            result["draft_id"] = self._draft_id
+            return result
 
     def confirmation(self) -> str:
         """Some model turns finish the tool action without a final text block."""
@@ -147,6 +167,12 @@ class ItineraryUpdates:
             draft_id: ID returned by the most recent check_budget in this request.
             itinerary: Legacy alternative: the exact complete budget-checked snapshot.
         """
+        # Strands may run tool calls concurrently. Keep draft selection, validation
+        # and consumption atomic so one ID cannot publish twice or select another draft.
+        with self._lock:
+            return self._publish(draft_id, itinerary)
+
+    def _publish(self, draft_id: str, itinerary: ItinerarySnapshot | None) -> dict:
         # Strands validates tool input, then passes nested models as dictionaries.
         self.update_pending = True
         supplied = ItinerarySnapshot.model_validate(itinerary) if itinerary is not None else None
