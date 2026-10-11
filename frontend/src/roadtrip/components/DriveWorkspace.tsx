@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
-import { driveStops, sampleDiscoveries } from "../data/mockData"
+import type { LiveDrive, MapPoint } from "../api/tripPlanner"
+import { driveStops as demoStops, sampleDiscoveries } from "../data/mockData"
 import type {
   CommunityDiscovery,
   DriveDraft,
@@ -57,7 +58,10 @@ function StopCard({
             {stop.reason}
           </div>
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-semibold text-ink/70">
-            <span>+{stop.detourMinutes} min drive</span>
+            <span>
+              +{stop.detourMinutes} min drive
+              {stop.detourEstimated ? " (est.)" : ""}
+            </span>
             <span>~${stop.gasCost.toFixed(2)} gas</span>
             <span>{stop.visitMinutes} min visit</span>
           </div>
@@ -228,7 +232,15 @@ function DiscoveryUpload({
   )
 }
 
+const DEMO_PATH = "M5 76 C24 70, 30 58, 43 56 S64 44, 95 22"
+const DEMO_START: MapPoint = { x: 4, y: 72, label: "Kansas City" }
+const DEMO_END: MapPoint = { x: 91, y: 17, label: "St. Louis" }
+
 function RouteMap({
+  routePath = DEMO_PATH,
+  start = DEMO_START,
+  end = DEMO_END,
+  live = false,
   stops,
   selectedId,
   onSelect,
@@ -238,6 +250,10 @@ function RouteMap({
   onDiscovery,
   onAddDiscovery,
 }: {
+  routePath?: string
+  start?: MapPoint
+  end?: MapPoint
+  live?: boolean
   stops: DriveStop[]
   selectedId: string | null
   onSelect: (id: string) => void
@@ -256,42 +272,53 @@ function RouteMap({
         className="absolute inset-0 size-full"
         aria-hidden="true"
       >
+        {!live && (
+          <path
+            d="M18 0 C21 28, 16 48, 28 100M72 0 C67 35, 82 61, 78 100"
+            fill="none"
+            stroke="#c4cbbb"
+            strokeWidth=".7"
+          />
+        )}
         <path
-          d="M5 76 C24 70, 30 58, 43 56 S64 44, 95 22"
+          d={routePath}
           fill="none"
           stroke="#fff"
           strokeWidth="3.5"
+          strokeLinejoin="round"
+          vectorEffect={live ? "non-scaling-stroke" : undefined}
+          style={live ? { strokeWidth: 9 } : undefined}
         />
         <path
-          d="M5 76 C24 70, 30 58, 43 56 S64 44, 95 22"
+          d={routePath}
           fill="none"
           stroke="#31594c"
           strokeWidth="1.2"
-          strokeDasharray="2 0.5"
-        />
-        <path
-          d="M18 0 C21 28, 16 48, 28 100M72 0 C67 35, 82 61, 78 100"
-          fill="none"
-          stroke="#c4cbbb"
-          strokeWidth=".7"
+          strokeLinejoin="round"
+          strokeDasharray={live ? undefined : "2 0.5"}
+          vectorEffect={live ? "non-scaling-stroke" : undefined}
+          style={live ? { strokeWidth: 3 } : undefined}
         />
       </svg>
-      <div className="absolute left-[4%] top-[72%]">
-        <div className="grid size-8 place-items-center rounded-full border-2 border-white bg-ink text-[10px] font-bold text-white shadow">
-          A
+      {[
+        { point: start, letter: "A", tone: "bg-ink" },
+        { point: end, letter: "B", tone: "bg-school" },
+      ].map(({ point, letter, tone }) => (
+        <div
+          key={letter}
+          className="absolute -translate-x-1/2 -translate-y-1/2"
+          style={{ left: `${point.x}%`, top: `${point.y}%` }}
+        >
+          <div
+            className={`mx-auto grid size-8 place-items-center rounded-full border-2 border-white ${tone} text-[10px] font-bold text-white shadow`}
+          >
+            {letter}
+          </div>
+          <div className="absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap bg-white/90 px-2 py-1 text-[9px] font-bold">
+            {point.label}
+          </div>
         </div>
-        <div className="mt-1 whitespace-nowrap bg-white/90 px-2 py-1 text-[9px] font-bold">
-          Kansas City
-        </div>
-      </div>
-      <div className="absolute left-[91%] top-[17%]">
-        <div className="grid size-8 place-items-center rounded-full border-2 border-white bg-school text-[10px] font-bold text-white shadow">
-          B
-        </div>
-        <div className="mt-1 -translate-x-8 whitespace-nowrap bg-white/90 px-2 py-1 text-[9px] font-bold">
-          St. Louis
-        </div>
-      </div>
+      ))}
       {showSuggestions &&
         stops.map((stop, index) => (
           <div
@@ -358,7 +385,9 @@ function RouteMap({
         </Action>
       </div>
       <div className="absolute bottom-4 right-4 bg-white/95 px-3 py-2 text-[9px] text-muted shadow-sm">
-        Stylized prototype map · not for navigation
+        {live
+          ? "Route shape from OSRM · © OpenStreetMap contributors · not for navigation"
+          : "Stylized prototype map · not for navigation"}
       </div>
     </div>
   )
@@ -422,7 +451,9 @@ function StopDetail({
         <div className="mt-6">
           <div className="text-xs font-bold">Source & lookup</div>
           <div className="mt-2 text-xs text-muted">
-            {stop.sourceLabel} · Last checked date unavailable
+            {stop.lookup === "live"
+              ? `${stop.sourceLabel} · looked up when this plan was made`
+              : `${stop.sourceLabel} · Last checked date unavailable`}
           </div>
           {stop.sourceUrl && (
             <Action
@@ -431,11 +462,25 @@ function StopDetail({
               }
               className="mt-2 text-[10px] font-bold text-school underline"
             >
-              Open official reference ↗
+              {stop.lookup === "live" ? "Open on OpenStreetMap ↗" : "Open official reference ↗"}
+            </Action>
+          )}
+          {stop.websiteUrl && (
+            <Action
+              onClick={() =>
+                window.open(stop.websiteUrl, "_blank", "noopener,noreferrer")
+              }
+              className="mt-2 block text-[10px] font-bold text-school underline"
+            >
+              Website ↗
             </Action>
           )}
           <div className="mt-1 text-[10px] leading-4 text-muted">
-            Demo information does not verify hours, safety, or public access.
+            {stop.lookup === "live"
+              ? "Map data does not verify hours, safety, or public access."
+              : "Demo information does not verify hours, safety, or public access."}
+            {stop.detourEstimated &&
+              " The routing service did not answer, so the detour time is estimated from distance."}
           </div>
         </div>
         <Action
@@ -446,14 +491,16 @@ function StopDetail({
         >
           {added ? "Remove from drive" : "Add to drive"}
         </Action>
-        <div className="mt-8 border-t border-line pt-6">
-          <div className="font-display text-xl font-semibold">
-            What I learned here
+        {stop.learned && (
+          <div className="mt-8 border-t border-line pt-6">
+            <div className="font-display text-xl font-semibold">
+              What I learned here
+            </div>
+            <div className="mt-3 bg-white p-4 text-xs italic leading-6 text-ink/70">
+              “{stop.learned}”
+            </div>
           </div>
-          <div className="mt-3 bg-white p-4 text-xs italic leading-6 text-ink/70">
-            “{stop.learned}”
-          </div>
-        </div>
+        )}
         <div className="mt-6">
           <div className="text-xs font-bold">Community photos</div>
           <div className="mt-3 grid grid-cols-2 gap-3">
@@ -496,22 +543,94 @@ function StopDetail({
   )
 }
 
+/** The plan's days: drives, stops, lunch and overnight stays. Stops the traveler removed are struck through. */
+function DayByDay({ live, added }: { live: LiveDrive; added: string[] }) {
+  const days = [...new Set(live.itinerary.items.map((item) => item.date))]
+  return (
+    <div className="mt-3 border border-line bg-white p-3">
+      <div className="text-sm font-bold">Day by day</div>
+      <div className="mt-1 text-[10px] text-muted">
+        Times are rough estimates, starting at 8:00 am.
+      </div>
+      {days.map((day, index) => (
+        <div key={day} className="mt-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-school">
+            Day {index + 1} ·{" "}
+            {new Date(`${day}T12:00:00`).toLocaleDateString(undefined, {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })}
+          </div>
+          <ul className="mt-1 space-y-1">
+            {live.itinerary.items
+              .filter((item) => item.date === day)
+              .map((item) => {
+                const removed =
+                  item.id.startsWith("stop-") &&
+                  !added.includes(item.id.slice("stop-".length))
+                return (
+                  <li
+                    key={item.id}
+                    className={`flex gap-2 text-[11px] leading-4 ${
+                      removed ? "text-muted line-through" : ""
+                    }`}
+                  >
+                    <span className="w-9 shrink-0 font-semibold text-muted">
+                      {item.time ?? ""}
+                    </span>
+                    <span className="min-w-0">
+                      {item.title}
+                      {item.sourceUrls[0]?.includes("openstreetmap.org/") && (
+                        <a
+                          href={item.sourceUrls[0]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-1 text-school underline"
+                        >
+                          source
+                        </a>
+                      )}
+                    </span>
+                  </li>
+                )
+              })}
+          </ul>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function hoursText(hours: number) {
+  const whole = Math.floor(hours)
+  const minutes = Math.round((hours - whole) * 60)
+  return whole ? `${whole} hr ${minutes} min` : `${minutes} min`
+}
+
 export default function DriveWorkspace({
   draft,
+  live = null,
   onEdit,
 }: {
   draft: DriveDraft
+  /** A plan from the route planner; without one, the cached demo drive is shown. */
+  live?: LiveDrive | null
   onEdit: () => void
 }) {
-  const [added, setAdded] = useState<string[]>(["rocheport"])
-  const [selectedId, setSelectedId] = useState<string | null>("rocheport")
+  const driveStops = live ? live.stops : demoStops
+  const [added, setAdded] = useState<string[]>(live ? live.chosenIds : ["rocheport"])
+  const [selectedId, setSelectedId] = useState<string | null>(
+    live ? (live.chosenIds[0] ?? null) : "rocheport",
+  )
   const [detailOpen, setDetailOpen] = useState(false)
   const [budget, setBudget] = useState(draft.detourBudget)
-  const [notice, setNotice] = useState("")
+  const [notice, setNotice] = useState(live?.notes.join(" ") ?? "")
   const [lookupRetried, setLookupRetried] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [showCommunity, setShowCommunity] = useState(true)
-  const [discoveries, setDiscoveries] = useState(sampleDiscoveries)
+  // The sample photos are placed for the demo route only; on a live route they would sit in random places.
+  const [discoveries, setDiscoveries] = useState(live ? [] : sampleDiscoveries)
   const [activeDiscovery, setActiveDiscovery] =
     useState<CommunityDiscovery | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -522,14 +641,14 @@ export default function DriveWorkspace({
       driveStops
         .filter((stop) => added.includes(stop.id))
         .reduce((sum, stop) => sum + stop.detourMinutes, 0),
-    [added],
+    [added, driveStops],
   )
   const gas = useMemo(
     () =>
       driveStops
         .filter((stop) => added.includes(stop.id))
         .reduce((sum, stop) => sum + stop.gasCost, 0),
-    [added],
+    [added, driveStops],
   )
   const selected = driveStops.find((stop) => stop.id === selectedId) ?? null
 
@@ -558,11 +677,13 @@ export default function DriveWorkspace({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-school">
-              <Icon name="car" className="size-3.5" /> Drive plan · Cached demo
+              <Icon name="car" className="size-3.5" /> Drive plan ·{" "}
+              {live ? "Live map data" : "Cached demo"}
             </div>
             <div className="mt-1 font-display text-xl font-semibold md:text-2xl">
-              {draft.start} <span className="text-muted">→</span>{" "}
-              {draft.destination}
+              {live ? live.start.label : "Kansas City"}{" "}
+              <span className="text-muted">→</span>{" "}
+              {live ? live.end.label : "St. Louis"}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -576,7 +697,12 @@ export default function DriveWorkspace({
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {[
-            ["Base drive", "3 hr 48 min"],
+            [
+              "Base drive",
+              live
+                ? `${hoursText(live.route.hours)} · ${live.route.miles} mi`
+                : "3 hr 48 min",
+            ],
             ["Added drive", `${usedMinutes} min`],
             ["Extra gas", `~$${gas.toFixed(2)}`],
             ["Detour budget", `${usedMinutes} of ${budget} min`],
@@ -653,9 +779,17 @@ export default function DriveWorkspace({
                 Detour time excludes time spent visiting.
               </div>
             </div>
-            <StatusTag>{driveStops.length} demo</StatusTag>
+            <StatusTag>
+              {driveStops.length} {live ? "found" : "demo"}
+            </StatusTag>
           </div>
-          {budget === 15 && (
+          {live && driveStops.length === 0 && (
+            <div className="mb-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
+              No stops matched these interests within the detour budget. Try
+              more interests or a bigger budget.
+            </div>
+          )}
+          {!live && budget === 15 && (
             <div className="mb-3 border border-line bg-white p-3 text-[10px] leading-5 text-muted">
               No verified stops are available in this prototype within 15
               minutes. Cached demo suggestions are shown below.
@@ -685,6 +819,7 @@ export default function DriveWorkspace({
               />
             ))}
           </div>
+          {live && <DayByDay live={live} added={added} />}
           <div className="mt-3 border border-line bg-white">
             <Action
               onClick={() => setAskOpen(!askOpen)}
@@ -720,6 +855,10 @@ export default function DriveWorkspace({
 
         <div className="relative h-full">
           <RouteMap
+            routePath={live?.routePath}
+            start={live?.start}
+            end={live?.end}
+            live={Boolean(live)}
             stops={driveStops}
             selectedId={selectedId}
             onSelect={(id) => {

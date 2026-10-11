@@ -8,6 +8,12 @@ Roam plans a drive in two steps:
 2. **Changes: Strands.** When the traveler asks for a change, the chat (`/api/ask/stream`) gets
    that plan as `current_itinerary`, and the agent calls the search functions below to revise it.
 
+In the app, **Find stops along my drive** on the Trip setup screen calls it and shows the result on
+the Drive screen (`frontend/src/roadtrip/api/tripPlanner.ts`): the real route line, the stops with
+their detour times and sources, and a day-by-day list with lunch and overnight stays. If the plan
+fails, the screen says why and offers a retry; the cached demo drive opens only when chosen, and
+stays labeled "Cached demo".
+
 Everything comes from OpenStreetMap (Overpass, Nominatim) or OSRM, and every place keeps its
 source link. Times and visit lengths are planning estimates and are labeled as such.
 
