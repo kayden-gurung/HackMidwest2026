@@ -112,7 +112,7 @@ def test_assumptions_never_exceed_the_schema_limit():
 def test_recording_tools_keep_their_names_and_record_results(fake_map):
     evidence = Evidence()
     tools = {t.tool_name: t for t in recording_tools(evidence)}
-    assert set(tools) == {"find_places", "locate", "plan_drive", "get_forecast"}
+    assert set(tools) == {"find_places", "locate", "plan_drive", "get_forecast", "find_airports", "flight_links"}
     assert "OpenStreetMap" in tools["find_places"].tool_spec["description"]
     tools["find_places"]("Polignano a Mare", "Food")
     tools["locate"]("Polignano a Mare")

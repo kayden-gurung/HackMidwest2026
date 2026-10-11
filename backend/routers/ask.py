@@ -7,7 +7,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from agent import build_agent
 from agent_runs import AgentRun, runs
@@ -15,7 +15,7 @@ from aws_errors import aws_error_response
 from evidence import Evidence, evidence_from_snapshot, recording_tools
 from pins import pin_stops
 from itinerary import ItinerarySnapshot, ItineraryUpdates
-from prompts.travel import TRIP_TYPES, car_mode_instruction, trip_types_instruction
+from prompts.travel import TRIP_TYPES, car_mode_instruction, plane_mode_instruction, trip_types_instruction
 from schemas import Preferences, describe_preferences
 from validation import validate_snapshot
 
@@ -34,8 +34,16 @@ class AskRequest(BaseModel):
     history: list[ChatMessage] = Field(default_factory=list, max_length=40)
     mode: Literal["Hands-on", "Co-pilot", "Surprise me"] | None = None
     current_itinerary: ItinerarySnapshot | None = None
-    # Car mode (switch in the trip header): drive the whole trip, never fly.
+    # Car mode: drive the whole trip, never fly. Kept for older clients; travel_mode "road" means the same.
     car_mode: bool = False
+    # The trip header's Plane / Road toggle. None (older clients): Roam chooses how to travel.
+    travel_mode: Literal["plane", "road"] | None = None
+
+    @model_validator(mode="after")
+    def road_means_car_mode(self):
+        if self.travel_mode == "road":
+            self.car_mode = True
+        return self
     # Car mode only: the most miles the traveler wants to drive in one day.
     max_drive_miles_per_day: int | None = Field(default=None, ge=50, le=1500)
     # Trip type chips chosen on the New journey screen ("Food first", "Rest & reset"...). Unknown values are ignored.
@@ -84,6 +92,8 @@ def agent_for_request(body: AskRequest, updates: ItineraryUpdates, evidence: Evi
     agent.system_prompt = f"{agent.system_prompt}\nToday is {date.today().isoformat()}.\n{context}\nTraveler's planning style: {mode_instruction}"
     if body.car_mode:
         agent.system_prompt += "\n" + car_mode_instruction(max_miles(body))
+    elif body.travel_mode == "plane":
+        agent.system_prompt += "\n" + plane_mode_instruction()
     if trip_types_instruction(body.trip_types):
         agent.system_prompt += "\n" + trip_types_instruction(body.trip_types)
     if body.current_itinerary is not None:
