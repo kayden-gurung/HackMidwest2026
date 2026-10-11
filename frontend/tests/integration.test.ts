@@ -193,3 +193,33 @@ test("Google Maps links use the address, else exact coordinates, never a bare na
   assert.equal(query(googleMapsUrl({ ...base, location: { name: "Blue Plate" } })), "Blue Plate");
   assert.equal(googleMapsUrl(base), undefined);
 });
+
+test("streamed replies show the draft and tool while writing, then save the final reply", async () => {
+  const events = [{ text: "Let me check " }, { text: "real places." }, { tool: "find_places" }, { text: "Here is your plan." }, { reply: "Here is your plan." }, { done: true }];
+  const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+  // Split mid-event so the client has to stitch chunks back together.
+  const chunks = [body.slice(0, 7), body.slice(7, 40), body.slice(40)];
+  const drafts: (ReturnType<typeof conversationStore.getDraft>)[] = [];
+  const unsubscribe = conversationStore.subscribe(() => drafts.push(conversationStore.getDraft("stream-trip")));
+  let url = "";
+  mock.method(globalThis, "fetch", async (requestUrl: string) => {
+    url = requestUrl;
+    const stream = new ReadableStream({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close(); } });
+    return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
+  });
+  const reply = await chatService.sendMessage("stream-trip", "Weekend in KC");
+  unsubscribe();
+  assert.match(url, /\/api\/ask\/stream$/);
+  assert.equal(reply.text, "Here is your plan.");
+  assert.ok(drafts.some((draft) => draft?.text === "Let me check real places." && draft.tool === undefined));
+  assert.ok(drafts.some((draft) => draft?.tool === "find_places"));
+  assert.ok(drafts.some((draft) => draft?.text === "Let me check real places.\n\nHere is your plan."));
+  assert.equal(conversationStore.getDraft("stream-trip"), undefined);
+  assert.equal(conversationStore.getMessages("stream-trip").at(-1)?.text, "Here is your plan.");
+});
+
+test("an error event in the stream is shown like any other backend error", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(`data: ${JSON.stringify({ error: "Bedrock throttled the request.", status: 429 })}\n\ndata: {"done": true}\n\n`, { headers: { "Content-Type": "text/event-stream" } }));
+  await assert.rejects(chatService.sendMessage("stream-error-trip", "Hi"), /Bedrock throttled/);
+  assert.equal(conversationStore.getError("stream-error-trip"), "Bedrock throttled the request.");
+});

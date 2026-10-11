@@ -4,6 +4,12 @@ import { mockConversations } from "./mockData";
 
 export type SendStatus = "idle" | "sending" | "error";
 
+/** A reply that is still streaming in: the text so far and, while one runs, the tool Roam is using. */
+export interface ReplyDraft {
+  text: string;
+  tool?: string;
+}
+
 /*
  * LOCAL STORE: every journey's conversation lives in this module's memory, so a chat is still
  * there when the traveler switches away and back, and resets when the page reloads.
@@ -20,6 +26,8 @@ const seed = config.useMocks
 const conversations = new Map<string, ChatMessage[]>(Object.entries(seed));
 const statuses = new Map<string, SendStatus>();
 const errors = new Map<string, string>();
+// The reply Roam is writing right now (streamed), and the tool it is using, per journey.
+const drafts = new Map<string, ReplyDraft>();
 const listeners = new Set<() => void>();
 const EMPTY: ChatMessage[] = [];
 
@@ -39,8 +47,15 @@ export const conversationStore = {
     conversations.set(tripId, [...(conversations.get(tripId) ?? EMPTY), message]);
     notify();
   },
+  getDraft: (tripId: string): ReplyDraft | undefined => drafts.get(tripId),
+  setDraft(tripId: string, draft: ReplyDraft) {
+    drafts.set(tripId, draft);
+    notify();
+  },
   setStatus(tripId: string, status: SendStatus) {
     if (status !== "error") errors.delete(tripId);
+    // A draft only exists while a reply is on its way.
+    if (status !== "sending") drafts.delete(tripId);
     statuses.set(tripId, status);
     notify();
   },

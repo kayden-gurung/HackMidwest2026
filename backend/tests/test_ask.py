@@ -77,3 +77,32 @@ def test_settings_style_applies_until_header_overrides_it(monkeypatch):
     assert client.post("/api/ask", json=body).status_code == 200
     assert "explicitly stated assumptions" in agents[-1].system_prompt
     assert "ask the traveler to choose" not in agents[-1].system_prompt
+
+
+def test_stream_sends_text_tools_then_the_final_reply(monkeypatch):
+    """The streamed text includes what the model says between tool calls; the final `reply` event is the clean answer."""
+    import json
+
+    class FakeAgent:
+        system_prompt = "Roam"
+
+        async def stream_async(self, prompt):
+            yield {"data": "Let me look that up. "}
+            yield {"current_tool_use": {"name": "find_places"}}
+            yield {"data": "Here is your plan."}
+            yield {"result": "Here is your plan."}
+
+    monkeypatch.setattr(ask_router, "build_agent", lambda **kwargs: FakeAgent())
+    app = FastAPI()
+    app.include_router(ask_router.router)
+    response = TestClient(app).post("/api/ask/stream", json={"prompt": "Beach trip"})
+
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = [json.loads(line[len("data: "):]) for line in response.text.splitlines() if line.startswith("data: ")]
+    assert events == [
+        {"text": "Let me look that up. "},
+        {"tool": "find_places"},
+        {"text": "Here is your plan."},
+        {"reply": "Here is your plan."},
+        {"done": True},
+    ]
