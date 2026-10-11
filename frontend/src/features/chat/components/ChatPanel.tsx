@@ -6,6 +6,13 @@ import { AssistantReply } from "./AssistantReply";
 import { Composer } from "./Composer";
 import { UserBubble } from "./UserBubble";
 
+/** What the status line says while Roam uses each backend tool. */
+const toolStatus: Record<string, string> = {
+  find_places: "Searching real places…",
+  locate: "Looking up locations…",
+  update_itinerary: "Updating your plan…",
+};
+
 /**
  * The center column: conversation with Roam plus the message composer.
  * `preferences` are the traveler's settings, sent to Roam with every message.
@@ -22,13 +29,13 @@ export function ChatPanel({
   mode?: AskRequest["mode"];
   onUserMessage?: (text: string) => void;
 }) {
-  const { messages, sendStatus, error, send, retry } = useChat(tripId, preferences, mode);
+  const { messages, sendStatus, error, draft, send, retry } = useChat(tripId, preferences, mode);
   const endRef = useRef<HTMLDivElement>(null);
 
   // Keep the newest message in view, including when a saved conversation is reopened.
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, sendStatus]);
+  }, [messages.length, sendStatus, draft?.text.length]);
 
   const handleSend = (text: string) => {
     if (!text.trim() || sendStatus === "sending") return;
@@ -48,7 +55,11 @@ export function ChatPanel({
               <AssistantReply key={message.id} message={message} onSuggestion={handleSend} />
             ),
           )}
-          {sendStatus === "sending" && <LoadingState label="Roam is thinking…" className="pl-11" />}
+          {/* While streaming: the reply so far, then a status line that names the tool Roam is using. */}
+          {sendStatus === "sending" && draft?.text && <AssistantReply message={{ id: "draft", role: "assistant", text: draft.text }} onSuggestion={handleSend} />}
+          {sendStatus === "sending" && (
+            <LoadingState label={(draft?.tool && toolStatus[draft.tool]) || (draft?.tool ? "Working…" : draft?.text ? "Writing…" : "Roam is thinking…")} className="pl-11" />
+          )}
           {sendStatus === "error" && <ErrorState message={error ?? "Roam couldn’t reply. Please try again."} onRetry={retry} className="pl-11" />}
           <div ref={endRef} />
         </div>

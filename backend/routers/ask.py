@@ -98,16 +98,23 @@ def ask(body: AskRequest):
 
 @router.post("/ask/stream")
 async def ask_stream(body: AskRequest):
-    """SSE text/tool chunks, safe error events, and a final done event."""
+    """SSE text/tool chunks, the final reply, the itinerary (if any), safe error events, and a final done event."""
     async def events():
         try:
             updates, evidence = checked_updates(body)
             agent = agent_for_request(body, updates, evidence)
+            result = None
             async for ev in agent.stream_async(body.prompt):
                 if "data" in ev:
                     yield f"data: {json.dumps({'text': ev['data']})}\n\n"
                 elif "current_tool_use" in ev and ev["current_tool_use"].get("name"):
                     yield f"data: {json.dumps({'tool': ev['current_tool_use']['name']})}\n\n"
+                elif "result" in ev:
+                    result = ev["result"]
+            # The final answer, exactly as POST /ask returns it. The text chunks above also include
+            # what the model said between tool calls, so clients replace them with this.
+            reply = (str(result).strip() if result is not None else "") or updates.confirmation()
+            yield f"data: {json.dumps({'reply': reply})}\n\n"
             plan = final_itinerary(body, updates, evidence)
             if plan is not None:
                 yield f"data: {json.dumps({'itinerary': plan.model_dump(mode='json')})}\n\n"
