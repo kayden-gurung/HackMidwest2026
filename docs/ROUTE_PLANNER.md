@@ -1,117 +1,70 @@
-# Route planner
+# Route planner: the fast first plan
 
-Roam plans a drive in two steps:
+A new drive gets its **first plan in code, from live map data, with no AI**. Every change after
+that goes through the Strands chat and its approval step (docs/ROADTRIP_STRANDS.md).
 
-1. **First plan: code, no AI.** `POST /api/trips/plan` returns a complete plan in seconds:
-   the route, stops along it that fit the traveler's interests and detour budget, lunch and an
-   overnight stay for each day.
-2. **Changes: Strands.** When the traveler asks for a change, the chat (`/api/ask/stream`) gets
-   that plan as `current_itinerary`, and the agent calls the search functions below to revise it.
+1. **Find stops along my drive** (Trip setup) calls `planFirstDrive`
+   (`frontend/src/roadtrip/api/firstPlan.ts`), which asks `POST /api/trips/plan` twice at once:
+   - the route alone (`include_places: false`), on screen in about 3 seconds;
+   - the full plan: stops along the route that fit the interests and detour budget, lunch, and a
+     bed for each night. About 18 seconds on a first search of a route, because Nominatim allows
+     one request a second; a route planned before is instant (saved answers, see below).
+2. The plan goes into the same itinerary store the chat uses, and the chat opens with a short
+   message about it. The traveler's next request ("a different town", the four change buttons)
+   goes to Strands with this plan as `current_itinerary`.
+3. If the fast planner can't make a plan, the chat plans it instead (the previous behavior).
 
-In the app, **Find stops along my drive** on the Trip setup screen calls it through
-`fetchDrivePlan` (`frontend/src/roadtrip/api/drivePlan.ts`, client in `api/tripPlanner.ts`) and the
-Drive screen shows the result on the street map: the route line, the stops with their detour times
-and sources, and a day-by-day list with lunch and overnight stays. The route appears first, and the
-stops fill in when found. If planning fails, the setup screen says why. Saved trips on the Dashboard
-still open the cached demo, labeled "Cached demo".
+Every place comes from OpenStreetMap (Nominatim) and keeps its source link. Routes and detour times
+come from OSRM. Times and visit lengths are planning estimates and are labeled as such.
 
-Everything comes from OpenStreetMap (Overpass, Nominatim) or OSRM, and every place keeps its
-source link. Times and visit lengths are planning estimates and are labeled as such.
+## How it picks stops
 
-## First plan
+- **Searching.** A few small Nominatim searches along the route: the words come from the interests
+  (History → "museums", "monuments"; Nature → "viewpoints"; Quirky stops → "attractions"...), at
+  most 3 words and 9 searches per route, each inside a box around one stretch of road. The start and
+  end cities (first and last 30 km) are skipped.
+- **Keeping.** Only places within 10 km of the road. Each place's town comes from its address;
+  places outside any town must be well documented (Wikipedia/Wikidata, a website or heritage status).
+- **Ranking.** Towns score higher for more and better-documented matching places (OpenStreetMap has
+  no ratings), and small towns score higher when "Small towns" is chosen. One OSRM table request
+  measures the real detour for the best 25.
+- **Choosing.** Best value for detour first, until the detour budget is used: at least 25 miles
+  apart, at most 3 a day and 4 in all (the chat's "two to four stops").
+- **Meals and beds.** Lunch at a local (non-chain) place near the stop closest to midday, or halfway
+  through the day's drive; a bed near each night's town and at the destination (ordinary hotels and
+  motels before luxury ones).
+- **The whole-route check.** The finished plan goes through the same check every Strands change gets
+  (`roadtrip.RoadTripPlanner.validate`): the route through every stop, meal and bed must fit the
+  detour budget. If it doesn't, extras are left out first (the destination's bed, then the halfway
+  lunch, then lunch at a stop, then the weakest stop) and the traveler is told. The check also adds
+  the measured mileage, fuel and driving legs the Drive screen shows.
 
-`POST /api/trips/plan` takes the Trip setup form (`DriveDraft` in `frontend/src/roadtrip/types.ts`):
+If the map services are down, the plan still comes back with the driving and a note.
 
-```json
-{
-  "start": "Kansas City, MO",
-  "destination": "Denver, CO",
-  "interests": ["History", "Small towns"],
-  "detour_budget_minutes": 60,
-  "departure_date": "2026-10-17",
-  "max_miles_per_day": 400,
-  "mpg": 28,
-  "gas_price": 3.25,
-  "round_trip": false,
-  "route_index": 0
-}
-```
+## Search functions for changes
 
-Interests are the six chips on the setup screen: History, Small towns, Local food, Nature,
-Architecture, Quirky stops. With none, it looks for history, nature and quirky stops.
-
-It returns:
-
-- `itinerary`: an `ItinerarySnapshot`, the same shape the chat edits. Send it to the chat as
-  `current_itinerary` for changes.
-- `route`: miles, hours, fuel, a summary sentence, the map line, and `route_count` (how many roads
-  OSRM offered; ask again with another `route_index` for a different road).
-- `stops`: the chosen stops in route order, each with `detour_minutes`, `gas_cost_usd`,
-  `visit_minutes`, `interests`, `reason`, `less_explored` and its source link: the fields the
-  Drive screen's stop cards show.
-- `more_stops`: other good stops, for "swap this one".
-- `notes`: anything the traveler should know, such as live place data being unavailable.
-
-How it picks: one Overpass request covers the route with small boxes (about 60 km each, widened
-by 10 km), which Overpass answers quickly from its spatial index; searching "around the route line"
-took 30+ seconds on the public server. The backend then measures each result's distance to the road
-and keeps small towns and villages within 10 km, and places within 5 km of the road or 3 km of one of
-those towns. The search fetches every interest's places at once, so the same saved answer serves
-any choice of interests. Places outside towns must be well documented (Wikipedia/Wikidata, a website
-or heritage status). Towns score higher for more and better-documented matching places
-(OpenStreetMap has no ratings). Places next to the start or end city are skipped. One OSRM table
-request measures the real detour for the top 25. Then stops are chosen, best value for detour first,
-until the detour budget is used, at least 25 miles apart and at most 3 per driving day.
-
-At the same time, a second Overpass request finds a bed for each night (ordinary hotels and motels
-before luxury ones) and a fallback lunch halfway through each day. Lunch near a stop comes from the
-local (non-chain) places the route search already found.
-
-If the place search is down, the plan still comes back with the driving and a note. Searches give up
-after about 25 seconds in total, across the main and backup Overpass servers.
-
-## Speed
-
-- **Saved answers.** Every successful map answer (Nominatim, OSRM, Overpass) is saved in
-  `backend/.roam_cache/http/` (git-ignored). A route planned once comes back in about a second, even
-  after a restart and on bad wifi. Delete the folder to refresh the data.
-- **Demo routes are planned at startup** in the background (`backend/warm.py`): Kansas City to
-  Denver, St. Louis, Omaha and Wichita by default. Change them with `ROAM_WARM_ROUTES` in
-  `backend/.env`. To warm by hand and watch: `docker compose exec backend python warm.py`.
-- **The route shows first.** The Drive screen asks for the route alone (`include_places: false`,
-  a few seconds) and the full plan at the same time, and shows the route until the stops arrive.
-- `docker compose logs backend` shows how long each step took (`roam.planner`, `roam.route_search`,
-  `roam.warm`).
-
-## Search functions for changes (to wire into Strands)
-
-Plain Python in `backend/tools/route_search.py`. They are **not** wired into the agent yet.
+Plain Python in `backend/tools/route_search.py`, also served as `GET /api/trips/routes`, `/towns`,
+`/attractions` and `/restaurants`. They are not Strands tools; the chat has its own (`find_places`,
+`find_route_towns`, `plan_drive`). They could replace or back them up later.
 
 | Traveler says | Function |
 |---|---|
-| "Take a different road" | `route_options(origin, destination)` lists the roads; `plan_drive` / `estimate_drive` take a `route_index` |
-| "A different town on the way", "somewhere more historic" | `towns_along_route(origin, destination, interests, route_index, exclude, max_detour_minutes, limit)` |
+| "Take a different road" | `route_options(origin, destination)`; `estimate_drive` takes a `route_index` |
+| "A different town on the way" | `towns_along_route(origin, destination, interests, route_index, exclude, max_detour_minutes, limit)` |
 | "Something else to do in Hays" | `find_attractions(near, interests, exclude, radius_m, limit)` |
 | "Somewhere else to eat in Hays" | `find_restaurants(near, keyword, exclude, radius_m, limit)` |
 
-Notes for wiring them up:
+## Speed
 
-- **Pass `exclude` from the current plan** (stop names or source links), in code rather than
-  trusting the model, so "another restaurant" can't return the current one.
-- **Record results as evidence** like `evidence.recording_tools` does for `find_places`: each
-  result has `name`, `lat`, `lng`, `source_urls` (and `website_url`, `address`), so
-  `evidence.add_place(result)` works. Otherwise `validation.py` strips the new stops' pins as unverified.
-- Wrap them like `tools/__init__.py` does: return plain dicts and never raise (`PlacesUnavailable`
-  becomes `{"status": "unavailable", ...}`).
-
-The same searches are also plain endpoints, for the UI to offer swaps without the AI:
-`GET /api/trips/routes`, `/api/trips/towns`, `/api/trips/attractions`, `/api/trips/restaurants`.
+- **Saved answers.** Every successful map answer is kept in `backend/.roam_cache/http/`
+  (git-ignored), so a route planned once comes back in about a second, even after a restart and on
+  bad wifi. Delete the folder to refresh the data.
+- `docker compose logs backend | grep roam` shows how long each step took (`roam.planner`,
+  `roam.route_search`) and why any lookup failed.
 
 ## Tests
 
-`backend/tests/test_route_search.py` runs everything on a small fake Kansas City → Denver world
-(no network). It also checks that a first plan passes the chat's accuracy check unchanged, so the
-first edit does not strip pins, links or route lines.
-
-The public Overpass and OSRM servers can be slow. Results are cached in memory per backend
-process, so a repeat of the same route is instant.
+`backend/tests/test_route_search.py` runs everything on a small fake Kansas City → Denver world (no
+network), including the chat's own checks on a first plan, and leaving extras out over budget.
+`frontend/tests/integration.test.ts` covers the request, the route-then-plan order, the opening
+message and the fallback.
