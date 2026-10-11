@@ -1,0 +1,56 @@
+import type { DriveDraft } from "../types";
+
+export interface RoadTripConstraints {
+  origin: string;
+  destination: string;
+  detour_minutes: number;
+  mpg: number;
+  gas_price: number;
+}
+
+const constraints = new Map<string, RoadTripConstraints>();
+
+// Main no longer asks for car details. These are disclosed planning assumptions,
+// rather than claims about the traveler's car or today's pump prices.
+export const defaultFuelAssumptions = { mpg: 28, gas_price: 3.25 };
+
+export function roadTripConstraints(draft: DriveDraft, fuel: Pick<RoadTripConstraints, "mpg" | "gas_price"> = defaultFuelAssumptions): RoadTripConstraints {
+  if (!draft.start.trim() || !draft.destination.trim()) throw new Error("Enter a starting city and destination.");
+  if (!Number.isFinite(fuel.mpg) || fuel.mpg <= 0 || fuel.mpg > 150
+    || !Number.isFinite(fuel.gas_price) || fuel.gas_price < 0 || fuel.gas_price > 20
+    || !Number.isInteger(draft.maxMilesPerDay) || draft.maxMilesPerDay < 50 || draft.maxMilesPerDay > 1500
+    || !Number.isInteger(draft.detourBudget) || draft.detourBudget < 0 || draft.detourBudget > 600) throw new Error("Check your driving limits and fuel assumptions.");
+  return { origin: draft.start.trim(), destination: draft.destination.trim(), detour_minutes: draft.detourBudget,
+    mpg: fuel.mpg, gas_price: fuel.gas_price };
+}
+
+export const roadTripStore = {
+  get: (tripId: string) => constraints.get(tripId),
+  set: (tripId: string, value: RoadTripConstraints) => constraints.set(tripId, { ...value }),
+};
+
+export function describeDrive(draft: DriveDraft): string {
+  roadTripConstraints(draft);
+  return [
+    `Plan a one-way drive from ${draft.start} to ${draft.destination} for one traveler.`,
+    `Interests: ${draft.interests.join(", ") || "interesting local stops"}.`,
+    `Departure: ${draft.departureDate.trim() || "Flexible"}. If flexible, assume today and state the date.`,
+    "There is no spending limit set. Use null for unknown meal, activity and lodging prices.",
+    "Choose two to four verified, worthwhile stops along the route,",
+    "within the total extra driving-time limit. Allow enough days for the daily driving limit.",
+    "Create a complete drive itinerary. If live data is unavailable, say so.",
+  ].join("\n");
+}
+
+export type DriveAction = "route" | "towns" | "activities" | "restaurants";
+
+export function driveChangePrompt(action: DriveAction, city: string): string {
+  const tasks: Record<DriveAction, string> = {
+    route: "Find a different road route between the same starting city and destination. Keep the stops if feasible. If no alternative is available, keep the current plan and explain why.",
+    towns: "Find different small towns along the same road route. Exclude towns already in my itinerary. Propose verified town stops that fit my interests.",
+    activities: `Find different attractions in ${city.trim()}. Exclude places already in my itinerary. Replace only the relevant activity stops in that city.`,
+    restaurants: `Find different restaurants in ${city.trim()}. Exclude places already in my itinerary. Replace only the relevant meal stops in that city.`,
+  };
+  if ((action === "activities" || action === "restaurants") && !city.trim()) throw new Error("Enter the city to search.");
+  return tasks[action] + " Preserve unaffected stops and IDs. Check the entire route, fuel and budget, then propose the change for my approval. Do not apply it until I approve.";
+}

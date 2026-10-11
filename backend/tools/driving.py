@@ -25,6 +25,37 @@ MAX_DRIVING_HOURS_PER_DAY = 6
 MAX_NAMED_DRIVE_DAYS = 6
 
 
+def road_routes(points: list[tuple[float, float]], alternatives: bool = False) -> list[dict]:
+    """OSRM routes through ordered (lat, lng) waypoints; never invent a missing alternative."""
+    if not 2 <= len(points) <= 12:
+        raise ValueError("A route needs two endpoints and at most ten intermediate stops.")
+    coordinates = ";".join(f"{lng:.6f},{lat:.6f}" for lat, lng in points)
+    try:
+        response = places._http().get(f"{OSRM_URL}/{coordinates}", params={
+            "overview": "full", "geometries": "geojson", "alternatives": "true" if alternatives else "false",
+        }, timeout=ROUTE_TIMEOUT_S)
+        response.raise_for_status()
+        body = response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        raise places.PlacesUnavailable("Driving directions are unavailable. Your current plan has been kept.") from error
+    if not isinstance(body, dict) or body.get("code") != "Ok":
+        return []
+    routes = []
+    for route in body.get("routes", [])[:3]:
+        try:
+            distance, duration = float(route["distance"]), float(route["duration"])
+            path = route["geometry"]["coordinates"]
+            if not (math.isfinite(distance) and math.isfinite(duration) and distance >= 0 and duration >= 0):
+                continue
+            if len(path) < 2 or any(len(p) != 2 or not all(math.isfinite(float(n)) for n in p)
+                                    or abs(float(p[0])) > 180 or abs(float(p[1])) > 90 for p in path):
+                continue
+            routes.append({"miles": distance / METERS_PER_MILE, "minutes": duration / 60, "coordinates": path})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return routes
+
+
 def _number_from_env(name: str, default: float) -> float:
     try:
         value = float(os.getenv(name, ""))

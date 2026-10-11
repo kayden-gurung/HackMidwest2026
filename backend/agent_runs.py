@@ -109,6 +109,8 @@ class XrayHooks(HookProvider):
         self.run.trace(self.role, "agent_finished", status=reason)
 
     def before_model(self, event):
+        if getattr(self.run.updates, "failed_checks", 0) >= 3:
+            raise HTTPException(422, "Roam could not verify a complete route within your driving limits after three drafts. Try fewer stops or a larger detour allowance. Your current plan has been kept.")
         with self.run._lock:
             self.run.model_calls += 1
             count = self.run.model_calls

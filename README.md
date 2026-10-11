@@ -1,6 +1,8 @@
 # HackMidwest2026
 Hackathon for Hack Midwest 2026
 
+The current road-trip UI is connected to live Strands/Bedrock planning, measured one-way routes and fuel estimates, and approved revisions. See [the road-trip integration guide](docs/ROADTRIP_STRANDS.md) for the current interface, four change actions, API additions, and limits. Older planner sections below describe the reusable modules from the previous UI.
+
 ## Design
 
 The Roam travel planner UI comes from this Figma Make file: [Travel Planner App](https://www.figma.com/make/Re9k0P2Oh80luv2pWkopZd/Travel-Planner-App?p=f&t=Ir5mVq0ECUq0FqlP-0). The feature components live in `frontend/src/features/`, with design tokens in `frontend/src/index.css`.

@@ -1,12 +1,15 @@
 import { useState } from "react"
-import { fetchDrivePlan } from "./api/drivePlan"
-import { demoPlan } from "./data/mockData"
 import AppShell from "./components/AppShell"
 import Dashboard from "./components/Dashboard"
+import DriveDashboard, { type DriveSession } from "./components/DriveDashboard"
 import DriveWorkspace from "./components/DriveWorkspace"
 import TripSetup from "./components/TripSetup"
 import { Action, Icon } from "./components/ui"
-import type { AppScreen, DriveDraft, DrivePlan } from "./types"
+import type { AppScreen, DriveDraft } from "./types"
+import { config } from "../config/env"
+import { chatService } from "../features/chat/api/chatService"
+import { travelModeStore } from "../features/trips/api/travelModeStore"
+import { describeDrive, roadTripConstraints, roadTripStore } from "./api/roadTripStore"
 
 const initialDrive: DriveDraft = {
   start: "Kansas City, MO",
@@ -15,29 +18,6 @@ const initialDrive: DriveDraft = {
   detourBudget: 60,
   departureDate: "Flexible",
   maxMilesPerDay: 450,
-}
-
-function LoadingState() {
-  return (
-    <div className="grid h-full min-h-[560px] place-items-center p-6">
-      <div className="max-w-md text-center">
-        <div className="relative mx-auto grid size-20 place-items-center rounded-full border border-line bg-white">
-          <Icon name="car" className="size-7 text-school" />
-          <div className="absolute inset-[-6px] animate-spin rounded-full border-2 border-transparent border-t-school" />
-        </div>
-        <div className="mt-6 font-display text-3xl font-semibold">
-          Looking along the route
-        </div>
-        <div className="mt-3 text-sm leading-6 text-muted">
-          Comparing cached demo stops against your interests and extra
-          driving-time budget.
-        </div>
-        <div className="mx-auto mt-6 h-1.5 max-w-xs overflow-hidden bg-panel">
-          <div className="h-full w-2/3 animate-pulse bg-school" />
-        </div>
-      </div>
-    </div>
-  )
 }
 
 function ExploreScreen({ onPlan }: { onPlan: () => void }) {
@@ -144,9 +124,8 @@ function SettingsScreen() {
         <div className="mt-8 border border-line bg-panel p-5">
           <div className="text-xs font-bold">Agent X-ray</div>
           <div className="mt-2 text-xs leading-5 text-muted">
-            Secondary prototype section showing which route, budget, and
-            interest inputs shape recommendations. No personal data is published
-            or shared.
+            Open a drive to see live Places, Transport, and Budget activity in chat.
+            Proposed revisions wait for your approval before replacing your plan.
           </div>
         </div>
       </div>
@@ -157,39 +136,39 @@ function SettingsScreen() {
 export default function App() {
   const [screen, setScreen] = useState<AppScreen>("dashboard")
   const [driveDraft, setDriveDraft] = useState(initialDrive)
-  // Opening a saved drive shows the cached demo; planning a new one replaces it.
-  const [plan, setPlan] = useState<DrivePlan>(demoPlan)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
+  const [sessions, setSessions] = useState<DriveSession[]>([])
+  const [activeId, setActiveId] = useState<string>()
+  const [formError, setFormError] = useState<string>()
+  const active = sessions.find((session) => session.id === activeId)
 
-  const submit = async () => {
-    setLoading(true)
-    setError("")
+  const submit = () => {
     try {
-      // Keeps the "Looking along the route" screen up long enough to read.
-      const [next] = await Promise.all([
-        fetchDrivePlan(driveDraft),
-        new Promise((resolve) => window.setTimeout(resolve, 850)),
-      ])
-      setPlan(next)
+      const constraints = roadTripConstraints(driveDraft)
+      const prompt = describeDrive(driveDraft)
+      const id = crypto.randomUUID()
+      roadTripStore.set(id, constraints)
+      travelModeStore.set(id, { carMode: true, maxMilesPerDay: driveDraft.maxMilesPerDay })
+      setSessions((previous) => [{ id, draft: { ...driveDraft, interests: [...driveDraft.interests] } }, ...previous])
+      setActiveId(id)
+      setFormError(undefined)
       setScreen("drive")
-    } catch {
-      setError("Roam couldn't plan that drive. Check the cities and try again.")
-    } finally {
-      setLoading(false)
+      if (!config.useMocks) chatService.sendMessage(id, prompt, { interests: driveDraft.interests, currency: "USD" }, "Co-pilot").catch(() => undefined)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Check your trip preferences.")
     }
   }
 
-  const navigate = (next: AppScreen) => setScreen(next)
+  const newTrip = () => { setDriveDraft({ ...initialDrive, interests: [...initialDrive.interests] }); setFormError(undefined); setScreen("setup") }
+  const navigate = (next: AppScreen) => {
+    if (next === "setup") newTrip()
+    else setScreen(next === "drive" && !active ? "setup" : next)
+  }
 
   let content: React.ReactNode
-  if (loading) content = <LoadingState />
-  else if (screen === "dashboard")
+  if (screen === "dashboard")
     content = (
-      <Dashboard
-        onNew={() => setScreen("setup")}
-        onOpen={() => setScreen("drive")}
-      />
+      config.useMocks ? <Dashboard onNew={newTrip} onOpen={() => setScreen(active ? "drive" : "setup")} />
+        : <DriveDashboard sessions={sessions} onNew={newTrip} onOpen={(id) => { setActiveId(id); setScreen("drive") }} />
     )
   else if (screen === "setup")
     content = (
@@ -197,15 +176,15 @@ export default function App() {
         drive={driveDraft}
         setDrive={setDriveDraft}
         onSubmit={submit}
-        error={error}
+        error={formError}
       />
     )
-  else if (screen === "drive")
+  else if (screen === "drive" && active)
     content = (
       <DriveWorkspace
-        draft={driveDraft}
-        plan={plan}
-        onEdit={() => setScreen("setup")}
+        tripId={active.id}
+        draft={active.draft}
+        onEdit={() => { setDriveDraft({ ...active.draft }); setScreen("setup") }}
       />
     )
   else if (screen === "explore")

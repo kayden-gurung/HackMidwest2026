@@ -1,5 +1,6 @@
 /** Data contracts for the chat feature. */
 import type { ItinerarySnapshot } from "../itinerary/types";
+import type { RoadTripConstraints } from "../../roadtrip/api/roadTripStore";
 
 export interface DestinationRecommendation {
   destination: string;
@@ -67,6 +68,7 @@ export interface TravelPreferences {
 /** Body of POST /api/ask (backend/routers/ask.py). `preferences` mirrors `Preferences` in backend/schemas.py. */
 export interface AskRequest {
   prompt: string;
+  road_trip?: RoadTripConstraints;
   history?: { role: "user" | "assistant"; content: string }[];
   mode?: "Hands-on" | "Co-pilot" | "Surprise me";
   current_itinerary?: ItinerarySnapshot;

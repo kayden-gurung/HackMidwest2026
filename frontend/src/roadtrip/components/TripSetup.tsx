@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode } from "react"
 import { suggestCities, isKnownCity } from "../data/cities"
 import type { DriveDraft } from "../types"
 import { Action, Icon } from "./ui"
+import { config } from "../../config/env"
 
 const fieldClass =
   "min-h-11 w-full rounded-md border border-line bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-school"
@@ -422,7 +423,7 @@ export default function TripSetup({
             <Icon name="car" className="size-4 transition-transform duration-300 group-hover:translate-x-1" /> Find stops along my drive
           </Action>
           <div className="mt-3 text-center text-[10px] text-muted">
-            Find places worth pulling over for. Results use cached demo data.
+            {config.useMocks ? "Find places worth pulling over for. Explicit demo mode uses sample data." : "Find places worth pulling over for. Roam checks live locations, driving detours, and fuel estimates."}
           </div>
         </div>
       </div>

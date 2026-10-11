@@ -16,10 +16,82 @@ import { travelModeStore } from "../src/features/trips/api/travelModeStore";
 import { tripTypesStore } from "../src/features/journey/api/tripTypesStore";
 import { agentStore } from "../src/features/chat/api/agentStore";
 import type { PlanApproval } from "../src/features/chat/types";
+import { describeDrive, driveChangePrompt, roadTripConstraints, roadTripStore } from "../src/roadtrip/api/roadTripStore";
+import type { DriveDraft } from "../src/roadtrip/types";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
 globalThis.window = globalThis as unknown as Window & typeof globalThis;
 afterEach(() => mock.restoreAll());
+
+const driveDraft: DriveDraft = { start: "Kansas City, MO", destination: "St. Louis, MO", interests: ["History", "Local food"],
+  detourBudget: 60, departureDate: "Flexible", maxMilesPerDay: 450 };
+
+test("road-trip planning sends structured constraints, preserves measured routes and isolates journeys", async () => {
+  const tripId = "live-roadtrip";
+  roadTripStore.set(tripId, roadTripConstraints(driveDraft));
+  travelModeStore.set(tripId, { carMode: true, maxMilesPerDay: driveDraft.maxMilesPerDay });
+  const plan = { ...planFixture(), roadTrip: { origin: driveDraft.start, destination: driveDraft.destination,
+    distanceMiles: 260, drivingMinutes: 250, directMinutes: 230, detourMinutes: 20, detourBudgetMinutes: 60,
+    fuelCostUsd: 30.18, extraFuelCostUsd: 2.32, mpg: 28, gasPrice: 3.25, routeOption: 0 } };
+  const bodies: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return eventResponse([{ reply: "Your drive is ready." }, { itinerary: plan }, { done: true }]);
+  });
+  await chatService.sendMessage(tripId, describeDrive(driveDraft), { interests: driveDraft.interests });
+  assert.deepEqual(bodies[0].road_trip, { origin: driveDraft.start, destination: driveDraft.destination, detour_minutes: 60, mpg: 28, gas_price: 3.25 });
+  assert.equal(bodies[0].max_drive_miles_per_day, 450);
+  assert.equal(itineraryStore.snapshot(tripId)!.roadTrip!.fuelCostUsd, 30.18);
+  await chatService.sendMessage(tripId, driveChangePrompt("restaurants", "Columbia, MO"));
+  assert.deepEqual(bodies[1].current_itinerary.roadTrip, plan.roadTrip);
+  assert.match(bodies[1].prompt, /Columbia, MO/);
+  assert.match(bodies[1].prompt, /Exclude places already in my itinerary/);
+  await chatService.sendMessage("other-roadtrip", "Hello");
+  assert.equal(bodies[2].road_trip, undefined);
+});
+
+test("changed driving assumptions invalidate an approval without replacing the current plan", async () => {
+  const tripId = "roadtrip-stale-review";
+  roadTripStore.set(tripId, roadTripConstraints(driveDraft));
+  itineraryStore.set(tripId, planFixture());
+  let calls = 0;
+  mock.method(globalThis, "fetch", async () => { calls++; return eventResponse([{ approval: approvalFixture() }, { done: true }]); });
+  await chatService.sendMessage(tripId, driveChangePrompt("towns", driveDraft.destination));
+  roadTripStore.set(tripId, roadTripConstraints({ ...driveDraft, detourBudget: 15 }));
+  await assert.rejects(chatService.resolveApproval(tripId, true), /settings or plan changed/);
+  assert.equal(calls, 1);
+  assert.equal(itineraryStore.get(tripId)!.items[0].title, "Park picnic");
+});
+
+test("driving form validation and route summaries reject invalid or over-limit values", () => {
+  assert.throws(() => roadTripConstraints(driveDraft, { mpg: 0, gas_price: 3.25 }), /fuel assumptions/);
+  assert.throws(() => roadTripConstraints({ ...driveDraft, start: " " }), /starting city/);
+  assert.match(driveChangePrompt("route", ""), /different road route/);
+  assert.match(driveChangePrompt("towns", ""), /different small towns/);
+  assert.match(driveChangePrompt("activities", "Columbia"), /different attractions in Columbia/);
+  assert.throws(() => driveChangePrompt("restaurants", ""), /city/);
+  assert.throws(() => validateItinerary({ ...planFixture(), roadTrip: { origin: "A", destination: "B",
+    distanceMiles: 10, drivingMinutes: 40, directMinutes: 20, detourMinutes: 20, detourBudgetMinutes: 15,
+    fuelCostUsd: 2, extraFuelCostUsd: 1, mpg: 28, gasPrice: 3.25, routeOption: 0 } }), /driving estimates/);
+});
+
+test("the detour slider and exact typed allowances reach the API unchanged", async () => {
+  const bodies: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return eventResponse([{ reply: "No plan changed." }, { done: true }]);
+  });
+  for (const minutes of [0, 45, 37, 240, 600]) {
+    const draft = { ...driveDraft, detourBudget: minutes };
+    const tripId = `exact-detour-${minutes}`;
+    roadTripStore.set(tripId, roadTripConstraints(draft));
+    await chatService.sendMessage(tripId, describeDrive(draft));
+    assert.equal(bodies.at(-1).road_trip.detour_minutes, minutes);
+  }
+  for (const detourBudget of [-1, 601, 1.5, NaN]) {
+    assert.throws(() => roadTripConstraints({ ...driveDraft, detourBudget }), /driving limits/);
+  }
+});
 
 function eventResponse(events: Record<string, unknown>[]) {
   return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "Content-Type": "text/event-stream" } });

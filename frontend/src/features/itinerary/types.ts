@@ -74,7 +74,23 @@ export interface Itinerary {
   overview?: TripOverview | null;
   days?: ItineraryDay[];
   places?: Place[];
+  roadTrip?: RoadTripSummary | null;
+}
+
+export interface RoadTripSummary {
+  origin: string;
+  destination: string;
+  distanceMiles: number;
+  drivingMinutes: number;
+  directMinutes: number;
+  detourMinutes: number;
+  detourBudgetMinutes: number;
+  fuelCostUsd: number;
+  extraFuelCostUsd: number;
+  mpg: number;
+  gasPrice: number;
+  routeOption: number;
 }
 
 /** Structured plan sent with chat, without the browser's journey ID or demo extras. */
-export type ItinerarySnapshot = Pick<Itinerary, "startDate" | "endDate" | "items" | "budget" | "summary" | "assumptions" | "overview">;
+export type ItinerarySnapshot = Pick<Itinerary, "startDate" | "endDate" | "items" | "budget" | "summary" | "assumptions" | "overview" | "roadTrip">;

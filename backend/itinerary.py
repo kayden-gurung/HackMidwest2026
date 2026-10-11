@@ -1,6 +1,7 @@
 """Validated, request-local itinerary updates from the Strands agent."""
 
 from datetime import date
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -56,6 +57,21 @@ class TripOverview(PlanModel):
     imageAlt: str | None = Field(default=None, max_length=300)
 
 
+class RoadTripSummary(PlanModel):
+    origin: str
+    destination: str
+    distanceMiles: float = Field(ge=0)
+    drivingMinutes: float = Field(ge=0)
+    directMinutes: float = Field(ge=0)
+    detourMinutes: float = Field(ge=0)
+    detourBudgetMinutes: int = Field(ge=0)
+    fuelCostUsd: float = Field(ge=0)
+    extraFuelCostUsd: float = Field(ge=0)
+    mpg: float = Field(gt=0)
+    gasPrice: float = Field(ge=0)
+    routeOption: int = Field(ge=0, le=2)
+
+
 class ItinerarySnapshot(PlanModel):
     startDate: date
     endDate: date
@@ -64,6 +80,7 @@ class ItinerarySnapshot(PlanModel):
     summary: str = Field(default="", max_length=1000)
     assumptions: list[str] = Field(default_factory=list, max_length=12)
     overview: TripOverview | None = None
+    roadTrip: RoadTripSummary | None = None
 
     @model_validator(mode="after")
     def coherent_plan(self):
@@ -79,10 +96,12 @@ class ItinerarySnapshot(PlanModel):
 class ItineraryUpdates:
     """A separate instance per request; no global plan or cross-traveler state."""
 
-    def __init__(self, check=None):
+    def __init__(self, check=None, check_on_budget=False):
         self.latest: ItinerarySnapshot | None = None
         # Optional accuracy check (validation.validate_snapshot): returns a cleaned plan plus notes.
         self.check = check
+        self.check_on_budget = check_on_budget
+        self.failed_checks = 0
         self._budget_draft: ItinerarySnapshot | None = None
         self._prepared: dict[str, tuple[ItinerarySnapshot, list[str]]] = {}
 
@@ -115,6 +134,22 @@ class ItineraryUpdates:
             itinerary: Complete draft itinerary, including costs for all travelers and budget.
         """
         draft = ItinerarySnapshot.model_validate(itinerary)
+        if self.check_on_budget:
+            # Measure the route before reporting costs or requesting approval. Freeze the
+            # result so approval publishes exactly the preview, without another lookup.
+            self._budget_draft = draft.model_copy(deep=True)
+            self._prepared.pop(draft.model_dump_json(), None)
+            try:
+                prepared, _ = self.prepare(draft, freeze=True)
+            except Exception as error:
+                self._budget_draft = None
+                self.failed_checks += 1
+                logging.getLogger("roam.ask").warning("Road-trip draft rejected: %s", error)
+                raise
+            result = analyze_budget(prepared)
+            if prepared.roadTrip is not None:
+                result["road_trip"] = prepared.roadTrip.model_dump()
+            return result
         result = analyze_budget(draft)
         self._budget_draft = draft.model_copy(deep=True)
         return result
@@ -123,6 +158,15 @@ class ItineraryUpdates:
     def checked_draft(self) -> ItinerarySnapshot | None:
         """The draft check_budget last accepted and update_itinerary has not yet published."""
         return self._budget_draft.model_copy(deep=True) if self._budget_draft is not None else None
+
+    @property
+    def review_draft(self) -> ItinerarySnapshot | None:
+        draft = self.checked_draft
+        if draft is not None and self.check_on_budget:
+            prepared = self._prepared.get(draft.model_dump_json())
+            if prepared is not None:
+                return prepared[0].model_copy(deep=True)
+        return draft
 
     def _draft(self, itinerary=None) -> ItinerarySnapshot | None:
         """The draft a tool call refers to: the one it sent, or the last budget-checked one."""
@@ -152,6 +196,17 @@ class ItineraryUpdates:
         plan = self.latest
         if plan is None:
             return ""
+        if plan.roadTrip is not None:
+            road = plan.roadTrip
+            stops = [item.title for item in plan.items if item.category != "Driving"]
+            unknown = sum(item.costUsd is None for item in plan.items)
+            return (f"Your one-way drive from {road.origin} to {road.destination} is ready: "
+                    f"{road.distanceMiles:.1f} miles, about {road.drivingMinutes:.0f} driving minutes, "
+                    f"including {road.detourMinutes:.1f} extra minutes within your {road.detourBudgetMinutes}-minute limit. "
+                    f"Estimated fuel: ${road.fuelCostUsd:.2f} for one car at {road.mpg:g} MPG and ${road.gasPrice:.2f}/gallon."
+                    + ("\n\nStops: " + "; ".join(stops) + "." if stops else "")
+                    + (f"\n\n{unknown} stop costs are unknown and excluded from the budget total." if unknown else "")
+                    + " Driving time excludes traffic and visits. Review the map and planning assumptions for details.")
         total = analyze_budget(plan)["estimated_total_usd"]
         unknown = sum(item.costUsd is None for item in plan.items)
         dates = plan.startDate.isoformat() if plan.startDate == plan.endDate else f"{plan.startDate.isoformat()} to {plan.endDate.isoformat()}"

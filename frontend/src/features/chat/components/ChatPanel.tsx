@@ -14,6 +14,7 @@ const toolStatus: Record<string, string> = {
   find_places: "Searching real places…",
   locate: "Looking up locations…",
   plan_drive: "Checking driving routes…",
+  find_route_towns: "Looking for towns along your route…",
   find_airports: "Finding airports…",
   flight_links: "Getting flight search links…",
   get_forecast: "Checking the live forecast…",
@@ -58,7 +59,7 @@ export function ChatPanel({
   };
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-col border-line xl:border-r">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col border-line xl:border-r">
       <div className="flex-1 overflow-y-auto px-5 py-7 md:px-10 lg:px-12">
         <div className="mx-auto w-full max-w-3xl space-y-8">
           {messages.length === 0 && (
