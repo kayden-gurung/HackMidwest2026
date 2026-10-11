@@ -516,7 +516,7 @@ import type { DriveDraft } from "../src/roadtrip/types";
 
 const plannerDraft: DriveDraft = {
   start: "Kansas City, MO", destination: "Denver, CO", interests: ["History"], detourBudget: 60,
-  departureDate: "Flexible", maxMilesPerDay: 400, mpg: 28, gasPrice: 3.25,
+  departureDate: "Flexible", maxMilesPerDay: 400,
 };
 
 function plannedStop(id: string, miles: number, lat: number, lng: number, extra: Partial<PlannedStop> = {}): PlannedStop {
@@ -548,8 +548,7 @@ test("route planner request sends the setup form and only a real departure date"
   assert.equal(planRequest({ ...plannerDraft, departureDate: " 2026-10-17 " }).departure_date, "2026-10-17");
   assert.equal(body.include_places, true);
   assert.equal(planRequest(plannerDraft, false).include_places, false);
-  assert.equal(body.mpg, 28);
-  assert.equal("mpg" in planRequest({ ...plannerDraft, mpg: 0 }), false);
+  assert.equal("mpg" in body, false); // Trip setup has no mpg field: the backend default applies
   assert.equal(planRequest({ ...plannerDraft, detourBudget: 500 }).detour_budget_minutes, 500);
   assert.equal(planRequest({ ...plannerDraft, detourBudget: 900 }).detour_budget_minutes, 600);
 });
