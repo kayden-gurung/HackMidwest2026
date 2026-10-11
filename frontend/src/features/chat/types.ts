@@ -72,6 +72,8 @@ export interface AskRequest {
   car_mode?: boolean;
   /** Car mode only: most miles to drive in one day (50–1500). */
   max_drive_miles_per_day?: number;
+  /** Trip types chosen on the New journey screen; the backend keeps the AI to them on every message. */
+  trip_types?: string[];
   preferences?: {
     interests: string[];
     pace?: string;

@@ -85,3 +85,30 @@ def car_mode_instruction(max_miles_per_day: int | None) -> str:
         " If the current itinerary has flights, replace them with driving legs and call update_itinerary."
         " Any flight you add will be removed automatically."
     )
+
+
+# What each trip type chip on the New journey screen asks for. Keep the keys in step with
+# `vibes` in frontend/src/features/journey/api/mockData.ts.
+TRIP_TYPES = {
+    "Beach & coast": "a coastal destination, with beach or waterfront time on most days",
+    "Big adventure": "active outdoor days: hikes, trails, water sports or other adventure activities",
+    "Food first": "food as the highlight: at least one standout local meal or food experience every day",
+    "City energy": "a walkable city: lively neighborhoods, culture, markets and evenings out",
+    "Rest & reset": "a slow pace: at most two activities a day, with real downtime (parks, spa, long meals)",
+    "Surprise me": "the traveler is open to something unexpected: choose a less obvious destination or activity yourself and say why",
+}
+
+
+def trip_types_instruction(trip_types: list[str]) -> str:
+    """Added to the system prompt on every message of a journey started with trip types selected."""
+    known = [t for t in trip_types if t in TRIP_TYPES]
+    if not known:
+        return ""
+    lines = "\n".join(f"- {t}: {TRIP_TYPES[t]}" for t in known)
+    both = " The plan must reflect every one of them, not just the first." if len(known) > 1 else ""
+    return (
+        "TRIP TYPE. The traveler chose these trip types for this journey:\n"
+        f"{lines}\n"
+        "Choose the destination (if not given) and every day's stops to fit them." + both +
+        " Keep them on every revision unless the traveler says otherwise."
+    )

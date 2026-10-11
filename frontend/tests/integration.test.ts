@@ -10,6 +10,7 @@ import type { ItinerarySnapshot } from "../src/features/itinerary/types";
 import { EXAMPLE_TRIP_ID } from "../src/features/trips/api/mockData";
 import { postcardFromItinerary } from "../src/features/chat/lib/tripPostcard";
 import { travelModeStore } from "../src/features/trips/api/travelModeStore";
+import { tripTypesStore } from "../src/features/journey/api/tripTypesStore";
 
 // The services use browser timers; Node provides equivalent timers for these tests.
 globalThis.window = globalThis as unknown as Window & typeof globalThis;
@@ -73,10 +74,13 @@ test("concurrent sends to one journey are blocked before appending a duplicate",
 });
 
 test("New journey parameters reach chat and the header; My trips uses local journeys", async () => {
-  const request = { prompt: "Kansas City", vibe: "City energy", budgetUsd: 300, dates: { start: "2026-10-17", end: "2026-10-18" }, origin: "Omaha", adults: 2, children: 1 };
+  const request = { prompt: "Kansas City", vibes: ["City energy", "Food first"], budgetUsd: 300, dates: { start: "2026-10-17", end: "2026-10-18" }, origin: "Omaha", adults: 2, children: 1 };
   const message = describeJourney(request);
   assert.match(message, /2 adults and 1 child, leaving from Omaha/);
+  assert.match(message, /Vibe: City energy, Food first\./);
   assert.match(message, /Budget: \$300 total/);
+  const noVibe = describeJourney({ ...request, prompt: "", vibes: [] });
+  assert.match(noVibe, /^Plan me a trip\. Vibe: no preference\./);
   assert.match(message, /2026-10-17 to 2026-10-18/);
   const trip = await localTripsService.createTrip();
   await localTripsService.renameTrip(trip.id, "Kansas City", { startDate: request.dates.start, endDate: request.dates.end, origin: request.origin, travelers: 3 });
@@ -250,4 +254,19 @@ test("an error event in the stream is shown like any other backend error", async
   mock.method(globalThis, "fetch", async () => new Response(`data: ${JSON.stringify({ error: "Bedrock throttled the request.", status: 429 })}\n\ndata: {"done": true}\n\n`, { headers: { "Content-Type": "text/event-stream" } }));
   await assert.rejects(chatService.sendMessage("stream-error-trip", "Hi"), /Bedrock throttled/);
   assert.equal(conversationStore.getError("stream-error-trip"), "Bedrock throttled the request.");
+});
+
+test("trip types chosen for a journey go with every message of that journey only", async () => {
+  const requests: any[] = [];
+  mock.method(globalThis, "fetch", async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ reply: "ok" }), { status: 200 });
+  });
+  tripTypesStore.set("typed-trip", ["Food first", "Rest & reset"]);
+  await chatService.sendMessage("typed-trip", "Plan Kansas City");
+  await chatService.sendMessage("typed-trip", "Make day 2 slower");
+  await chatService.sendMessage("other-trip", "Plan Denver");
+  assert.deepEqual(requests[0].trip_types, ["Food first", "Rest & reset"]);
+  assert.deepEqual(requests[1].trip_types, ["Food first", "Rest & reset"]);
+  assert.deepEqual(requests[2].trip_types, []);
 });

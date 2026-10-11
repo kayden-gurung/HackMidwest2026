@@ -9,7 +9,8 @@ export const budgetSliderUsd = { min: 500, max: 20000, step: 100 };
 export const travelerLimits = { maxTotal: 10, minAdults: 1 };
 
 export const journeyDefaults = {
-  vibe: "Beach & coast",
+  /** No vibe picked: the "No preference" chip starts selected. */
+  vibes: [] as string[],
   budgetUsd: 3000 as number | null,
   /** Used only when the profile has no home airport. */
   origin: "New York · JFK",

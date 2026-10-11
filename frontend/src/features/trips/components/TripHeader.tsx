@@ -1,24 +1,25 @@
 import type { ReactNode } from "react";
 import { Icon, Toggle } from "../../../components/ui";
 import { formatDateRange } from "../../../lib/format";
-import { useSettings } from "../../settings";
 import { useTrip } from "../hooks/useTrips";
 import { useItinerary } from "../../itinerary/hooks/useItinerary";
 import { MILES_PER_DAY_OPTIONS, useTravelMode } from "../api/travelModeStore";
+import { useTripTypes } from "../../journey/api/tripTypesStore";
 
-/** Top bar: current trip title and summary, the car mode switch, and the planning-mode label. */
+/** Top bar: current trip title and summary, a "New trip" button on small screens, and the car mode switch. */
 export function TripHeader({ tripId, title, leading, onNewJourney }: { tripId: string; title: string; leading?: ReactNode; onNewJourney?: () => void }) {
   // The title comes from the sidebar's list so it updates the moment a journey is named.
   const trip = useTrip(tripId, title);
+  const tripTypes = useTripTypes(tripId);
   const plan = useItinerary(tripId).data;
   const details = trip.status === "success" ? trip.data : undefined;
   const summary = [
     plan ? formatDateRange(plan.startDate, plan.endDate) : details?.startDate && details.endDate ? formatDateRange(details.startDate, details.endDate) : undefined,
     details?.travelers ? `${details.travelers} ${details.travelers === 1 ? "traveler" : "travelers"}` : undefined,
     details?.origin ? `From ${details.origin}` : undefined,
+    // The trip types Roam is following for this journey, so it's clear they still apply.
+    tripTypes.length > 0 ? tripTypes.join(", ") : undefined,
   ].filter(Boolean);
-  // Chosen under "How should Roam help?" in Settings.
-  const { planningStyle } = useSettings().settings;
 
   return (
     <header className="flex min-h-[72px] shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line bg-canvas/90 px-5 py-3 backdrop-blur md:px-8">
@@ -32,10 +33,6 @@ export function TripHeader({ tripId, title, leading, onNewJourney }: { tripId: s
       <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
         {onNewJourney && <button type="button" onClick={onNewJourney} aria-label="New journey" className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-2 text-xs font-semibold hover:border-sea hover:text-sea lg:hidden"><Icon name="plus" className="size-3.5" />New trip</button>}
         <CarModeSwitch tripId={tripId} />
-        {/* Shows the planning style; change it in Settings. */}
-        <div className="hidden rounded-full border border-line bg-surface p-1 sm:block">
-          <div className="rounded-full bg-deep px-3 py-1.5 text-xs font-semibold text-white">{planningStyle}</div>
-        </div>
       </div>
     </header>
   );

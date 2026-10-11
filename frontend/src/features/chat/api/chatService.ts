@@ -6,6 +6,7 @@ import { conversationStore } from "./conversationStore";
 import { mockReply } from "./mockData";
 import { itineraryStore, validateItinerary } from "../../itinerary/api/itineraryStore";
 import { travelModeStore } from "../../trips/api/travelModeStore";
+import { tripTypesStore } from "../../journey/api/tripTypesStore";
 
 export interface ChatService {
   /** Earlier messages for a trip. */
@@ -61,6 +62,7 @@ const httpReplySource: ReplySource = async (tripId, prompt, preferences, mode) =
     current_itinerary: itineraryStore.snapshot(tripId),
     car_mode: carMode,
     max_drive_miles_per_day: carMode ? maxMilesPerDay : undefined,
+    trip_types: tripTypesStore.get(tripId),
   };
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 180000);
