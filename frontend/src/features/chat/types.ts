@@ -70,6 +70,8 @@ export interface AskRequest {
   current_itinerary?: ItinerarySnapshot;
   /** Car mode from the trip header: the backend plans by car and removes every flight. */
   car_mode?: boolean;
+  /** The trip header's Plane / Road toggle: plane plans flights with airports and ticket links, road plans a road trip. */
+  travel_mode?: "plane" | "road";
   /** Car mode only: most miles to drive in one day (50–1500). */
   max_drive_miles_per_day?: number;
   preferences?: {

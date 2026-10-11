@@ -10,6 +10,9 @@ reason about: either results with sources, or a clear "unavailable" message.
 from __future__ import annotations
 
 from tools.driving import estimate_drive
+from datetime import date
+
+from tools import airports
 from tools.places import PlacesUnavailable, geocode, search_places
 
 
@@ -59,6 +62,8 @@ def plan_drive(origin: str, destination: str, round_trip: bool = True, max_miles
     compare the fuel cost here with what flights for the whole party would cost, and plan the
     cheaper option that still fits the trip. Fuel cost is for one car, not per person.
     The fuel figure is an estimate: always show the listed assumptions with it.
+    drive_days splits the drive into days, each ending in a real town on the route: use those
+    towns for overnight stops, and each day's google_maps_url as that driving leg's link.
 
     Args:
         origin: Where the drive starts, e.g. "Kansas City, MO".
@@ -75,9 +80,52 @@ def plan_drive(origin: str, destination: str, round_trip: bool = True, max_miles
     return {"status": "ok", "source": "OpenStreetMap and OSRM", **estimate.model_dump()}
 
 
+def find_airports(near: str) -> dict:
+    """Find real passenger airports near a town or city, with airport codes, map pins and source links.
+
+    Use this for both ends of a trip by plane: near the traveler's home and near the destination.
+    International airports come first, then nearer ones. Copy the airport's name, code, coordinates
+    and source link exactly into the itinerary.
+
+    Args:
+        near: The town or city, e.g. "Kansas City, MO" or "Polignano a Mare, Italy".
+    """
+    try:
+        found = airports.find_airports(near)
+    except PlacesUnavailable as error:
+        return {"status": "unavailable", "message": f"{error} Do not retry now: name the main airport from general knowledge, labeled unverified.", "airports": []}
+    if found is None:
+        return {"status": "no_results", "message": f'Could not find "{near}".', "airports": []}
+    if not found:
+        return {"status": "no_results", "message": f'No passenger airports found near "{near}".', "airports": []}
+    return {"status": "ok", "source": "OpenStreetMap", "airports": [airport.model_dump(exclude_none=True) for airport in found]}
+
+
+def flight_links(from_airport: str, to_airport: str, depart_date: str = "", return_date: str = "", travelers: int = 1) -> dict:
+    """Links to search and book real flight tickets on Google Flights and Kayak for a route.
+
+    There is no live fare data: give these links so the traveler can see real prices and times.
+    Put the Google Flights link as the flight's websiteUrl in the itinerary.
+
+    Args:
+        from_airport: Three-letter code of the departure airport, e.g. "JFK".
+        to_airport: Three-letter code of the arrival airport, e.g. "BRI".
+        depart_date: Outbound date as YYYY-MM-DD, or "" if not known.
+        return_date: Return date as YYYY-MM-DD, or "" for one way.
+        travelers: Number of travelers flying (1-9).
+    """
+    try:
+        depart = date.fromisoformat(depart_date) if depart_date else None
+        return_on = date.fromisoformat(return_date) if return_date else None
+        links = airports.flight_search_links(from_airport, to_airport, depart, return_on, travelers)
+    except ValueError as error:
+        return {"status": "error", "message": f"{error} Dates must be YYYY-MM-DD."}
+    return {"status": "ok", **links, "note": "Prices and schedules are on these sites; Roam has no live fare data."}
+
+
 def get_travel_tools() -> list:
     """The tools to hand to the Strands agent: `Agent(tools=get_travel_tools())`."""
     # Imported here so the lookup code and its tests work without Strands installed.
     from strands import tool
 
-    return [tool(find_places), tool(locate), tool(plan_drive)]
+    return [tool(find_places), tool(locate), tool(plan_drive), tool(find_airports), tool(flight_links)]

@@ -21,6 +21,8 @@ ROUTE_TIMEOUT_S = 15.0
 METERS_PER_MILE = 1609.344
 # A comfortable amount of driving in one day for a leisure trip.
 MAX_DRIVING_HOURS_PER_DAY = 6
+# Overnight towns are looked up one by one (about a second each), so only for drives up to this many days.
+MAX_NAMED_DRIVE_DAYS = 6
 
 
 def _number_from_env(name: str, default: float) -> float:
@@ -29,6 +31,18 @@ def _number_from_env(name: str, default: float) -> float:
     except ValueError:
         return default
     return value if value > 0 else default
+
+
+class DriveDay(BaseModel):
+    """One day of driving on the way there."""
+
+    day: int
+    start: str
+    # Where this day's driving ends: the overnight town on the route, or the destination on the last day.
+    end: str
+    miles: int
+    drive_hours: float
+    google_maps_url: str
 
 
 class DriveEstimate(BaseModel):
@@ -48,6 +62,63 @@ class DriveEstimate(BaseModel):
     assumptions: list[str]
     google_maps_url: str
     source_urls: list[str]
+    # The one-way drive split into days, with a real town to stop in at the end of each day.
+    drive_days: list[DriveDay] = []
+    # The drive back, already split the same way (empty for a one-way trip).
+    drive_days_home: list[DriveDay] = []
+    # One plain sentence with the numbers, so they are not misread: miles each way vs. round trip.
+    summary: str = ""
+
+
+def _home_days(days: list[DriveDay]) -> list[DriveDay]:
+    """The same legs driven back, last town first."""
+    return [
+        DriveDay(day=index + 1, start=leg.end, end=leg.start, miles=leg.miles, drive_hours=leg.drive_hours,
+                 google_maps_url=_directions_url(leg.end, leg.start) if "Overnight stop" not in leg.start + leg.end else leg.google_maps_url)
+        for index, leg in enumerate(reversed(days))
+    ]
+
+
+def _directions_url(origin: str, destination: str) -> str:
+    return "https://www.google.com/maps/dir/?" + urlencode({"api": 1, "origin": origin, "destination": destination, "travelmode": "driving"})
+
+
+def _points_along(coordinates: list, fractions: list[float]) -> list[tuple[float, float]]:
+    """Points (lat, lng) at the given fractions of the route's length. `coordinates` are GeoJSON [lng, lat] pairs."""
+    steps = [0.0]
+    for (lng1, lat1), (lng2, lat2) in zip(coordinates, coordinates[1:]):
+        steps.append(steps[-1] + places._distance_m(lat1, lng1, lat2, lng2))
+    total = steps[-1] or 1.0
+    points = []
+    for fraction in fractions:
+        target = fraction * total
+        index = next((i for i, travelled in enumerate(steps) if travelled >= target), len(steps) - 1)
+        lng, lat = coordinates[index]
+        points.append((lat, lng))
+    return points
+
+
+def _drive_days(origin: str, destination: str, days: int, miles: float, hours: float, coordinates: list | None) -> list[DriveDay]:
+    """Even daily legs. The overnight towns come from the route itself, so they are on the way."""
+    fractions = [day / days for day in range(1, days)]
+    towns: list[str | None] = [None] * len(fractions)
+    if coordinates and len(coordinates) >= 2 and days <= MAX_NAMED_DRIVE_DAYS:
+        towns = [places.town_at(lat, lng) for lat, lng in _points_along(coordinates, fractions)]
+    ends = [town or f"Overnight stop after about {round(miles * (index + 1) / days)} miles" for index, town in enumerate(towns)] + [destination]
+    starts = [origin, *ends[:-1]]
+    return [
+        DriveDay(
+            day=day + 1,
+            start=start,
+            end=end,
+            miles=round(miles / days),
+            drive_hours=round(hours / days, 1),
+            # A leg that ends at an unnamed point gets directions for the whole route.
+            google_maps_url=_directions_url(start if not start.startswith("Overnight stop") else origin,
+                                            end if not end.startswith("Overnight stop") else destination),
+        )
+        for day, (start, end) in enumerate(zip(starts, ends))
+    ]
 
 
 _cache: dict[tuple[str, str, bool, int | None], DriveEstimate | None] = {}
@@ -70,7 +141,8 @@ def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_m
 
     url = f"{OSRM_URL}/{start.lng:.6f},{start.lat:.6f};{end.lng:.6f},{end.lat:.6f}"
     try:
-        response = places._http().get(url, params={"overview": "false"}, timeout=ROUTE_TIMEOUT_S)
+        # A simplified route shape is enough to find towns along the way for overnight stops.
+        response = places._http().get(url, params={"overview": "simplified", "geometries": "geojson"}, timeout=ROUTE_TIMEOUT_S)
         # OSRM answers 400 with code "NoRoute" when the two points are not connected by road.
         body = response.json()
         if response.status_code >= 500:
@@ -92,13 +164,23 @@ def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_m
     mpg = _number_from_env("ROAM_CAR_MPG", 27)
     gas_price = _number_from_env("ROAM_GAS_USD_PER_GALLON", 3.40)
     total_miles = miles * (2 if round_trip else 1)
+    days = max(1, math.ceil(hours / MAX_DRIVING_HOURS_PER_DAY), math.ceil(miles / max_miles_per_day) if max_miles_per_day else 1)
+    geometry = routes[0].get("geometry")
+    coordinates = geometry.get("coordinates") if isinstance(geometry, dict) else None
+
+    drive_days = _drive_days(origin, destination, days, miles, hours, coordinates)
+    summary = (
+        f"{round(miles):,} miles each way ({round(total_miles):,} miles {'round trip' if round_trip else 'in total'}),"
+        f" about {hours:.1f} hours of driving each way, split into {days} driving day{'s' if days > 1 else ''} each way"
+        f" of about {round(miles / days):,} miles."
+    )
 
     estimate = DriveEstimate(
         origin=start.name,
         destination=end.name,
         distance_miles=round(miles),
         drive_hours=round(hours, 1),
-        driving_days_each_way=max(1, math.ceil(hours / MAX_DRIVING_HOURS_PER_DAY), math.ceil(miles / max_miles_per_day) if max_miles_per_day else 1),
+        driving_days_each_way=days,
         max_miles_per_day=max_miles_per_day,
         round_trip=round_trip,
         fuel_cost_usd=round(total_miles / mpg * gas_price),
@@ -109,9 +191,11 @@ def estimate_drive(origin: str, destination: str, round_trip: bool = True, max_m
             *([f"Driving days keep each day under {max_miles_per_day} miles, as the traveler asked."] if max_miles_per_day else []),
             "Tolls, parking and any car rental are not included.",
         ],
-        google_maps_url="https://www.google.com/maps/dir/?"
-        + urlencode({"api": 1, "origin": origin, "destination": destination, "travelmode": "driving"}),
+        google_maps_url=_directions_url(origin, destination),
         source_urls=["https://www.openstreetmap.org/copyright", "https://project-osrm.org/"],
+        drive_days=drive_days,
+        drive_days_home=_home_days(drive_days) if round_trip else [],
+        summary=summary,
     )
     _cache[key] = estimate
     return estimate

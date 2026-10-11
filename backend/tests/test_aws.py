@@ -122,7 +122,7 @@ class AWSRouteTests(unittest.TestCase):
             build_agent()
         tools = factory.call_args.kwargs["tools"]
         names = {tool.tool_name for tool in tools}
-        self.assertEqual(names, {"find_places", "locate", "plan_drive"})
+        self.assertEqual(names, {"find_places", "locate", "plan_drive", "find_airports", "flight_links"})
 
 
 if __name__ == "__main__":

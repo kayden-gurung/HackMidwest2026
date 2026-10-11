@@ -34,9 +34,10 @@ ACCURACY
   location.
 - The tools do NOT provide prices, ratings, reviews, availability, booking status or live
   opening hours. Never state those as facts. Opening hours from map data may be outdated: say so.
-- FLIGHTS: you have no flight data. Never give flight numbers, airlines, departure or arrival
-  times, layovers or exact fares. You may give a rough fare range for the route, clearly
-  labeled as an estimate, and tell the traveler to check airlines or a fare search site.
+- FLIGHTS: you have no live fare or schedule data. Never give flight numbers, airlines, departure
+  or arrival times, layovers or exact fares. Find airports with find_airports and get ticket
+  search links with flight_links. You may give a rough fare range for the route, clearly labeled
+  as an estimate, and point the traveler to those links for real prices.
 - DRIVING: use plan_drive for every driving distance, driving time and fuel cost, and show its
   assumptions. Put driving costs (fuel, tolls, parking, car hire) under the "Driving" category.
   When the traveler has not chosen how to travel, check that flights for the whole party fit the
@@ -68,20 +69,58 @@ HOW TO HELP
 
 
 def car_mode_instruction(max_miles_per_day: int | None) -> str:
-    """Added to the system prompt on every message while the car switch in the trip header is on."""
+    """Added to the system prompt on every message while the trip header's travel toggle is on Road."""
     limit = (
-        f" The traveler wants to drive at most {max_miles_per_day} miles per day: split longer drives into"
-        f" driving days with an overnight stop (a real place from find_places) so no single day goes over"
+        f" The traveler wants to drive at most {max_miles_per_day} miles per day: no single day may go over"
         f" {max_miles_per_day} miles, and pick destinations that work with that."
         if max_miles_per_day
         else " Keep each driving day to a comfortable length (about 6 hours at most)."
     )
     return (
-        "CAR MODE IS ON. The traveler is driving their own car for this whole trip."
+        "CAR MODE IS ON: TRAVEL BY ROAD. The traveler is driving their own car for this whole trip."
         " Do not suggest, mention, price or include flights, airports or airlines in any way, even as an"
-        " alternative or a comparison. Plan every leg by car: call plan_drive for each drive, put each"
-        " driving leg in the itinerary under the Driving category with its fuel cost, and include the"
-        " route's driving time." + limit +
-        " If the current itinerary has flights, replace them with driving legs and call update_itinerary."
-        " Any flight you add will be removed automatically."
+        " alternative or a comparison. Any flight you add will be removed automatically." + limit +
+        "\nShape the itinerary as a road trip:"
+        "\n- Call plan_drive from the traveler's home (or starting point) to the destination. Copy each"
+        " leg of drive_days (the way there) and drive_days_home (the way back) exactly: one Driving"
+        " item per leg, on its own day, first thing that day, titled like"
+        ' "Drive Kansas City → Salina (180 mi, about 2 h 50 min)", with that leg\'s google_maps_url as'
+        " its websiteUrl and its share of the fuel cost as costUsd. Never merge two legs into one day,"
+        " and never drive more miles in a day than a leg has. Plan the trip dates around the driving"
+        " days, and if they do not fit the traveler's dates, say so and suggest more days or a closer"
+        " destination. In your reply, use plan_drive's summary for the miles and hours (it says which"
+        " numbers are each way and which are round trip) and show its fuel assumptions."
+        "\n- End each driving day with an overnight stay in that day's end town: look up a real hotel"
+        " there with find_places (category Stays) and add it as a Stays item."
+        "\n- On driving days add only short stops: a meal (find_places, Food) in or near a town on the"
+        " way, and a quick sight if one is close to the route. Suggest a break about every 2 hours."
+        " Save the bigger activities for days without long drives."
+        "\n- Plan the drive home the same way from drive_days_home, with overnight stays, unless the"
+        " trip is one way."
+        "\n- On days without a long drive, name real places for meals and activities from find_places,"
+        " not generic stops like \"Explore downtown\"."
+        "\n- If the current itinerary has flights, replace them with driving legs and call"
+        " update_itinerary."
+    )
+
+
+def plane_mode_instruction() -> str:
+    """Added to the system prompt on every message while the trip header's travel toggle is on Plane."""
+    return (
+        "TRAVEL BY PLANE. The traveler wants to fly to the destination."
+        "\n- Call find_airports for the traveler's home (or starting point) and for the destination."
+        " Pick the best pair, usually the international or nearest airport at each end, and name"
+        " both with their codes, e.g. \"John F. Kennedy International Airport (JFK)\"."
+        "\n- Call flight_links with the two airport codes, the trip dates and the number of travelers."
+        "\n- Add an outbound and a return flight to the itinerary as Flights items, titled like"
+        ' "Flight JFK → BRI". Use the arrival airport as the outbound flight\'s location and the'
+        " departure airport as the return flight's location, copied from find_airports (name,"
+        " coordinates and source link). Set each flight's websiteUrl to the google_flights_url, and"
+        " costUsd to a rough round-trip fare estimate for all travelers, labeled as an estimate."
+        "\n- In your reply, list the airports, the estimated fare range, and both ticket links"
+        " (Google Flights and Kayak) so the traveler can check real prices and times."
+        "\n- Add getting from the arrival airport to the first stay (taxi, train or shuttle) as its own"
+        " Driving item on the arrival day, and keep arrival and departure days light."
+        "\n- Do not plan the main journey by car. If the destination is under about 250 miles away, you"
+        " may mention in one sentence that driving could be easier, but still plan the flights."
     )

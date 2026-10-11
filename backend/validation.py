@@ -144,7 +144,8 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
             known = evidence.known_source(item.sourceUrls[0])
             address = known.address or (item.location.address if item.location else None)
             item.location = Location(name=item.location.name if item.location else known.name, address=address, lat=known.lat, lng=known.lng)
-            item.websiteUrl = known.website_url
+            # A link a tool made for this stop (a flight's ticket search, a drive's directions) beats the place's own website.
+            item.websiteUrl = item.websiteUrl if item.websiteUrl in evidence.drive_links else known.website_url
         else:
             had_details = len(drive_sources) < len(claimed_sources) or (item.websiteUrl is not None and item.websiteUrl not in evidence.drive_links)
             item.websiteUrl = item.websiteUrl if item.websiteUrl in evidence.drive_links else None
