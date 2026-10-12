@@ -14,15 +14,22 @@ requires an identifying User-Agent, so calls are spaced out and results are cach
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import math
+import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel
+
+log = logging.getLogger("roam.places")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Tried in order, so a busy or unreachable server falls through to the next.
@@ -30,6 +37,10 @@ OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 ]
+# Backup for place-name lookups when Nominatim refuses or does not answer: Photon, a separate
+# OpenStreetMap geocoder with its own limits (https://photon.komoot.io).
+PHOTON_URL = "https://photon.komoot.io/api/"
+PHOTON_REVERSE_URL = "https://photon.komoot.io/reverse"
 USER_AGENT = "RoamTravelPlanner/0.1 (HackMidwest 2026 student project; github.com/kayden-gurung/HackMidwest2026)"
 
 GEOCODE_TIMEOUT_S = 8.0
@@ -95,6 +106,74 @@ class Place(BaseModel):
     source_urls: list[str]
 
 
+def overpass_failed(body: str | bytes) -> bool:
+    """Overpass answers 200 even when it ran out of time or memory, with a "remark" saying so and the
+    elements cut short. Such an answer is incomplete: never trust it, never save it."""
+    text = body.decode("utf-8", "replace") if isinstance(body, bytes) else body
+    head = text[:300] + text[-600:]  # the remark sits near the start or the end
+    return '"remark"' in head and ("runtime error" in head or "timed out" in head or "out of memory" in head)
+
+
+def _decoded_headers(response: httpx.Response) -> list[tuple[str, str]]:
+    """The answer's headers for its already-decompressed body: without Content-Encoding (or the
+    compressed length), or httpx would try to decompress it a second time (DecodingError)."""
+    return [(k, v) for k, v in response.headers.multi_items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+
+
+class DiskCacheTransport(httpx.BaseTransport):
+    """Keeps successful map-service answers on disk, so a route planned once is instant afterwards,
+    even after a restart, and works on bad venue wifi. OpenStreetMap data changes slowly; delete
+    the folder to refresh it.
+
+    Only 200 answers are kept, keyed by method, URL and body. Set ROAM_HTTP_CACHE_DIR to "" to turn it off.
+    """
+
+    def __init__(self, inner: httpx.BaseTransport, directory: Path):
+        self.inner = inner
+        self.directory = directory
+
+    def _path(self, request: httpx.Request) -> Path:
+        key = hashlib.sha256(request.method.encode() + b" " + str(request.url).encode() + b"\n" + request.content).hexdigest()
+        return self.directory / key[:2] / f"{key}.json"
+
+    def saved(self, request: httpx.Request) -> object | None:
+        """The saved JSON answer for this request, or None."""
+        try:
+            return json.loads(json.loads(self._path(request).read_text(encoding="utf-8"))["body"])
+        except (OSError, ValueError, KeyError):
+            return None
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        request.read()
+        path = self._path(request)
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            if overpass_failed(saved["body"]):
+                raise ValueError("saved before this check: an incomplete answer")
+            return httpx.Response(saved["status"], headers={"content-type": saved["type"], "x-roam-cache": "hit"},
+                                  content=saved["body"].encode("utf-8"), request=request)
+        except (OSError, ValueError, KeyError):
+            pass
+        response = self.inner.handle_request(request)
+        if response.status_code != 200:
+            return response
+        body = response.read()
+        if overpass_failed(body):
+            return httpx.Response(200, headers=_decoded_headers(response), content=body, request=request)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"status": 200, "type": response.headers.get("content-type", "application/json"),
+                                             "body": body.decode("utf-8")}), encoding="utf-8")
+            temporary.replace(path)  # never leave a half-written file behind
+        except (OSError, UnicodeDecodeError):
+            pass
+        return httpx.Response(200, headers=_decoded_headers(response), content=body, request=request)
+
+
+# Next to the backend code, which Docker mounts from the host, so it survives rebuilds.
+DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent / ".roam_cache" / "http"
+
 _client: httpx.Client | None = None
 _geocode_cache: dict[str, GeoPoint | None] = {}
 _search_cache: dict[tuple, list[Place]] = {}
@@ -105,7 +184,14 @@ _last_nominatim_call = 0.0
 def _http() -> httpx.Client:
     global _client
     if _client is None:
-        _client = httpx.Client(headers={"User-Agent": USER_AGENT, "Accept-Language": "en"}, follow_redirects=True)
+        setting = os.getenv("ROAM_HTTP_CACHE_DIR")
+        directory = DEFAULT_CACHE_DIR if setting is None else (Path(setting) if setting.strip() else None)
+        transport = httpx.HTTPTransport(retries=1)
+        _client = httpx.Client(
+            headers={"User-Agent": USER_AGENT, "Accept-Language": "en"},
+            follow_redirects=True,
+            transport=DiskCacheTransport(transport, directory) if directory else transport,
+        )
     return _client
 
 
@@ -121,7 +207,12 @@ def geocode(place: str) -> GeoPoint | None:
     try:
         results = nominatim_request(NOMINATIM_URL, {"q": query, "format": "jsonv2", "limit": 1})
     except (httpx.HTTPError, ValueError) as error:
-        raise PlacesUnavailable("The location lookup service is not responding. Try again in a moment.") from error
+        log.warning("Nominatim lookup of %r failed: %s. Trying Photon.", query, _why(error))
+        point = _photon_geocode(query)
+        if point is _UNAVAILABLE:
+            raise PlacesUnavailable("The location lookup service is not responding. Try again in a moment.") from error
+        _geocode_cache[key] = point  # type: ignore[assignment]
+        return point  # type: ignore[return-value]
 
     point = None
     if isinstance(results, list) and results:
@@ -142,6 +233,58 @@ def geocode(place: str) -> GeoPoint | None:
 
 
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
+_UNAVAILABLE = object()
+_PHOTON_OSM_TYPES = {"N": "node", "W": "way", "R": "relation"}
+
+
+def _why(error: Exception) -> str:
+    """A short reason for the logs: the HTTP status ("429 Too Many Requests") or the error type."""
+    response = getattr(error, "response", None)
+    if response is not None:
+        return f"{response.status_code} {response.reason_phrase}"
+    return type(error).__name__
+
+
+def _photon_features(url: str, params: dict) -> list | None:
+    try:
+        response = _http().get(url, params=params, timeout=GEOCODE_TIMEOUT_S)
+        response.raise_for_status()
+        features = response.json().get("features")
+        return features if isinstance(features, list) else []
+    except (httpx.HTTPError, ValueError, AttributeError) as error:
+        log.warning("Photon lookup failed too: %s", _why(error))
+        return None
+
+
+def _photon_geocode(query: str) -> "GeoPoint | None | object":
+    """Like geocode(), from Photon. _UNAVAILABLE when Photon cannot be reached either."""
+    features = _photon_features(PHOTON_URL, {"q": query, "limit": 1, "lang": "en"})
+    if features is None:
+        return _UNAVAILABLE
+    if not features:
+        return None
+    try:
+        props = features[0].get("properties") or {}
+        lng, lat = features[0]["geometry"]["coordinates"][:2]
+        osm_type = _PHOTON_OSM_TYPES.get(str(props.get("osm_type")))
+        name = ", ".join(str(props[k]) for k in ("name", "state", "country") if props.get(k)) or query
+        return GeoPoint(
+            name=name, lat=float(lat), lng=float(lng),
+            source_url=f"https://www.openstreetmap.org/{osm_type}/{props['osm_id']}" if osm_type and props.get("osm_id") else None,
+            kind=props.get("type") or props.get("osm_value"),
+        )
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+
+
+def _photon_town_at(lat: float, lng: float) -> str | None:
+    features = _photon_features(PHOTON_REVERSE_URL, {"lat": f"{lat:.5f}", "lon": f"{lng:.5f}", "limit": 1, "lang": "en"})
+    if not features:
+        return None
+    props = features[0].get("properties") or {}
+    town = props.get("city") or (props.get("name") if props.get("type") in ("city", "town", "village") else None) or props.get("county")
+    region = props.get("state") or props.get("country")
+    return ", ".join(str(part) for part in (town, region) if part) or None
 _town_cache: dict[tuple[float, float], str | None] = {}
 
 
@@ -151,6 +294,41 @@ def nominatim_request(url: str, params: dict) -> object:
     httpx and JSON errors reach the caller.
     """
     global _last_nominatim_call
+    # A saved answer never reaches Nominatim, so it skips the one-a-second spacing.
+    client = _http()
+    transport = getattr(client, "_transport", None)
+    if isinstance(transport, DiskCacheTransport):
+        saved = transport.saved(client.build_request("GET", url, params=params))
+        if saved is not None:
+            return saved
+    with _nominatim_lock:
+        wait = NOMINATIM_MIN_INTERVAL_S - (time.monotonic() - _last_nominatim_call)
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            response = _http().get(url, params=params, timeout=GEOCODE_TIMEOUT_S)
+            response.raise_for_status()
+            return response.json()
+        finally:
+            _last_nominatim_call = time.monotonic()
+
+
+_town_cache: dict[tuple[float, float], str | None] = {}
+
+
+def nominatim_request(url: str, params: dict) -> object:
+    """A Nominatim request, spaced out like geocode()'s: its usage policy allows about one per second.
+
+    httpx and JSON errors reach the caller.
+    """
+    global _last_nominatim_call
+    # A saved answer never reaches Nominatim, so it skips the one-a-second spacing.
+    client = _http()
+    transport = getattr(client, "_transport", None)
+    if isinstance(transport, DiskCacheTransport):
+        saved = transport.saved(client.build_request("GET", url, params=params))
+        if saved is not None:
+            return saved
     with _nominatim_lock:
         wait = NOMINATIM_MIN_INTERVAL_S - (time.monotonic() - _last_nominatim_call)
         if wait > 0:
@@ -170,8 +348,12 @@ def town_at(lat: float, lng: float) -> str | None:
         return _town_cache[key]
     try:
         result = nominatim_request(NOMINATIM_REVERSE_URL, {"lat": f"{lat:.5f}", "lon": f"{lng:.5f}", "format": "jsonv2", "zoom": 10, "addressdetails": 1})
-    except (httpx.HTTPError, ValueError):
-        return None  # Not cached: a later call may succeed.
+    except (httpx.HTTPError, ValueError) as error:
+        log.warning("Nominatim reverse lookup failed: %s. Trying Photon.", _why(error))
+        name = _photon_town_at(lat, lng)
+        if name:
+            _town_cache[key] = name
+        return name  # None is not cached: a later call may succeed.
     address = result.get("address", {}) if isinstance(result, dict) else {}
     town = address.get("city") or address.get("town") or address.get("village") or address.get("county")
     region = address.get("state") or address.get("country")
@@ -197,7 +379,9 @@ def _overpass_query(category: str, lat: float, lng: float, radius_m: int, keywor
     for key, values in CATEGORY_FILTERS[category]:
         tag_filter = f'["{key}"~"^({values})$"]' if values else f'["{key}"]'
         statements += [f"nwr{tag_filter}{extra}{around};" for extra in extra_filters]
-    return f"[out:json][timeout:9];({''.join(statements)});out tags center {fetch};"
+    # "out center", not "out tags center": the tags-only mode leaves out node coordinates, and most
+    # restaurants and attractions are single nodes, so they would all be dropped.
+    return f"[out:json][timeout:9];({''.join(statements)});out center {fetch};"
 
 
 def _distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
@@ -393,9 +577,13 @@ def search_places(
         try:
             response = _http().post(url, data={"data": query}, timeout=SEARCH_TIMEOUT_S)
             response.raise_for_status()
+            if overpass_failed(response.content):
+                log.warning("Overpass %s ran out of time on a place search", urlsplit(url).hostname)
+                continue
             elements = response.json().get("elements", [])
             break
-        except (httpx.HTTPError, ValueError, AttributeError):
+        except (httpx.HTTPError, ValueError, AttributeError) as error:
+            log.warning("Overpass %s place search failed: %s", urlsplit(url).hostname, _why(error))
             continue
     if elements is None:
         raise PlacesUnavailable("The place search service is not responding. Try again in a moment.")

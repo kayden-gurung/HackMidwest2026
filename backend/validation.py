@@ -188,7 +188,8 @@ def validate_snapshot(snapshot: ItinerarySnapshot, evidence: Evidence, car_mode:
         else:
             had_details = len(drive_sources) < len(claimed_sources) or (item.websiteUrl is not None and item.websiteUrl not in evidence.drive_links)
             item.websiteUrl = item.websiteUrl if item.websiteUrl in evidence.drive_links else None
-            if item.location and item.location.lat is not None and item.location.lng is not None:
+            # A driving leg's pin is where its route ends: _attach_routes sets it from plan_drive below.
+            if item.location and item.location.lat is not None and item.location.lng is not None and item.id not in route_links:
                 match = _nearest(evidence, item.location.lat, item.location.lng)
                 if match is None:
                     item.location = item.location.model_copy(update={"lat": None, "lng": None})

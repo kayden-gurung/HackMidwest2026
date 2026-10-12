@@ -9,3 +9,6 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 .vite/
+
+# Saved map-service answers (backend/tools/places.py DiskCacheTransport)
+.roam_cache/
